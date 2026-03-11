@@ -33,8 +33,6 @@ interface SpawnOptions {
   isolated?: boolean;
   inheritContext?: boolean;
   thinkingLevel?: ThinkingLevel;
-  systemPromptOverride?: string;
-  systemPromptAppend?: string;
   isBackground?: boolean;
   /** Called on tool start/end with activity info (for streaming progress to UI). */
   onToolActivity?: (activity: ToolActivity) => void;
@@ -122,8 +120,6 @@ export class AgentManager {
       isolated: options.isolated,
       inheritContext: options.inheritContext,
       thinkingLevel: options.thinkingLevel,
-      systemPromptOverride: options.systemPromptOverride,
-      systemPromptAppend: options.systemPromptAppend,
       signal: record.abortController!.signal,
       onToolActivity: (activity) => {
         if (activity.type === "end") record.toolUses++;

@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-03-11
+
+### Added
+- **XML-delimited prompt sections** — append-mode agents now wrap inherited content in `<inherited_system_prompt>`, `<sub_agent_context>`, and `<agent_instructions>` XML tags, giving the model explicit structure to distinguish inherited rules from sub-agent-specific instructions. Replace mode is unchanged.
+- **Token count in agent results** — foreground agent results, background completion notifications, and `get_subagent_result` now include the token count alongside tool uses and duration (e.g. `Agent completed in 4.2s (12 tool uses, 33.8k token)`).
+- **Widget overflow cap** — the running agents widget now caps at 12 lines. When exceeded, running agents are prioritized over finished ones and an overflow summary line shows hidden counts (e.g. `+3 more (1 running, 2 finished)`).
+
+### Changed - **changing behavior**
+- **General-purpose agent inherits parent prompt** — the default `general-purpose` agent now uses `promptMode: "append"` with an empty system prompt, making it a "parent twin" that inherits the full parent system prompt (including CLAUDE.md rules, project conventions, and safety guardrails). Previously it used a standalone prompt that duplicated a subset of the parent's rules. Explore and Plan are unchanged (standalone prompts). To customize: eject via `/agents` → select `general-purpose` → Eject, then edit the resulting `.md` file. Set `prompt_mode: replace` to go back to a standalone prompt, or keep `prompt_mode: append` and add extra instructions in the body.
+- **Append-mode agents receive parent system prompt** — `buildAgentPrompt` now accepts the parent's system prompt and threads it into append-mode agents (env header + parent prompt + sub-agent context bridge + optional custom instructions). Replace-mode agents are unchanged.
+- **Prompt pipeline simplified** — removed `systemPromptOverride`/`systemPromptAppend` from `SpawnOptions` and `RunOptions`. These were a separate code path where `index.ts` pre-resolved the prompt mode and passed raw strings into the runner, bypassing `buildAgentPrompt`. Now all prompt assembly flows through `buildAgentPrompt` using the agent's `promptMode` config — one code path, no special cases.
+
+### Removed
+- Deprecated backwards-compat aliases: `registerCustomAgents`, `getCustomAgentConfig`, `getCustomAgentNames` (use `registerAgents`, `getAgentConfig`, `getUserAgentNames`).
+- `resolveCustomPrompt()` helper in index.ts — no longer needed now that prompt routing is config-driven.
+
 ## [0.3.1] - 2026-03-09
 
 ### Added
@@ -139,7 +155,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Claude Code-style UI rendering** — `renderCall`/`renderResult`/`onUpdate` for live streaming progress
   - Live activity descriptions: "searching, reading 3 files…"
-  - Token count display: "33.8k tokens"
+  - Token count display: "33.8k token"
   - Per-agent tool use counter
   - Expandable completed results (ctrl+o)
   - Distinct states: running, background, completed, error, aborted
@@ -172,6 +188,8 @@ Initial release.
 - **Thinking level** — per-agent extended thinking control
 - **`/agent` and `/agents` commands**
 
+[0.4.0]: https://github.com/tintinweb/pi-subagents/compare/v0.3.1...v0.4.0
+[0.3.1]: https://github.com/tintinweb/pi-subagents/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/tintinweb/pi-subagents/compare/v0.2.7...v0.3.0
 [0.2.7]: https://github.com/tintinweb/pi-subagents/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/tintinweb/pi-subagents/compare/v0.2.5...v0.2.6

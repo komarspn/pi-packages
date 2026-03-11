@@ -57,9 +57,9 @@ The extension renders a persistent widget above the editor showing all active ag
 
 ```
 ● Agents
-├─ ⠹ Agent  Refactor auth module · 5 tool uses · 33.8k tokens · 12.3s
+├─ ⠹ Agent  Refactor auth module · 5 tool uses · 33.8k token · 12.3s
 │    ⎿  editing 2 files…
-├─ ⠹ Explore  Find auth files · 3 tool uses · 12.4k tokens · 4.1s
+├─ ⠹ Explore  Find auth files · 3 tool uses · 12.4k token · 4.1s
 │    ⎿  searching…
 └─ 2 queued
 ```
@@ -68,24 +68,26 @@ Individual agent results render Claude Code-style in the conversation:
 
 | State | Example |
 |-------|---------|
-| **Running** | `⠹ 3 tool uses · 12.4k tokens` / `⎿ searching, reading 3 files…` |
-| **Completed** | `✓ 5 tool uses · 33.8k tokens · 12.3s` / `⎿ Done` |
-| **Wrapped up** | `✓ 50 tool uses · 89.1k tokens · 45.2s` / `⎿ Wrapped up (turn limit)` |
-| **Stopped** | `■ 3 tool uses · 12.4k tokens` / `⎿ Stopped` |
-| **Error** | `✗ 3 tool uses · 12.4k tokens` / `⎿ Error: timeout` |
-| **Aborted** | `✗ 55 tool uses · 102.3k tokens` / `⎿ Aborted (max turns exceeded)` |
+| **Running** | `⠹ 3 tool uses · 12.4k token` / `⎿ searching, reading 3 files…` |
+| **Completed** | `✓ 5 tool uses · 33.8k token · 12.3s` / `⎿ Done` |
+| **Wrapped up** | `✓ 50 tool uses · 89.1k token · 45.2s` / `⎿ Wrapped up (turn limit)` |
+| **Stopped** | `■ 3 tool uses · 12.4k token` / `⎿ Stopped` |
+| **Error** | `✗ 3 tool uses · 12.4k token` / `⎿ Error: timeout` |
+| **Aborted** | `✗ 55 tool uses · 102.3k token` / `⎿ Aborted (max turns exceeded)` |
 
 Completed results can be expanded (ctrl+o in pi) to show the full agent output inline.
 
 ## Default Agent Types
 
-| Type | Tools | Model | Description |
-|------|-------|-------|-------------|
-| `general-purpose` | all 7 | inherit | Full read/write access for complex multi-step tasks |
-| `Explore` | read, bash, grep, find, ls | haiku (falls back to inherit) | Fast codebase exploration (read-only) |
-| `Plan` | read, bash, grep, find, ls | inherit | Software architect for implementation planning (read-only) |
+| Type | Tools | Model | Prompt Mode | Description |
+|------|-------|-------|-------------|-------------|
+| `general-purpose` | all 7 | inherit | `append` (parent twin) | Inherits the parent's full system prompt — same rules, CLAUDE.md, project conventions |
+| `Explore` | read, bash, grep, find, ls | haiku (falls back to inherit) | `replace` (standalone) | Fast codebase exploration (read-only) |
+| `Plan` | read, bash, grep, find, ls | inherit | `replace` (standalone) | Software architect for implementation planning (read-only) |
 
-Default agents can be **overridden** by creating a `.md` file with the same name (e.g. `.pi/agents/Explore.md`), or **disabled** per-project by creating a `.md` file with `enabled: false` frontmatter.
+The `general-purpose` agent is a **parent twin** — it receives the parent's entire system prompt plus a sub-agent context bridge, so it follows the same rules the parent does. Explore and Plan use standalone prompts tailored to their read-only roles.
+
+Default agents can be **ejected** (`/agents` → select agent → Eject) to export them as `.md` files for customization, **overridden** by creating a `.md` file with the same name (e.g. `.pi/agents/general-purpose.md`), or **disabled** per-project with `enabled: false` frontmatter.
 
 ## Custom Agents
 
@@ -140,7 +142,7 @@ All fields are optional — sensible defaults for everything.
 | `model` | inherit parent | Model — `provider/modelId` or fuzzy name (`"haiku"`, `"sonnet"`) |
 | `thinking` | inherit | off, minimal, low, medium, high, xhigh |
 | `max_turns` | 50 | Max agentic turns before graceful shutdown |
-| `prompt_mode` | `replace` | `replace`: body is the full system prompt. `append`: body appended to default prompt |
+| `prompt_mode` | `replace` | `replace`: body is the full system prompt. `append`: body appended to parent's prompt (agent acts as a "parent twin" with optional extra instructions) |
 | `inherit_context` | `false` | Fork parent conversation into agent |
 | `run_in_background` | `false` | Run in background by default |
 | `isolated` | `false` | No extension/MCP tools, only built-in |

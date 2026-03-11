@@ -30,6 +30,7 @@ import {
   formatMs,
   formatDuration,
   getDisplayName,
+  getPromptModeLabel,
   describeActivity,
   type AgentDetails,
   type AgentActivity,
@@ -120,20 +121,6 @@ function buildDetails(
   };
 }
 
-/** Resolve system prompt overrides from an agent config. */
-function resolveCustomPrompt(config: AgentConfig | undefined): {
-  systemPromptOverride?: string;
-  systemPromptAppend?: string;
-} {
-  if (!config?.systemPrompt) return {};
-  // Default agents use their systemPrompt via buildAgentPrompt in agent-runner,
-  // not via override/append. Only non-default agents use this path.
-  if (config.isDefault) return {};
-  if (config.promptMode === "append") return { systemPromptAppend: config.systemPrompt };
-  return { systemPromptOverride: config.systemPrompt };
-}
-
-
 export default function (pi: ExtensionAPI) {
   /** Reload agents from .pi/agents/*.md and merge with defaults (called on init and each Agent invocation). */
   const reloadCustomAgents = () => {
@@ -161,9 +148,11 @@ export default function (pi: ExtensionAPI) {
     agentActivity.delete(record.id);
     widget.markFinished(record.id);
 
+    const tokens = safeFormatTokens(record.session);
+    const toolStats = tokens ? `Tool uses: ${record.toolUses} | ${tokens}` : `Tool uses: ${record.toolUses}`;
     pi.sendUserMessage(
       `Background agent completed: ${displayName} (${record.description})\n` +
-      `Agent ID: ${record.id} | Status: ${status} | Tool uses: ${record.toolUses} | Duration: ${duration}\n\n` +
+      `Agent ID: ${record.id} | Status: ${status} | ${toolStats} | Duration: ${duration}\n\n` +
       resultPreview,
       { deliverAs: "followUp" },
     );
@@ -180,7 +169,9 @@ export default function (pi: ExtensionAPI) {
         ? record.result.slice(0, 300) + "\n...(truncated)"
         : record.result
       : "No output.";
-    return `- ${displayName} (${record.description})\n  ID: ${record.id} | Status: ${status} | Tools: ${record.toolUses} | Duration: ${duration}\n  ${resultPreview}`;
+    const tokens = safeFormatTokens(record.session);
+    const toolStats = tokens ? `Tools: ${record.toolUses} | ${tokens}` : `Tools: ${record.toolUses}`;
+    return `- ${displayName} (${record.description})\n  ID: ${record.id} | Status: ${status} | ${toolStats} | Duration: ${duration}\n  ${resultPreview}`;
   }
 
   // ---- Group join manager ----
@@ -539,8 +530,6 @@ Guidelines:
       const runInBackground = params.run_in_background ?? customConfig?.runInBackground ?? false;
       const isolated = params.isolated ?? customConfig?.isolated ?? false;
 
-      const { systemPromptOverride, systemPromptAppend } = resolveCustomPrompt(customConfig);
-
       // Build display tags for non-default config
       const parentModelId = ctx.model?.id;
       const effectiveModelId = model?.id;
@@ -548,6 +537,8 @@ Guidelines:
         ? (model?.name ?? effectiveModelId).replace(/^Claude\s+/i, "").toLowerCase()
         : undefined;
       const agentTags: string[] = [];
+      const modeLabel = getPromptModeLabel(subagentType);
+      if (modeLabel) agentTags.push(modeLabel);
       if (thinking) agentTags.push(`thinking: ${thinking}`);
       if (isolated) agentTags.push("isolated");
       // Shared base fields for all AgentDetails in this call
@@ -589,8 +580,6 @@ Guidelines:
           isolated,
           inheritContext,
           thinkingLevel: thinking,
-          systemPromptOverride,
-          systemPromptAppend,
           isBackground: true,
           ...bgCallbacks,
         });
@@ -680,8 +669,6 @@ Guidelines:
         isolated,
         inheritContext,
         thinkingLevel: thinking,
-        systemPromptOverride,
-        systemPromptAppend,
         ...fgCallbacks,
       });
 
@@ -707,8 +694,10 @@ Guidelines:
       }
 
       const durationMs = (record.completedAt ?? Date.now()) - record.startedAt;
+      const statsParts = [`${record.toolUses} tool uses`];
+      if (tokenText) statsParts.push(tokenText);
       return textResult(
-        `${fallbackNote}Agent completed in ${formatMs(durationMs)} (${record.toolUses} tool uses)${getStatusNote(record.status)}.\n\n` +
+        `${fallbackNote}Agent completed in ${formatMs(durationMs)} (${statsParts.join(", ")})${getStatusNote(record.status)}.\n\n` +
         (record.result ?? "No output."),
         details,
       );
@@ -750,10 +739,12 @@ Guidelines:
 
       const displayName = getDisplayName(record.type);
       const duration = formatDuration(record.startedAt, record.completedAt);
+      const tokens = safeFormatTokens(record.session);
+      const toolStats = tokens ? `Tool uses: ${record.toolUses} | ${tokens}` : `Tool uses: ${record.toolUses}`;
 
       let output =
         `Agent: ${record.id}\n` +
-        `Type: ${displayName} | Status: ${record.status} | Tool uses: ${record.toolUses} | Duration: ${duration}\n` +
+        `Type: ${displayName} | Status: ${record.status} | ${toolStats} | Duration: ${duration}\n` +
         `Description: ${record.description}\n\n`;
 
       if (record.status === "running") {
