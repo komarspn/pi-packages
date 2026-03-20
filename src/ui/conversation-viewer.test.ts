@@ -197,7 +197,7 @@ describe("ConversationViewer", () => {
           role: "assistant",
           content: [
             { type: "text", text: "Let me check that." },
-            { type: "toolCall", toolUseId: "t1", toolName: "very_long_tool_name_" + "x".repeat(200), input: {} },
+            { type: "toolCall", toolUseId: "t1", name: "very_long_tool_name_" + "x".repeat(200), input: {} },
           ],
         },
       ];
