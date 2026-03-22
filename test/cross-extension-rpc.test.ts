@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { type EventBus, type RpcDeps, registerRpcHandlers, type SpawnCapable } from "../src/cross-extension-rpc.js";
+import { type EventBus, PROTOCOL_VERSION, type RpcDeps, registerRpcHandlers, type SpawnCapable } from "../src/cross-extension-rpc.js";
 
 /** Simple in-process event bus for testing. */
 function createEventBus(): EventBus {
@@ -32,26 +32,27 @@ describe("cross-extension RPC", () => {
   // --- ping ---
 
   describe("ping RPC", () => {
-    it("replies on scoped channel with empty payload", () => {
+    it("replies with protocol version", async () => {
       registerRpcHandlers(deps);
       const reply = vi.fn();
       events.on("subagents:rpc:ping:reply:req-1", reply);
       events.emit("subagents:rpc:ping", { requestId: "req-1" });
 
-      expect(reply).toHaveBeenCalledOnce();
-      expect(reply).toHaveBeenCalledWith({});
+      await vi.waitFor(() => expect(reply).toHaveBeenCalled());
+      expect(reply).toHaveBeenCalledWith({ success: true, data: { version: PROTOCOL_VERSION } });
     });
 
-    it("scopes replies — other requestIds do not receive it", () => {
+    it("scopes replies — other requestIds do not receive it", async () => {
       registerRpcHandlers(deps);
       const wrongReply = vi.fn();
       events.on("subagents:rpc:ping:reply:req-other", wrongReply);
       events.emit("subagents:rpc:ping", { requestId: "req-1" });
 
+      await new Promise((r) => setTimeout(r, 20));
       expect(wrongReply).not.toHaveBeenCalled();
     });
 
-    it("unsub stops responding to pings", () => {
+    it("unsub stops responding to pings", async () => {
       const { unsubPing } = registerRpcHandlers(deps);
       unsubPing();
 
@@ -59,6 +60,7 @@ describe("cross-extension RPC", () => {
       events.on("subagents:rpc:ping:reply:req-1", reply);
       events.emit("subagents:rpc:ping", { requestId: "req-1" });
 
+      await new Promise((r) => setTimeout(r, 20));
       expect(reply).not.toHaveBeenCalled();
     });
   });
@@ -74,9 +76,8 @@ describe("cross-extension RPC", () => {
         requestId: "req-s1", type: "general-purpose", prompt: "do stuff",
       });
 
-      // spawn handler is async — let microtask flush
       await vi.waitFor(() => expect(reply).toHaveBeenCalled());
-      expect(reply).toHaveBeenCalledWith({ id: "agent-42" });
+      expect(reply).toHaveBeenCalledWith({ success: true, data: { id: "agent-42" } });
       expect(manager.spawn).toHaveBeenCalledWith(
         deps.pi, ctx, "general-purpose", "do stuff", {},
       );
@@ -108,7 +109,7 @@ describe("cross-extension RPC", () => {
       });
 
       await vi.waitFor(() => expect(reply).toHaveBeenCalled());
-      expect(reply).toHaveBeenCalledWith({ error: "No active session" });
+      expect(reply).toHaveBeenCalledWith({ success: false, error: "No active session" });
       expect(manager.spawn).not.toHaveBeenCalled();
     });
 
@@ -124,7 +125,7 @@ describe("cross-extension RPC", () => {
       });
 
       await vi.waitFor(() => expect(reply).toHaveBeenCalled());
-      expect(reply).toHaveBeenCalledWith({ error: "unknown agent type" });
+      expect(reply).toHaveBeenCalledWith({ success: false, error: "unknown agent type" });
     });
 
     it("scopes replies — other requestIds do not receive it", async () => {
@@ -160,29 +161,29 @@ describe("cross-extension RPC", () => {
   // --- stop ---
 
   describe("stop RPC", () => {
-    it("returns success when agent is aborted", () => {
+    it("returns success when agent is aborted", async () => {
       registerRpcHandlers(deps);
       const reply = vi.fn();
       events.on("subagents:rpc:stop:reply:req-st1", reply);
       events.emit("subagents:rpc:stop", { requestId: "req-st1", agentId: "agent-42" });
 
-      expect(reply).toHaveBeenCalledOnce();
+      await vi.waitFor(() => expect(reply).toHaveBeenCalled());
       expect(reply).toHaveBeenCalledWith({ success: true });
       expect(manager.abort).toHaveBeenCalledWith("agent-42");
     });
 
-    it("returns false when agent not found", () => {
+    it("returns error when agent not found", async () => {
       (manager.abort as ReturnType<typeof vi.fn>).mockReturnValue(false);
       registerRpcHandlers(deps);
       const reply = vi.fn();
       events.on("subagents:rpc:stop:reply:req-st2", reply);
       events.emit("subagents:rpc:stop", { requestId: "req-st2", agentId: "nonexistent" });
 
-      expect(reply).toHaveBeenCalledOnce();
-      expect(reply).toHaveBeenCalledWith({ success: false });
+      await vi.waitFor(() => expect(reply).toHaveBeenCalled());
+      expect(reply).toHaveBeenCalledWith({ success: false, error: "Agent not found" });
     });
 
-    it("scopes replies — other requestIds do not receive it", () => {
+    it("scopes replies — other requestIds do not receive it", async () => {
       registerRpcHandlers(deps);
       const wrongReply = vi.fn();
       const rightReply = vi.fn();
@@ -190,11 +191,11 @@ describe("cross-extension RPC", () => {
       events.on("subagents:rpc:stop:reply:req-st3", rightReply);
       events.emit("subagents:rpc:stop", { requestId: "req-st3", agentId: "agent-42" });
 
-      expect(rightReply).toHaveBeenCalledOnce();
+      await vi.waitFor(() => expect(rightReply).toHaveBeenCalled());
       expect(wrongReply).not.toHaveBeenCalled();
     });
 
-    it("unsub stops responding to stop requests", () => {
+    it("unsub stops responding to stop requests", async () => {
       const { unsubStop } = registerRpcHandlers(deps);
       unsubStop();
 
@@ -202,6 +203,7 @@ describe("cross-extension RPC", () => {
       events.on("subagents:rpc:stop:reply:req-st4", reply);
       events.emit("subagents:rpc:stop", { requestId: "req-st4", agentId: "agent-42" });
 
+      await new Promise((r) => setTimeout(r, 20));
       expect(reply).not.toHaveBeenCalled();
     });
   });
@@ -227,8 +229,8 @@ describe("cross-extension RPC", () => {
         expect(reply2).toHaveBeenCalled();
       });
 
-      expect(reply1).toHaveBeenCalledWith({ id: "agent-1" });
-      expect(reply2).toHaveBeenCalledWith({ id: "agent-2" });
+      expect(reply1).toHaveBeenCalledWith({ success: true, data: { id: "agent-1" } });
+      expect(reply2).toHaveBeenCalledWith({ success: true, data: { id: "agent-2" } });
     });
   });
 });
