@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-03-24
+
+### Changed
+- **Agent config is authoritative** — frontmatter values for `model`, `thinking`, `max_turns`, `inherit_context`, `run_in_background`, `isolated`, and `isolation` now take precedence over `Agent` tool-call parameters. Tool-call params only fill fields the agent config leaves unspecified.
+- **`join_mode` is now a global setting only** — removed the per-call `join_mode` parameter from the `Agent` tool. Join behavior is configured via `/agents` → Settings → Join mode.
+- **`max_turns: 0` means unlimited** — agent files can now explicitly set `max_turns: 0` to lock unlimited turns. Previously `0` was silently clamped to `1`.
+
+### Fixed
+- **Final subagent text preserved from non-streaming providers** — agents using providers that return the final message without streaming `text_delta` events no longer return empty results. Falls back to extracting text from the completed session history.
+- **`effectiveMaxTurns` passed to spawn calls** — previously `params.max_turns` was passed raw to both foreground and background spawn, bypassing the agent config entirely.
+
 ## [0.5.0] - 2026-03-22
 
 ### Added

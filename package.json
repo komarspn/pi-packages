@@ -1,6 +1,6 @@
 {
   "name": "@tintinweb/pi-subagents",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "A pi extension extension that brings smart Claude Code-style autonomous sub-agents to pi.",
   "author": "tintinweb",
   "license": "MIT",
@@ -21,9 +21,9 @@
     "autonomous"
   ],
   "dependencies": {
-    "@mariozechner/pi-ai": "^0.61.1",
-    "@mariozechner/pi-coding-agent": "^0.61.1",
-    "@mariozechner/pi-tui": "^0.61.1",
+    "@mariozechner/pi-ai": "^0.62.0",
+    "@mariozechner/pi-coding-agent": "^0.62.0",
+    "@mariozechner/pi-tui": "^0.62.0",
     "@sinclair/typebox": "latest"
   },
   "scripts": {
