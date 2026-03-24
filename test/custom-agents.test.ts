@@ -82,9 +82,9 @@ Just a prompt.`);
     expect(agent.thinking).toBeUndefined();
     expect(agent.maxTurns).toBeUndefined();
     expect(agent.promptMode).toBe("replace");
-    expect(agent.inheritContext).toBe(false);
-    expect(agent.runInBackground).toBe(false);
-    expect(agent.isolated).toBe(false);
+    expect(agent.inheritContext).toBeUndefined();
+    expect(agent.runInBackground).toBeUndefined();
+    expect(agent.isolated).toBeUndefined();
     expect(agent.systemPrompt).toBe("Just a prompt.");
   });
 

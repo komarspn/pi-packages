@@ -183,14 +183,14 @@ Launch a sub-agent.
 | `prompt` | string | yes | The task for the agent |
 | `description` | string | yes | Short 3-5 word summary (shown in UI) |
 | `subagent_type` | string | yes | Agent type (built-in or custom) |
-| `model` | string | no | Model override used only when the agent config does not set `model` |
-| `thinking` | string | no | Thinking level used only when the agent config does not set `thinking` |
-| `max_turns` | number | no | Max agentic turns used only when the agent config does not set `max_turns` |
-| `run_in_background` | boolean | no | Background execution used only when the agent config does not set `run_in_background` |
+| `model` | string | no | Model — `provider/modelId` or fuzzy name (`"haiku"`, `"sonnet"`) |
+| `thinking` | string | no | Thinking level: off, minimal, low, medium, high, xhigh |
+| `max_turns` | number | no | Max agentic turns. Omit for unlimited (default) |
+| `run_in_background` | boolean | no | Run without blocking |
 | `resume` | string | no | Agent ID to resume a previous session |
-| `isolated` | boolean | no | No extension/MCP tools; used only when the agent config does not set `isolated` |
-| `isolation` | `"worktree"` | no | Worktree isolation used only when the agent config does not set `isolation` |
-| `inherit_context` | boolean | no | Parent-context inheritance used only when the agent config does not set `inherit_context` |
+| `isolated` | boolean | no | No extension/MCP tools |
+| `isolation` | `"worktree"` | no | Run in an isolated git worktree |
+| `inherit_context` | boolean | no | Fork parent conversation into agent |
 
 ### `get_subagent_result`
 

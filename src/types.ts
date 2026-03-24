@@ -36,12 +36,12 @@ export interface AgentConfig {
   maxTurns?: number;
   systemPrompt: string;
   promptMode: "replace" | "append";
-  /** Default for spawn: fork parent conversation */
-  inheritContext: boolean;
-  /** Default for spawn: run in background */
-  runInBackground: boolean;
-  /** Default for spawn: no extension tools */
-  isolated: boolean;
+  /** Default for spawn: fork parent conversation. undefined = caller decides. */
+  inheritContext?: boolean;
+  /** Default for spawn: run in background. undefined = caller decides. */
+  runInBackground?: boolean;
+  /** Default for spawn: no extension tools. undefined = caller decides. */
+  isolated?: boolean;
   /** Persistent memory scope — agents with memory get a persistent directory and MEMORY.md */
   memory?: MemoryScope;
   /** Isolation mode — "worktree" runs the agent in a temporary git worktree */

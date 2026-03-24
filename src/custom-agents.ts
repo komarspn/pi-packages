@@ -64,9 +64,9 @@ function loadFromDir(dir: string, agents: Map<string, AgentConfig>, source: "pro
       maxTurns: nonNegativeInt(fm.max_turns),
       systemPrompt: body.trim(),
       promptMode: fm.prompt_mode === "append" ? "append" : "replace",
-      inheritContext: fm.inherit_context === true,
-      runInBackground: fm.run_in_background === true,
-      isolated: fm.isolated === true,
+      inheritContext: fm.inherit_context != null ? fm.inherit_context === true : undefined,
+      runInBackground: fm.run_in_background != null ? fm.run_in_background === true : undefined,
+      isolated: fm.isolated != null ? fm.isolated === true : undefined,
       memory: parseMemory(fm.memory),
       isolation: fm.isolation === "worktree" ? "worktree" : undefined,
       enabled: fm.enabled !== false,  // default true; explicitly false disables

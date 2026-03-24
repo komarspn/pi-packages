@@ -71,6 +71,40 @@ describe("resolveAgentInvocationConfig", () => {
     expect(resolved.isolated).toBe(true);
     expect(resolved.isolation).toBe("worktree");
   });
+
+  it("lets parent fill in booleans when config leaves them undefined", () => {
+    const resolved = resolveAgentInvocationConfig(
+      makeConfig({
+        inheritContext: undefined,
+        runInBackground: undefined,
+        isolated: undefined,
+      }),
+      {
+        inherit_context: true,
+        run_in_background: true,
+        isolated: true,
+      },
+    );
+
+    expect(resolved.inheritContext).toBe(true);
+    expect(resolved.runInBackground).toBe(true);
+    expect(resolved.isolated).toBe(true);
+  });
+
+  it("defaults booleans to false when neither config nor params set them", () => {
+    const resolved = resolveAgentInvocationConfig(
+      makeConfig({
+        inheritContext: undefined,
+        runInBackground: undefined,
+        isolated: undefined,
+      }),
+      {},
+    );
+
+    expect(resolved.inheritContext).toBe(false);
+    expect(resolved.runInBackground).toBe(false);
+    expect(resolved.isolated).toBe(false);
+  });
 });
 
 describe("resolveJoinMode", () => {
