@@ -7,3 +7,9 @@ config:
   line-length: false
   no-duplicate-heading:
     siblings_only: true
+  # Allow the centered logo image at the top of README.md
+  no-inline-html:
+    allowed_elements:
+      - p
+      - img
+  first-line-heading: false
