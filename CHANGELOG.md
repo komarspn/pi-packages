@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0](https://github.com/gotgenes/pi-subagents/compare/v0.7.2...v1.0.0) (2026-05-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* Peer dependencies now require @earendil-works/pi-* (>=0.74.0) instead of the deprecated @mariozechner/pi-* scope.
+
+### Features
+
+* **prompts:** inject &lt;active_agent name="..."/&gt; tag for permission resolution ([99873ee](https://github.com/gotgenes/pi-subagents/commit/99873eec57550d0d32c7751f34aa7d25587b6afd))
+
+
+### Bug Fixes
+
+* **agent-runner:** re-filter active tools after bindExtensions so extension tools land in child ([97e0ad1](https://github.com/gotgenes/pi-subagents/commit/97e0ad139884eaa006caa0e39f9d2273ffff592f))
+
+
+### Documentation
+
+* add ADR 0001 documenting Patch 1 and upstream-PR deferrals ([ca711bc](https://github.com/gotgenes/pi-subagents/commit/ca711bc19c8946b52855c3548bd81c4fa8cf3491))
+
+
+### Miscellaneous Chores
+
+* add prek hooks, markdownlint config, AGENTS.md, and docs scaffold ([ae509c7](https://github.com/gotgenes/pi-subagents/commit/ae509c7c8194ba83fbb148f3da7f845466185563))
+* rename to @gotgenes/pi-subagents, peer-dep rename, pi-agent-core fix, switch to pnpm ([e1ae8c4](https://github.com/gotgenes/pi-subagents/commit/e1ae8c4d4b470d8e3fea0233c05d57c10b073bd7))
+
 ## [Unreleased]
 
 ## [0.7.2] - 2026-05-12
