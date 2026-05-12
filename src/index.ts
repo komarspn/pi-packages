@@ -858,7 +858,8 @@ Guidelines:
         modelName,
         thinking,
         // Explicit value only — the default fallback would just add noise.
-        maxTurns: resolvedConfig.maxTurns,
+        // Normalize so `0` (unlimited) doesn't surface as a misleading "max turns: 0".
+        maxTurns: normalizeMaxTurns(resolvedConfig.maxTurns),
         isolated,
         inheritContext,
         runInBackground,
