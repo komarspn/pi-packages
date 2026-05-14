@@ -6,7 +6,7 @@ describe("createProgressCallback", () => {
     expect(createProgressCallback(undefined)).toBeUndefined();
   });
 
-  it("returns a function that calls onUpdate with progress type", () => {
+  it("returns a function that calls onUpdate with structured progress", () => {
     const onUpdate = vi.fn();
     const callback = createProgressCallback(onUpdate);
 
@@ -14,8 +14,9 @@ describe("createProgressCallback", () => {
     callback!("building...");
 
     expect(onUpdate).toHaveBeenCalledWith({
-      type: "progress",
-      content: "building...",
+      content: [{ type: "text", text: "building..." }],
+      details: undefined,
+      isError: false,
     });
   });
 });

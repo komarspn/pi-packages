@@ -1,12 +1,16 @@
 /**
  * Maps the portable `onProgress` callback to Pi's `onUpdate` streaming mechanism.
  *
- * The `onUpdate` callback expects an `AgentToolResult`-shaped object.
- * We use a minimal local interface to avoid coupling the adapter to SDK internals.
+ * The `onUpdate` callback expects an `AgentToolResult`-shaped object with
+ * `content` as an array of TextContent and a `details` field.
  */
 
 /** Minimal shape compatible with Pi's `AgentToolUpdateCallback`. */
-type OnUpdate = (partialResult: { content: string }) => void;
+type OnUpdate = (partialResult: {
+  content: { type: "text"; text: string }[];
+  details: undefined;
+  isError: boolean;
+}) => void;
 
 /**
  * Create an `onProgress` callback that forwards lines to Pi's `onUpdate`.
@@ -17,6 +21,10 @@ export function createProgressCallback(
 ): ((line: string) => void) | undefined {
   if (!onUpdate) return undefined;
   return (line: string) => {
-    onUpdate({ type: "progress", content: line } as { content: string });
+    onUpdate({
+      content: [{ type: "text", text: line }],
+      details: undefined,
+      isError: false,
+    });
   };
 }
