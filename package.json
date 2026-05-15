@@ -8,9 +8,7 @@
   },
   "scripts": {
     "prepare": "command -v prek >/dev/null 2>&1 && prek install || echo 'prek not found — skipping hook install (see README)'",
-    "build": "pnpm -r run build",
     "check": "pnpm -r run check",
-    "typecheck": "pnpm -r run typecheck",
     "test": "pnpm -r run test",
     "lint": "biome check . && pnpm -r run lint:md",
     "lint:fix": "biome check --write . && pnpm -r run lint:md:fix",

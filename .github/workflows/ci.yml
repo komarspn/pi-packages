@@ -5,11 +5,6 @@ on:
     branches: [main]
   pull_request:
 
-permissions:
-  contents: write
-  pull-requests: write
-  id-token: write
-
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -24,8 +19,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Build
-        run: pnpm -r run build
+      - name: Typecheck
+        run: pnpm -r run check
 
       - name: Lint
         run: pnpm run lint
@@ -37,6 +32,9 @@ jobs:
     needs: [check]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
       pi-anthropic-auth: ${{ steps.release.outputs['packages/pi-anthropic-auth--release_created'] }}
@@ -56,6 +54,9 @@ jobs:
     needs: release-please
     if: needs.release-please.outputs.releases_created == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v6
 
@@ -68,34 +69,22 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm -r run build
-
       - name: Publish pi-anthropic-auth
         if: needs.release-please.outputs.pi-anthropic-auth == 'true'
-        run: pnpm --filter @gotgenes/pi-anthropic-auth publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm --filter @gotgenes/pi-anthropic-auth publish --access public --no-git-checks --provenance
 
       - name: Publish pi-autoformat
         if: needs.release-please.outputs.pi-autoformat == 'true'
-        run: pnpm --filter @gotgenes/pi-autoformat publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm --filter @gotgenes/pi-autoformat publish --access public --no-git-checks --provenance
 
       - name: Publish pi-github-tools
         if: needs.release-please.outputs.pi-github-tools == 'true'
-        run: pnpm --filter @gotgenes/pi-github-tools publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm --filter @gotgenes/pi-github-tools publish --access public --no-git-checks --provenance
 
       - name: Publish pi-permission-system
         if: needs.release-please.outputs.pi-permission-system == 'true'
-        run: pnpm --filter @gotgenes/pi-permission-system publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm --filter @gotgenes/pi-permission-system publish --access public --no-git-checks --provenance
 
       - name: Publish pi-subagents
         if: needs.release-please.outputs.pi-subagents == 'true'
-        run: pnpm --filter @gotgenes/pi-subagents publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm --filter @gotgenes/pi-subagents publish --access public --no-git-checks --provenance
