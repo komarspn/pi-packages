@@ -147,10 +147,19 @@ export async function findRun(args: FindRunArgs): Promise<string> {
 
     const matchingRun = runs.find((r) => r.headSha === expectedSha);
     if (matchingRun) {
-      const { jobs } = await ghJson<RunJobs>(
-        ["run", "view", String(matchingRun.databaseId), "--json", "jobs"],
-        signal,
-      );
+      let jobs: CIJob[];
+      try {
+        ({ jobs } = await ghJson<RunJobs>(
+          ["run", "view", String(matchingRun.databaseId), "--json", "jobs"],
+          signal,
+        ));
+      } catch {
+        return [
+          "aborted: cancelled by user",
+          `  retries: ${attempt}`,
+          `  elapsed: ${elapsed}s`,
+        ].join("\n");
+      }
       return formatFind(matchingRun, jobs);
     }
 

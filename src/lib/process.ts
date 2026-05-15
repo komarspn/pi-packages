@@ -75,17 +75,23 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       );
     }
 
-    const timer = setTimeout(resolve, ms);
+    const onAbort = signal
+      ? () => {
+          clearTimeout(timer);
+          reject(
+            signal.reason ??
+              new DOMException("The operation was aborted.", "AbortError"),
+          );
+        }
+      : undefined;
 
-    if (signal) {
-      const onAbort = () => {
-        clearTimeout(timer);
-        reject(
-          signal.reason ??
-            new DOMException("The operation was aborted.", "AbortError"),
-        );
-      };
-      signal.addEventListener("abort", onAbort, { once: true });
+    const timer = setTimeout(() => {
+      if (onAbort) signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+
+    if (onAbort) {
+      signal?.addEventListener("abort", onAbort, { once: true });
     }
   });
 }

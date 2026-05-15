@@ -204,14 +204,15 @@ export async function watchRelease(args: WatchReleaseArgs): Promise<string> {
       );
     }
 
+    let tagOutput: string;
     try {
       await git(["fetch", "--tags"], signal);
+      tagOutput = await git(["tag", "--points-at", "HEAD"], signal);
     } catch {
       return ["aborted: cancelled by user", `  elapsed: ${elapsed}s`].join(
         "\n",
       );
     }
-    const tagOutput = await git(["tag", "--points-at", "HEAD"], signal);
     const tags = tagOutput
       .split("\n")
       .map((t) => t.trim())
@@ -219,7 +220,14 @@ export async function watchRelease(args: WatchReleaseArgs): Promise<string> {
 
     if (tags.length > 0) {
       const tag = tags[tags.length - 1]; // most recent tag
-      const headSha = await git(["rev-parse", "HEAD"], signal);
+      let headSha: string;
+      try {
+        headSha = await git(["rev-parse", "HEAD"], signal);
+      } catch {
+        return ["aborted: cancelled by user", `  elapsed: ${elapsed}s`].join(
+          "\n",
+        );
+      }
       return [
         `tag: ${tag}`,
         `version: ${tag.replace(/^v/, "")}`,
