@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCommand, sleep } from "../../src/lib/process";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("runCommand", () => {
   it("captures stdout from a successful command", async () => {
@@ -42,5 +46,25 @@ describe("sleep", () => {
     await sleep(50);
     const elapsed = Date.now() - start;
     expect(elapsed).toBeGreaterThanOrEqual(40);
+  });
+
+  it("rejects immediately when signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(sleep(1000, controller.signal)).rejects.toThrow(/aborted/i);
+  });
+
+  it("rejects with AbortError when signal aborts mid-sleep", async () => {
+    const controller = new AbortController();
+    const p = sleep(1000, controller.signal);
+    controller.abort();
+    await expect(p).rejects.toThrow(/aborted/i);
+  });
+
+  it("resolves normally when no signal is provided (fake timers)", async () => {
+    vi.useFakeTimers();
+    const p = sleep(50);
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(p).resolves.toBeUndefined();
   });
 });

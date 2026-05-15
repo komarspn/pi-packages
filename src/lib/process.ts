@@ -66,6 +66,26 @@ export async function runCommand(
 }
 
 /** Promise-based sleep helper. */
-export function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      return reject(
+        signal.reason ??
+          new DOMException("The operation was aborted.", "AbortError"),
+      );
+    }
+
+    const timer = setTimeout(resolve, ms);
+
+    if (signal) {
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(
+          signal.reason ??
+            new DOMException("The operation was aborted.", "AbortError"),
+        );
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+  });
 }
