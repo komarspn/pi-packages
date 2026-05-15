@@ -1,0 +1,85 @@
+{
+  "name": "@gotgenes/pi-permission-system",
+  "version": "5.18.1",
+  "description": "Permission enforcement extension for the Pi coding agent.",
+  "type": "module",
+  "exports": {
+    ".": "./src/service.ts"
+  },
+  "files": [
+    "src",
+    "tests",
+    "config/config.example.json",
+    "schemas/permissions.schema.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prepare": "command -v prek >/dev/null 2>&1 && prek install || echo 'prek not found — skipping hook install (see README)'",
+    "build": "tsc -p tsconfig.json",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "lint:md": "markdownlint-cli2 '*.md' 'docs/**/*.md' '.pi/prompts/**/*.md'",
+    "lint:md:fix": "markdownlint-cli2 --fix '*.md' 'docs/**/*.md' '.pi/prompts/**/*.md'",
+    "lint:imports": "! grep -rn --include='*.ts' 'from \"\\.[./][^\"]*\\.js\"' src/ tests/",
+    "lint:all": "pnpm run lint && pnpm run lint:md && pnpm run lint:imports",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "pnpm run build && pnpm run lint:all && pnpm run test"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "pi-coding-agent",
+    "coding-agent",
+    "permissions",
+    "policy",
+    "access-control",
+    "authorization",
+    "security"
+  ],
+  "author": {
+    "name": "Chris Lasher"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gotgenes/pi-permission-system.git"
+  },
+  "homepage": "https://github.com/gotgenes/pi-permission-system#readme",
+  "bugs": {
+    "url": "https://github.com/gotgenes/pi-permission-system/issues"
+  },
+  "packageManager": "pnpm@11.0.8",
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.14",
+    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@earendil-works/pi-tui": "^0.74.0",
+    "@types/node": "^25.6.2",
+    "markdownlint-cli2": "^0.22.1",
+    "typescript": "6.0.3",
+    "vitest": "^4.1.5"
+  },
+  "dependencies": {
+    "tree-sitter-bash": "^0.25.1",
+    "web-tree-sitter": "^0.26.8"
+  }
+}
