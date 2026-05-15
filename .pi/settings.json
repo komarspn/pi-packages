@@ -1,5 +1,3 @@
 {
-  "packages": [
-    "npm:@gotgenes/pi-github-tools"
-  ]
+  "packages": ["npm:@gotgenes/pi-github-tools"]
 }
