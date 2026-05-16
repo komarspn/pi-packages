@@ -22,13 +22,7 @@ Before reading anything, make sure the working tree is up to date with the remot
 2. Read `AGENTS.md` for project priorities, constraints, and code-style rules. Honor them in the plan.
 3. List `docs/plans/` to see numbering and style conventions (create the directory if it does not exist yet). Pick the next free `NNNN` (prefer matching the issue number when reasonable).
 4. Read every issue the body references as a prerequisite or related (`gh issue view <n>`). Note whether each is implemented yet — your plan must say what it depends on vs. defers.
-5. Open the source files most relevant to the change and skim them before writing. Common entry points: `src/permission-manager.ts`, `src/bash-filter.ts`, `src/wildcard-matcher.ts`, `src/system-prompt-sanitizer.ts`, `src/skill-prompt-sanitizer.ts`, `src/extension-config.ts`, `schemas/permissions.schema.json`, `config/config.example.json`.
-
-## Decide
-
-Before writing the plan, identify any genuinely ambiguous design choices. If there are 1–2 such choices (breaking-vs-non-breaking, policy-precedence change, default-state change, on-disk-identity impact, etc.), use the `ask-user` skill once to surface them with a short context summary and concrete options. Skip this step if the issue's "Proposed change" section is unambiguous.
-
-Specifically flag for confirmation any change that renames the `/permission-system` slash command or changes a default policy state — those are breaking changes.
+5. Open the source files most relevant to the change and skim them before writing.
 
 ## Load skills
 
@@ -37,13 +31,17 @@ Before writing the plan, load skills relevant to the change:
 - If the plan involves code changes: load the `code-style` skill.
 - If the plan involves test changes or TDD steps: load the `testing` skill.
 - If the plan involves markdown/doc changes: load the `markdown-conventions` skill.
-- If the plan adds fields to shared interfaces or touches handler wiring: load the `design-review` skill and run its checklist on the affected modules.
+- If the plan adds fields to shared interfaces or touches wiring between layers: load the `design-review` skill and run its checklist on the affected modules.
+
+## Decide
+
+Before writing the plan, identify any genuinely ambiguous design choices. If there are 1–2 such choices (breaking-vs-non-breaking, result-shape change, fallback semantics, etc.), use the `ask-user` skill once to surface them with a short context summary and concrete options. Skip this step if the issue's "Proposed change" section is unambiguous.
 
 ## Write the plan
 
 File: `docs/plans/NNNN-<short-slug>.md`.
 
-Start with YAML frontmatter (see `AGENTS.md` § Documentation frontmatter):
+Start with YAML frontmatter:
 
 ```yaml
 ---
@@ -57,17 +55,17 @@ Then an H1 title (e.g., `# <short descriptive title>`) — required by markdownl
 - **Problem Statement** — quote the issue's framing in your own words.
 - **Goals** — bullet list, scoped to this change.
 - **Non-Goals** — explicitly defer anything tangential (sibling issues, follow-ups).
-- **Background** — relevant existing modules/functions and how they relate. Call out which permission surface is involved (tools / bash / mcp / skills / special / external_directory).
-- **Design Overview** — decision model, data shapes, separation of concerns, edge cases. Include code-fenced TS types when shape changes. Include the merge precedence (global → project → per-agent) when policy semantics change.
-- **Module-Level Changes** — file-by-file list of what's added, changed, or removed across `src/`, `schemas/`, `config/`, `tests/`, and `docs/architecture/` (flag any architecture doc that describes a module, type, or flow being changed).
+- **Background** — relevant existing modules/functions and how they relate. Flag any constraint from AGENTS.md that applies.
+- **Design Overview** — decision model, data shapes, separation of concerns, edge cases. Include code-fenced TS types when shape changes.
+- **Module-Level Changes** — file-by-file list of what's added, changed, or removed.
 - **Test Impact Analysis** — for extraction and refactoring issues: (1) what new unit tests does the extraction enable that were previously impossible or impractical? (2) what existing tests become redundant with the new lower-level tests, and can they be simplified or removed? (3) which existing tests must stay as-is because they genuinely exercise the layer being extracted?
-- **TDD Order** — numbered red→green→commit cycles. Each item names the test surface, what's covered, and the suggested commit message (`test:`, `feat:`, `feat!:`, `docs:`).
+- **TDD Order** — numbered red→green→commit cycles. Each item names the test surface, what's covered, and the suggested commit message (`test:`, `feat:`, `feat!:`, `fix:`, `docs:`).
   When a refactor replaces a type, interface, or function that a large test file depends on, use lift-and-shift: introduce the new thing alongside the old, migrate callers and fixtures incrementally across steps, then remove the old in a final step.
   Never plan a single step that requires rewriting an entire large test file at once.
-- **Risks and Mitigations** — concrete risks and how the plan addresses each. Always include a "could this silently weaken a permission?" check.
+- **Risks and Mitigations** — concrete risks and how the plan addresses each.
 - **Open Questions** — defer-until-needed items.
 
-If the change is breaking (including renaming the `/permission-system` slash command or changing a default policy state), say so explicitly in Goals and use `feat!:` in the suggested commit messages.
+If the change is breaking, say so explicitly in Goals and use `feat!:` in the suggested commit messages.
 
 ## Commit
 

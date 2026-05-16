@@ -1,13 +1,13 @@
 ---
 name: markdown-conventions
 description: |
-  Markdownlint rules, documentation frontmatter schema, and architecture doc conventions.
+  Markdownlint rules, documentation frontmatter schema, and doc conventions.
   Load when writing or editing markdown files.
 ---
 
 # Markdown Conventions
 
-Load this skill when writing or editing markdown files in this project.
+Load this skill when writing or editing markdown files.
 
 ## Formatting rules
 
@@ -30,16 +30,10 @@ Schema (both fields are strings/numbers — quote any title containing backticks
 ```yaml
 ---
 issue: 14 # optional: omit for plans that predate issue tracking
-issue_title: "Per-agent permission frontmatter overrides" # required
+issue_title: "Short descriptive title" # required
 ---
 ```
 
 - `issue` stores the number only, never a URL.
 - Do not duplicate frontmatter fields as inline metadata in the body (e.g., `Issue #N` in the H1 is fine; a separate `**Issue:** #N` line is not).
 - Other doc types (`README.md`) do not use frontmatter.
-
-## Architecture docs
-
-- `docs/architecture/v3-architecture.md` is a historical snapshot — do not update it.
-- `docs/architecture/architecture.md` is the living architecture doc — update it when implementation changes.
-- Per-module architecture notes (`docs/architecture/<module>.md`) describe current implementation.

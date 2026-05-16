@@ -26,25 +26,13 @@ src/
 └── progress.ts           # maps onProgress → Pi onUpdate
 ```
 
-## Code Style
+## Implementation Priorities
 
-- Use TypeScript. This project uses **pnpm** exclusively — never `npm` or `npx`.
-- The tsconfig target is ES2023 (`noEmit: true`).
-- Avoid `any` unless absolutely necessary.
-- Keep modules focused and composable (one concern per file).
 - `src/lib/` must not import from `@earendil-works/pi-coding-agent` — only `src/tools/` and `src/progress.ts` touch Pi types.
 - The `gh` CLI is the sole external binary dependency.
 
 ## Testing
 
-- Mock `runCommand` in `lib/` tests to avoid real `gh` calls.
+- Mock `runCommand` in `lib/` tests to avoid real `gh` calls — every lib test should run offline.
 - Test backoff timing, progress formatting, timeout handling, structured output.
 - `tools/` wrappers are thin and tested lightly.
-- Run a single file: `pnpm vitest run <test-path>`
-- Run the full suite: `pnpm vitest run`
-
-## Commits
-
-Use Conventional Commits.
-Commit at meaningful checkpoints without waiting for an explicit reminder.
-Prefer small, reviewable commits that leave the repository in a valid state.

@@ -2,22 +2,12 @@
 name: testing
 description: |
   Vitest mock patterns (vi.mock, vi.hoisted, vi.fn reset), TDD planning rules,
-  test strategy for permission resolution, and common pitfalls.
-  Load when writing or debugging tests.
+  and general test strategy. Load when writing or debugging tests.
 ---
 
 # Testing
 
 Load this skill when writing, debugging, or planning tests.
-
-## Test strategy
-
-- Add focused tests for permission resolution (allow/deny/ask decisions across tools, bash, MCP, skills, special).
-- Test wildcard matching (bash patterns, skill globs) including over-match and under-match cases.
-- Test policy merge precedence: global → project → per-agent frontmatter.
-- Test system-prompt sanitization (denied tools removed, allowed tools preserved, multi-block skill prompts).
-- Test the external-directory guard for path-bearing file tools.
-- Test config loading, validation issues, and tolerance of deprecated keys.
 
 ## Vitest mock patterns
 
@@ -41,7 +31,7 @@ Load this skill when writing, debugging, or planning tests.
 ## Type checking
 
 Vitest uses esbuild and does not typecheck.
-Run `pnpm run build` (`tsc -p tsconfig.json`) for type-only changes.
+Run `pnpm run check` (`tsc --noEmit`) for type-only changes.
 
 ## Running tests
 
@@ -56,6 +46,6 @@ Run `pnpm run build` (`tsc -p tsconfig.json`) for type-only changes.
 - When a TDD plan lists separate steps that share a type definition, changing that type in step N breaks steps N+1…N+k.
   Either fold them into one step or introduce the new type alongside the old one and migrate callers incrementally.
 - When a plan adds a parameter that flows through callback chains, the "Module-Level Changes" section must list every file in the chain.
-- When a TDD step changes a shared interface, run `pnpm run build` immediately after that step's commit.
-- When adding a field to a shared interface, grep for ALL test files that construct a compatible mock — not just `makeDeps` factories.
+- When a TDD step changes a shared interface, run `pnpm run check` immediately after that step's commit.
+- When adding a field to a shared interface, grep for ALL test files that construct a compatible mock — not just factory helpers.
 - When integrating an unfamiliar library or data structure, write a disposable exploratory script first to inspect the actual runtime shape.

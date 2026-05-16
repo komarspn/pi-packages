@@ -36,7 +36,6 @@ Review what happened across this session — the user prompts, your tool calls, 
 - `scope-drift` — went beyond what was asked or missed the actual ask
 - `rabbit-hole` — chased symptoms instead of questioning assumptions
 - `instruction-violation` — had clear instructions in `AGENTS.md` or the prompt but didn't follow them
-- `permission-regression` — a code change weakened a default, broadened a wildcard, or skipped an `ask` gate without an explicit goal in the plan
 - `other` — describe
 
 For each friction point describe the **concrete impact**: time wasted, rework caused, follow-up commits needed, or "added friction but no rework."
@@ -96,11 +95,10 @@ Surface the synthesis as regular message text **before** invoking `ask-user`. Th
 2. **Per-proposal context** — for each proposed change: the concrete pain (with tool-call counts or specific examples), why the proposed location is the right home, and the proposed content as a fenced block.
 3. **What you considered but did not propose** — name candidate changes you rejected and why.
 
-Candidate change locations for this repo:
+Candidate change locations:
 
 - `AGENTS.md` — project-wide priorities, code style, conventions.
 - `.pi/prompts/*.md` — slash-command prompt bodies.
-- `README.md`, `schemas/permissions.schema.json`, `config/config.example.json` — keep aligned per `AGENTS.md`.
 - New skill or new prompt — only if the rule is reusable across many sessions.
 
 ## Step 5 — Ask before editing

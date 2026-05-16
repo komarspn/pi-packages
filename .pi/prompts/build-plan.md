@@ -6,7 +6,7 @@ description: Execute a docs/plans/ plan that has no TDD cycle (docs-only, config
 
 Argument: `$1` is either a plan path, an issue number, or empty (use the most recently modified plan).
 
-Use this template for plans whose "TDD Order" section says there are no tests to write (docs-only, config-only, schema-only, or other non-code changes).
+Use this template for plans whose "TDD Order" section says there are no tests to write (docs-only, config-only, or other non-code changes).
 For plans with red→green test cycles, use `/tdd-plan` instead.
 
 ## Sync with remote (do this first)
@@ -31,21 +31,13 @@ Read `AGENTS.md` for project priorities and conventions.
 If the plan touches code: load the `code-style` skill.
 If the plan touches markdown/docs: load the `markdown-conventions` skill.
 
-Key rules:
-
-- Conventional Commits; commit at meaningful checkpoints.
-- Keep `schemas/permissions.schema.json`, `config/config.example.json`, `README.md`, and the TypeScript types/loaders aligned.
-- Default to least privilege — never weaken a permission default without an explicit goal in the plan.
-- Preserve the `/permission-system` slash command name.
-
 ## Execute the plan steps
 
 For **each** numbered step in the plan's "TDD Order" (or equivalent execution section), in order:
 
 1. **Implement** the change the step describes.
 2. **Verify.** Run the linters to confirm the change is clean:
-   - `pnpm run lint:all` (Biome + markdownlint).
-   - If it fails, run `pnpm run lint:fix` and re-check.
+   - `pnpm run lint`. If it fails, run `pnpm run lint:fix` and re-check.
 3. **Commit.** Use the commit message the plan suggests, or a Conventional Commits message that matches:
    - `docs:` for documentation changes.
    - `feat:` for new behavior.
@@ -59,9 +51,9 @@ If a step uncovers a problem the plan didn't anticipate, fix it as part of the s
 
 ## After the last step
 
-1. If any `src/` or `tests/` files were touched (even tangentially), run the full suite: `pnpm vitest run`. Must be all green.
-2. If any `.ts` files were touched, run the type check: `pnpm run build` (`tsc -p tsconfig.json`). Must succeed.
-3. Run the linters one final time: `pnpm run lint:all`. Commit any fixup as `style:` if you haven't pushed yet.
+1. If any `src/` or `test/` files were touched (even tangentially), run the full suite: `pnpm vitest run`. Must be all green.
+2. If any `.ts` files were touched, run the type check: `pnpm run check` (`tsc --noEmit`). Must succeed.
+3. Run the linter one final time: `pnpm run lint`. Commit any fixup as `style:` if you haven't pushed yet.
 4. **Do not edit `CHANGELOG.md`** — release-please owns it and will generate entries from your Conventional Commit messages on the next release.
 
 ## Summarize

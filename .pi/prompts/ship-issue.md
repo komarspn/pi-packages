@@ -1,6 +1,7 @@
 ---
 description: Push, close a GitHub issue with a summary, and merge the release-please PR
 ---
+
 # Ship the implementation
 
 Argument: `$1` is the issue number that was just implemented.
