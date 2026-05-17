@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { SubagentsService } from "../src/service.js";
 import { type AdapterDeps, createSubagentsService, toSubagentRecord } from "../src/service-adapter.js";
 import type { AgentRecord } from "../src/types.js";
