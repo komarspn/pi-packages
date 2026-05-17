@@ -1209,6 +1209,32 @@ describe("cross-cutting path surface", () => {
     }
   });
 
+  it("universal default produces undefined matchedPattern for gate skip (#58)", () => {
+    const { manager, cleanup } = makeManagerWithConfig({
+      "*": "ask",
+      read: "allow",
+      find: "allow",
+    });
+    try {
+      // No explicit "path" key → matchedPattern must be undefined so the
+      // path gate skips (describePathGate returns null).
+      const result = manager.checkPermission("path", {
+        path: "src/main.ts",
+      });
+      expect(result.state).toBe("ask");
+      expect(result.matchedPattern).toBeUndefined();
+
+      // Meanwhile the tool-level check should allow read.
+      const readResult = manager.checkPermission("read", {
+        path: "src/main.ts",
+      });
+      expect(readResult.state).toBe("allow");
+      expect(readResult.matchedPattern).toBe("*");
+    } finally {
+      cleanup();
+    }
+  });
+
   // ── Last-match-wins ordering ────────────────────────────────────────────
 
   it("last-match-wins: catch-all after deny overrides the deny", () => {

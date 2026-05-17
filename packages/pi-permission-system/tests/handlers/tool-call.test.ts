@@ -307,7 +307,7 @@ describe("handleToolCall — path gate (tools)", () => {
       .mockImplementation(
         (surface: string, _input: unknown, _agentName?: string) => {
           if (surface === "path") {
-            return makePermissionResult("deny");
+            return { ...makePermissionResult("deny"), matchedPattern: "*.env" };
           }
           return makePermissionResult("allow");
         },
@@ -354,7 +354,7 @@ describe("handleToolCall — bash path gate", () => {
       .mockImplementation(
         (surface: string, _input: unknown, _agentName?: string) => {
           if (surface === "path") {
-            return makePermissionResult("deny");
+            return { ...makePermissionResult("deny"), matchedPattern: "*.env" };
           }
           return makePermissionResult("allow");
         },
