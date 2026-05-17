@@ -22,6 +22,8 @@ import { loadCustomAgents } from "./custom-agents.js";
 import { resolveAgentInvocationConfig } from "./invocation-config.js";
 import { type ModelRegistry, resolveModel } from "./model-resolver.js";
 import { createOutputFilePath, streamToOutputFile, writeInitialEntry } from "./output-file.js";
+import { publishSubagentsService, unpublishSubagentsService } from "./service.js";
+import { createSubagentsService } from "./service-adapter.js";
 import { applyAndEmitLoaded, type SubagentsSettings, saveAndEmitChanged } from "./settings.js";
 import { type AgentConfig, type AgentInvocation, type AgentRecord, type NotificationDetails, type SubagentType } from "./types.js";
 import {
@@ -376,18 +378,19 @@ export default function (pi: ExtensionAPI) {
     });
   });
 
-  // Expose manager via Symbol.for() global registry for cross-package access.
-  // Standard Node.js pattern for cross-package singletons (used by OpenTelemetry, etc.).
-  const MANAGER_KEY = Symbol.for("pi-subagents:manager");
-  (globalThis as any)[MANAGER_KEY] = {
-    waitForAll: () => manager.waitForAll(),
-    hasRunning: () => manager.hasRunning(),
-    spawn: (piRef: any, ctx: any, type: string, prompt: string, options: any) =>
-      manager.spawn(piRef, ctx, type, prompt, options),
-    getRecord: (id: string) => manager.getRecord(id),
-  };
+  // Typed service published via Symbol.for() for cross-extension access.
+  // Consumers: const { getSubagentsService } = await import("@gotgenes/pi-subagents");
+  let currentCtx: { pi: unknown; ctx: unknown } | undefined;
+  const service = createSubagentsService({
+    manager,
+    resolveModel,
+    getCtx: () => currentCtx,
+    getModelRegistry: () => (currentCtx?.ctx as { modelRegistry?: ModelRegistry } | undefined)?.modelRegistry,
+  });
+  publishSubagentsService(service);
 
-  pi.on("session_start", async (_event, _ctx) => {
+  pi.on("session_start", async (_event, ctx) => {
+    currentCtx = { pi, ctx };
     manager.clearCompleted();
   });
 
@@ -398,7 +401,8 @@ export default function (pi: ExtensionAPI) {
   // On shutdown, abort all agents immediately and clean up.
   // If the session is going down, there's nothing left to consume agent results.
   pi.on("session_shutdown", async () => {
-    delete (globalThis as any)[MANAGER_KEY];
+    unpublishSubagentsService();
+    currentCtx = undefined;
     manager.abortAll();
     for (const timer of pendingNudges.values()) clearTimeout(timer);
     pendingNudges.clear();
