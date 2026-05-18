@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { type ModelRegistry, resolveModel } from "../src/model-resolver.js";
+import {
+  type ModelRegistry,
+  resolveInvocationModel,
+  resolveModel,
+} from "../src/model-resolver.js";
 
 // Mock model entries matching typical pi model registry shape
 const MODELS = [
@@ -197,6 +201,30 @@ describe("resolveModel", () => {
       const result = resolveModel("haiku", makeRegistry([]));
       expect(typeof result).toBe("string");
       expect(result).toContain("Model not found");
+    });
+  });
+});
+
+describe("resolveInvocationModel", () => {
+  const parentModel = { id: "claude-opus-4-6", provider: "anthropic" };
+
+  describe("parent model inheritance (no modelInput)", () => {
+    it("returns parent model when modelInput is undefined (modelFromParams false)", () => {
+      const result = resolveInvocationModel(parentModel, undefined, false, makeRegistry());
+      expect(result).toEqual({ model: parentModel });
+      expect(result.error).toBeUndefined();
+    });
+
+    it("returns parent model when modelInput is undefined (modelFromParams true)", () => {
+      const result = resolveInvocationModel(parentModel, undefined, true, makeRegistry());
+      expect(result).toEqual({ model: parentModel });
+      expect(result.error).toBeUndefined();
+    });
+
+    it("propagates null parent model when modelInput is undefined", () => {
+      const result = resolveInvocationModel(null, undefined, false, makeRegistry());
+      expect(result).toEqual({ model: null });
+      expect(result.error).toBeUndefined();
     });
   });
 });
