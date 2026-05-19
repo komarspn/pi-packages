@@ -50,11 +50,11 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": ">=0.75.0"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
-    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@earendil-works/pi-coding-agent": ">=0.75.0",
     "@types/node": "catalog:",
     "typebox": "^1.1.38",
     "typescript": "catalog:",
