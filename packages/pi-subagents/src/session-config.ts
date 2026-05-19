@@ -83,6 +83,8 @@ export interface SessionConfig {
   noSkills: boolean;
   /** Prompt extras (memory block, preloaded skill blocks) — for transparency. */
   extras: PromptExtras;
+  /** Per-agent configured max turns (from agentConfig.maxTurns). */
+  agentMaxTurns: number | undefined;
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
@@ -235,6 +237,9 @@ export function assembleSessionConfig(
   // Thinking level: explicit option > agent config > undefined (inherit)
   const thinkingLevel = options.thinkingLevel ?? agentConfig?.thinking;
 
+  // Per-agent max turns (combined with options.maxTurns and defaultMaxTurns by runAgent)
+  const agentMaxTurns = agentConfig?.maxTurns;
+
   return {
     effectiveCwd,
     systemPrompt,
@@ -245,5 +250,6 @@ export function assembleSessionConfig(
     thinkingLevel,
     noSkills,
     extras,
+    agentMaxTurns,
   };
 }

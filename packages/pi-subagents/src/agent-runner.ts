@@ -14,19 +14,9 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import {
-  getAgentConfig,
-  getConfig,
-  getMemoryToolNames,
-  getReadOnlyMemoryToolNames,
-  getToolNamesForType,
-} from "./agent-types.js";
 import { buildParentContext, extractText } from "./context.js";
-import { DEFAULT_AGENTS } from "./default-agents.js";
 import { detectEnv } from "./env.js";
-import { buildMemoryBlock, buildReadOnlyMemoryBlock } from "./memory.js";
-import { buildAgentPrompt, type PromptExtras } from "./prompts.js";
-import { preloadSkills } from "./skill-loader.js";
+import { assembleSessionConfig } from "./session-config.js";
 import type { SubagentType, ThinkingLevel } from "./types.js";
 
 /** Names of tools registered by this extension that subagents must NOT inherit. */
@@ -74,39 +64,6 @@ export function normalizeMaxTurns(n: number | undefined): number | undefined {
   return Math.max(1, n);
 }
 
-/**
- * Try to find the right model for an agent type.
- * Priority: explicit option > config.model > parent model.
- */
-function resolveDefaultModel(
-  parentModel: Model<any> | undefined,
-  registry: {
-    find(provider: string, modelId: string): Model<any> | undefined;
-    getAvailable?(): Model<any>[];
-  },
-  configModel?: string,
-): Model<any> | undefined {
-  if (configModel) {
-    const slashIdx = configModel.indexOf("/");
-    if (slashIdx !== -1) {
-      const provider = configModel.slice(0, slashIdx);
-      const modelId = configModel.slice(slashIdx + 1);
-
-      // Build a set of available model keys for fast lookup
-      const available = registry.getAvailable?.();
-      const availableKeys = available
-        ? new Set(available.map((m: any) => `${m.provider}/${m.id}`))
-        : undefined;
-      const isAvailable = (p: string, id: string) =>
-        !availableKeys || availableKeys.has(`${p}/${id}`);
-
-      const found = registry.find(provider, modelId);
-      if (found && isAvailable(provider, modelId)) return found;
-    }
-  }
-
-  return parentModel;
-}
 
 /** Info about a tool event in the subagent. */
 export interface ToolActivity {
@@ -223,96 +180,27 @@ export async function runAgent(
   prompt: string,
   options: RunOptions,
 ): Promise<RunResult> {
-  const config = getConfig(type);
-  const agentConfig = getAgentConfig(type);
-
-  // Resolve working directory: worktree override > parent cwd
+  // Resolve working directory upfront — needed for detectEnv before assembly.
   const effectiveCwd = options.cwd ?? ctx.cwd;
-
   const env = await detectEnv(options.pi, effectiveCwd);
 
-  // Get parent system prompt for append-mode agents
-  const parentSystemPrompt = ctx.getSystemPrompt();
-
-  // Build prompt extras (memory, skill preloading)
-  const extras: PromptExtras = {};
-
-  // Resolve extensions/skills: isolated overrides to false
-  const extensions = options.isolated ? false : config.extensions;
-  const skills = options.isolated ? false : config.skills;
-
-  // Skill preloading: when skills is string[], preload their content into prompt
-  if (Array.isArray(skills)) {
-    const loaded = preloadSkills(skills, effectiveCwd);
-    if (loaded.length > 0) {
-      extras.skillBlocks = loaded;
-    }
-  }
-
-  let toolNames = getToolNamesForType(type);
-
-  // Persistent memory: detect write capability and branch accordingly.
-  // Account for disallowedTools — a tool in the base set but on the denylist is not truly available.
-  if (agentConfig?.memory) {
-    const existingNames = new Set(toolNames);
-    const denied = agentConfig.disallowedTools
-      ? new Set(agentConfig.disallowedTools)
-      : undefined;
-    const effectivelyHas = (name: string) =>
-      existingNames.has(name) && !denied?.has(name);
-    const hasWriteTools = effectivelyHas("write") || effectivelyHas("edit");
-
-    if (hasWriteTools) {
-      // Read-write memory: add any missing memory tool names (read/write/edit)
-      const extraNames = getMemoryToolNames(existingNames);
-      if (extraNames.length > 0) toolNames = [...toolNames, ...extraNames];
-      extras.memoryBlock = buildMemoryBlock(
-        agentConfig.name,
-        agentConfig.memory,
-        effectiveCwd,
-      );
-    } else {
-      // Read-only memory: only add read tool name, use read-only prompt
-      const extraNames = getReadOnlyMemoryToolNames(existingNames);
-      if (extraNames.length > 0) toolNames = [...toolNames, ...extraNames];
-      extras.memoryBlock = buildReadOnlyMemoryBlock(
-        agentConfig.name,
-        agentConfig.memory,
-        effectiveCwd,
-      );
-    }
-  }
-
-  // Build system prompt from agent config
-  let systemPrompt: string;
-  if (agentConfig) {
-    systemPrompt = buildAgentPrompt(
-      agentConfig,
-      effectiveCwd,
-      env,
-      parentSystemPrompt,
-      extras,
-    );
-  } else {
-    // Unknown type fallback: spread the canonical general-purpose config (defensive —
-    // unreachable in practice since index.ts resolves unknown types before calling runAgent).
-    const fallback = DEFAULT_AGENTS.get("general-purpose");
-    if (!fallback)
-      throw new Error(
-        `No fallback config available for unknown type "${type}"`,
-      );
-    systemPrompt = buildAgentPrompt(
-      { ...fallback, name: type },
-      effectiveCwd,
-      env,
-      parentSystemPrompt,
-      extras,
-    );
-  }
-
-  // When skills is string[], we've already preloaded them into the prompt.
-  // Still pass noSkills: true since we don't need the skill loader to load them again.
-  const noSkills = skills === false || Array.isArray(skills);
+  // Assemble session configuration (synchronous, no SDK objects).
+  const cfg = assembleSessionConfig(
+    type,
+    {
+      cwd: ctx.cwd,
+      parentSystemPrompt: ctx.getSystemPrompt(),
+      parentModel: ctx.model,
+      modelRegistry: ctx.modelRegistry,
+    },
+    {
+      cwd: options.cwd,
+      isolated: options.isolated,
+      model: options.model,
+      thinkingLevel: options.thinkingLevel,
+    },
+    env,
+  );
 
   const agentDir = getAgentDir();
 
@@ -323,56 +211,43 @@ export async function runAgent(
   // wanted, reaches the subagent via prompt_mode: append (parentSystemPrompt
   // is embedded in systemPromptOverride) or inherit_context (conversation).
   const loader = new DefaultResourceLoader({
-    cwd: effectiveCwd,
+    cwd: cfg.effectiveCwd,
     agentDir,
-    noExtensions: extensions === false,
-    noSkills,
+    noExtensions: cfg.extensions === false,
+    noSkills: cfg.noSkills,
     noPromptTemplates: true,
     noThemes: true,
     noContextFiles: true,
-    systemPromptOverride: () => systemPrompt,
+    systemPromptOverride: () => cfg.systemPrompt,
     appendSystemPromptOverride: () => [],
   });
   await loader.reload();
 
-  // Resolve model: explicit option > config.model > parent model
-  const model =
-    options.model ??
-    resolveDefaultModel(ctx.model, ctx.modelRegistry, agentConfig?.model);
-
-  // Resolve thinking level: explicit option > agent config > undefined (inherit)
-  const thinkingLevel = options.thinkingLevel ?? agentConfig?.thinking;
-
   const sessionOpts: Parameters<typeof createAgentSession>[0] = {
-    cwd: effectiveCwd,
+    cwd: cfg.effectiveCwd,
     agentDir,
-    sessionManager: SessionManager.inMemory(effectiveCwd),
-    settingsManager: SettingsManager.create(effectiveCwd, agentDir),
+    sessionManager: SessionManager.inMemory(cfg.effectiveCwd),
+    settingsManager: SettingsManager.create(cfg.effectiveCwd, agentDir),
     modelRegistry: ctx.modelRegistry,
-    model,
-    tools: toolNames,
+    model: cfg.model,
+    tools: cfg.toolNames,
     resourceLoader: loader,
   };
-  if (thinkingLevel) {
-    sessionOpts.thinkingLevel = thinkingLevel;
+  if (cfg.thinkingLevel) {
+    sessionOpts.thinkingLevel = cfg.thinkingLevel;
   }
 
   const { session } = await createAgentSession(sessionOpts);
 
-  // Build disallowed tools set from agent config
-  const disallowedSet = agentConfig?.disallowedTools
-    ? new Set(agentConfig.disallowedTools)
-    : undefined;
-
   // Filter active tools: remove our own tools to prevent nesting,
   // apply extension allowlist if specified, and apply disallowedTools denylist.
   // First pass — over built-in tools, before bindExtensions registers extension tools.
-  if (extensions !== false || disallowedSet) {
+  if (cfg.extensions !== false || cfg.disallowedSet) {
     const filtered = filterActiveTools(
       session.getActiveToolNames(),
-      toolNames,
-      extensions,
-      disallowedSet,
+      cfg.toolNames,
+      cfg.extensions,
+      cfg.disallowedSet,
     );
     session.setActiveToolsByName(filtered);
   }
@@ -396,12 +271,12 @@ export async function runAgent(
   // re-filter, the `extensions: string[]` allowlist branch never matches any
   // extension tools and `extensions: true` lets non-allowlisted denylist
   // entries slip in. Run the same filter against the post-bind active set.
-  if (extensions !== false || disallowedSet) {
+  if (cfg.extensions !== false || cfg.disallowedSet) {
     const refiltered = filterActiveTools(
       session.getActiveToolNames(),
-      toolNames,
-      extensions,
-      disallowedSet,
+      cfg.toolNames,
+      cfg.extensions,
+      cfg.disallowedSet,
     );
     session.setActiveToolsByName(refiltered);
   }
@@ -411,7 +286,7 @@ export async function runAgent(
   // Track turns for graceful max_turns enforcement
   let turnCount = 0;
   const maxTurns = normalizeMaxTurns(
-    options.maxTurns ?? agentConfig?.maxTurns ?? options.defaultMaxTurns,
+    options.maxTurns ?? cfg.agentMaxTurns ?? options.defaultMaxTurns,
   );
   let softLimitReached = false;
   let aborted = false;
