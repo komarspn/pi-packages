@@ -295,3 +295,121 @@ describe("assembleSessionConfig — model resolution", () => {
     expect(result.model).toBe(parentModel);
   });
 });
+
+describe("assembleSessionConfig — skill preloading", () => {
+  it("skips preloading when skills is false", () => {
+    // default mock has skills: false
+    assembleSessionConfig("Explore", ctx, {}, mockEnv);
+
+    expect(mockPreloadSkills).not.toHaveBeenCalled();
+    expect(assembleSessionConfig("Explore", ctx, {}, mockEnv).extras).toEqual({});
+  });
+
+  it("skips preloading when skills is true (resource loader handles it)", () => {
+    mockGetConfig.mockReturnValueOnce({
+      displayName: "Agent",
+      description: "General",
+      builtinToolNames: [],
+      extensions: true as const,
+      skills: true as const,
+      promptMode: "append" as const,
+    });
+    mockGetAgentConfig.mockReturnValueOnce({
+      name: "general-purpose",
+      description: "General",
+      extensions: true as const,
+      skills: true as const,
+      systemPrompt: "",
+      promptMode: "append" as const,
+    });
+
+    const result = assembleSessionConfig("general-purpose", ctx, {}, mockEnv);
+
+    expect(mockPreloadSkills).not.toHaveBeenCalled();
+    expect(result.noSkills).toBe(false);
+    expect(result.extras.skillBlocks).toBeUndefined();
+  });
+
+  it("preloads listed skills and sets extras.skillBlocks", () => {
+    const skillList = ["code-style", "testing"];
+    mockGetConfig.mockReturnValueOnce({
+      displayName: "Explore",
+      description: "test",
+      builtinToolNames: ["read"],
+      extensions: false as const,
+      skills: skillList,
+      promptMode: "replace" as const,
+    });
+    mockGetAgentConfig.mockReturnValueOnce({
+      name: "Explore",
+      description: "test",
+      extensions: false as const,
+      skills: skillList,
+      systemPrompt: "prompt",
+      promptMode: "replace" as const,
+    });
+    mockPreloadSkills.mockReturnValueOnce([
+      { name: "code-style", content: "# Code Style" },
+      { name: "testing", content: "# Testing" },
+    ]);
+
+    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv);
+
+    expect(mockPreloadSkills).toHaveBeenCalledWith(skillList, "/tmp");
+    expect(result.extras.skillBlocks).toEqual([
+      { name: "code-style", content: "# Code Style" },
+      { name: "testing", content: "# Testing" },
+    ]);
+    expect(result.noSkills).toBe(true);
+  });
+
+  it("sets noSkills:true but leaves extras.skillBlocks undefined when preloadSkills returns empty", () => {
+    const skillList = ["nonexistent-skill"];
+    mockGetConfig.mockReturnValueOnce({
+      displayName: "Explore",
+      description: "test",
+      builtinToolNames: ["read"],
+      extensions: false as const,
+      skills: skillList,
+      promptMode: "replace" as const,
+    });
+    mockGetAgentConfig.mockReturnValueOnce({
+      name: "Explore",
+      description: "test",
+      extensions: false as const,
+      skills: skillList,
+      systemPrompt: "prompt",
+      promptMode: "replace" as const,
+    });
+    mockPreloadSkills.mockReturnValueOnce([]);
+
+    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv);
+
+    expect(result.noSkills).toBe(true);
+    expect(result.extras.skillBlocks).toBeUndefined();
+  });
+
+  it("isolated:true suppresses skill preloading even when config has skills", () => {
+    mockGetConfig.mockReturnValueOnce({
+      displayName: "Explore",
+      description: "test",
+      builtinToolNames: ["read"],
+      extensions: false as const,
+      skills: ["code-style"],
+      promptMode: "replace" as const,
+    });
+    mockGetAgentConfig.mockReturnValueOnce({
+      name: "Explore",
+      description: "test",
+      extensions: false as const,
+      skills: ["code-style"],
+      systemPrompt: "prompt",
+      promptMode: "replace" as const,
+    });
+
+    const result = assembleSessionConfig("Explore", ctx, { isolated: true }, mockEnv);
+
+    expect(mockPreloadSkills).not.toHaveBeenCalled();
+    expect(result.noSkills).toBe(true);
+  });
+});
