@@ -7,9 +7,10 @@ This activates automatically for any shell or agent session where mise is active
 
 ## Shims
 
-| Command | Redirects to | Rationale                                                                                                              |
-| ------- | ------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| `npm`   | `pnpm`       | This project uses pnpm exclusively. npm must never be used — it ignores `pnpm-lock.yaml` and can corrupt the lockfile. |
+| Command | Redirects to  | Rationale                                                                                                                 |
+| ------- | ------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `npx`   | `pnpm exec`   | This project uses pnpm exclusively. `pnpm exec` provides the same functionality without polluting the global cache.       |
+| `npm`   | `pnpm`        | This project uses pnpm exclusively. npm must never be used — it ignores `pnpm-lock.yaml` and can corrupt the lockfile.    |
 
 ### npm shim pass-throughs
 
