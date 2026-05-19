@@ -21,9 +21,11 @@ Load this skill when implementing, refactoring, or reviewing TypeScript code.
 ### Pi SDK boundaries
 
 Keep Pi SDK imports out of business-logic modules.
+Tool definitions, event handlers, and command handlers are SDK consumers — they may import SDK types directly.
+The restriction targets pure helpers, utilities, and domain modules that should remain SDK-independent.
 When a new capability is needed in a library module, accept it as a parameter or callback — do not reach for the Pi SDK directly.
 
-When writing tool wrappers or event handlers that consume Pi SDK types, prefer lean local payload interfaces over full SDK event types.
+When writing event handlers that consume Pi SDK types, prefer lean local payload interfaces over full SDK event types.
 The SDK may not export all event interfaces, and exported types often require fields the handler does not read.
 Define a minimal interface with only the fields the handler uses.
 
