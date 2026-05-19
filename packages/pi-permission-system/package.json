@@ -19,7 +19,7 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint:md": "rumdl check '*.md' 'docs/**/*.md' '.pi/prompts/**/*.md'",
+    "lint:md": "rumdl check *.md docs/**/*.md",
     "lint": "biome check . && pnpm run lint:md"
   },
   "keywords": [
