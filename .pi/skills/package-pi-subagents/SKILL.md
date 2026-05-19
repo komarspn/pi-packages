@@ -56,11 +56,13 @@ When working in this package:
 
 ```text
 index.ts ──wires──> agent-manager.ts ──calls──> agent-runner.ts
-    │                    │                       ├── prompts.ts
-    │                    ├── worktree.ts          ├── context.ts
-    │                    └── usage.ts             ├── memory.ts
-    ├── service.ts (public API)                   ├── skill-loader.ts
-    ├── service-adapter.ts ──wraps──> agent-manager  └── env.ts
+    │                    │                       ├── session-config.ts
+    │                    ├── worktree.ts          │   ├── prompts.ts
+    │                    └── usage.ts             │   ├── memory.ts
+    ├── service.ts (public API)                   │   ├── skill-loader.ts
+    ├── service-adapter.ts ──wraps──> agent-manager  │   └── agent-types.ts
+    │                                               ├── context.ts
+    │                                               └── env.ts
     ├── tools (Agent,
     │   get_subagent_result,
     │   steer_subagent)
@@ -86,12 +88,13 @@ index.ts ──wires──> agent-manager.ts ──calls──> agent-runner.ts
 
 #### Core engine
 
-| Module             | Responsibility                                                                                                                                                                                                         |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `index.ts`         | Extension entry point. Registers tools, the `/agents` command, lifecycle hooks, the agent widget, notification rendering, and settings persistence.                                                                    |
-| `agent-manager.ts` | Manages agent lifecycle: spawn, resume, abort. Enforces a configurable concurrency limit (default 4) by queuing excess background agents.                                                                              |
-| `agent-runner.ts`  | Core execution engine. Creates agent sessions, assembles system prompts, binds extensions, applies active-tool filtering (Patch 2), injects `<active_agent>` tag (Patch 3), runs the agent loop, and collects results. |
-| `types.ts`         | Shared type definitions: `AgentConfig`, `AgentRecord`, `SubagentType`, `MemoryScope`, `IsolationMode`, etc.                                                                                                            |
+| Module              | Responsibility                                                                                                                                                                                  |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.ts`          | Extension entry point. Registers tools, the `/agents` command, lifecycle hooks, the agent widget, notification rendering, and settings persistence.                                             |
+| `agent-manager.ts`  | Manages agent lifecycle: spawn, resume, abort. Enforces a configurable concurrency limit (default 4) by queuing excess background agents.                                                       |
+| `agent-runner.ts`   | IO shell: calls `assembleSessionConfig`, creates the SDK session, filters tools, binds extensions (Patch 2), injects `<active_agent>` tag (Patch 3), runs the event loop, and collects results. |
+| `session-config.ts` | Pure configuration assembler. Given `(type, ctx, options, env)`, returns `SessionConfig` — system prompt, tool names, model handle, extras — with no SDK types constructed.                     |
+| `types.ts`          | Shared type definitions: `AgentConfig`, `AgentRecord`, `SubagentType`, `MemoryScope`, `IsolationMode`, etc.                                                                                     |
 
 #### Agent configuration
 
