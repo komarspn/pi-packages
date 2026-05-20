@@ -420,6 +420,32 @@ describe("AgentManager — getRunConfig threads defaultMaxTurns and graceTurns i
   });
 });
 
+describe("AgentManager — parent session threading", () => {
+  let manager: AgentManager;
+
+  afterEach(() => {
+    manager?.dispose();
+  });
+
+  it("threads parentSessionFile and parentSessionId from SpawnOptions to RunOptions", async () => {
+    let runner: AgentRunner;
+    ({ manager, runner } = createManager());
+
+    manager.spawn(mockPi, mockCtx, "general-purpose", "test", {
+      description: "test",
+      isBackground: true,
+      parentSessionFile: "/sessions/parent.jsonl",
+      parentSessionId: "parent-session-123",
+    });
+
+    await vi.waitFor(() => expect(runner.run).toHaveBeenCalled());
+
+    const runOpts = vi.mocked(runner.run).mock.calls[0][3];
+    expect(runOpts.parentSessionFile).toBe("/sessions/parent.jsonl");
+    expect(runOpts.parentSessionId).toBe("parent-session-123");
+  });
+});
+
 describe("AgentManager — dispose calls worktrees.prune", () => {
   it("calls worktrees.prune on dispose", () => {
     const { manager, worktrees } = createManager();

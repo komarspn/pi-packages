@@ -82,6 +82,10 @@ export interface RunOptions {
   thinkingLevel?: ThinkingLevel;
   /** Override working directory (e.g. for worktree isolation). */
   cwd?: string;
+  /** Path to the parent session's JSONL file (for deriving the subagent session directory). */
+  parentSessionFile?: string;
+  /** Session ID of the parent agent (stored in the child session's parentSession header). */
+  parentSessionId?: string;
   /** Called on tool start/end with activity info. */
   onToolActivity?: (activity: ToolActivity) => void;
   /** Called on streaming text deltas from the assistant response. */
@@ -127,6 +131,8 @@ export interface RunResult {
   aborted: boolean;
   /** True if the agent was steered to wrap up (hit soft turn limit) but finished in time. */
   steered: boolean;
+  /** Path to the persisted session JSONL file, if the session was persisted. */
+  sessionFile?: string;
 }
 
 /** Options for resuming an existing agent session. */
@@ -383,7 +389,7 @@ export async function runAgent(
 
   const responseText =
     collector.getText().trim() || getLastAssistantText(session);
-  return { responseText, session, aborted, steered: softLimitReached };
+  return { responseText, session, aborted, steered: softLimitReached, sessionFile: undefined };
 }
 
 /**

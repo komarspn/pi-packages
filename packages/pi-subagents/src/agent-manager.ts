@@ -74,6 +74,10 @@ export interface SpawnOptions {
   onAssistantUsage?: (usage: { input: number; output: number; cacheWrite: number }) => void;
   /** Called when the session successfully compacts. */
   onCompaction?: (info: CompactionInfo) => void;
+  /** Path to the parent session's JSONL file (for deriving the subagent session directory). */
+  parentSessionFile?: string;
+  /** Session ID of the parent agent (stored in the child session's parentSession header). */
+  parentSessionId?: string;
 }
 
 export class AgentManager {
@@ -205,6 +209,8 @@ export class AgentManager {
       inheritContext: options.inheritContext,
       thinkingLevel: options.thinkingLevel,
       cwd: worktreeCwd,
+      parentSessionFile: options.parentSessionFile,
+      parentSessionId: options.parentSessionId,
       signal: record.abortController!.signal,
       onToolActivity: (activity) => {
         if (activity.type === "end") record.toolUses++;

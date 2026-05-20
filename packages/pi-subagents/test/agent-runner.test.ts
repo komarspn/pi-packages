@@ -170,6 +170,16 @@ describe("agent-runner final output capture", () => {
     expect(ctorArgs.appendSystemPromptOverride(["would-be-loaded"])).toEqual([]);
   });
 
+  it("returns sessionFile in RunResult (undefined until SessionManager is persisted)", async () => {
+    const { session } = createSession("WITH_FILE");
+    createAgentSession.mockResolvedValue({ session });
+
+    const result = await runAgent(ctx, "Explore", "go", { pi });
+
+    // sessionFile is part of RunResult — currently undefined when using inMemory
+    expect(result).toHaveProperty("sessionFile");
+  });
+
   it("resumeAgent also falls back to the final assistant message text", async () => {
     const { session } = createSession("RESUMED");
 
