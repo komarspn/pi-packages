@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { getConfig } from "../src/agent-types.js";
 import type { PreloadedSkill } from "../src/skill-loader.js";
 import type { AgentConfig } from "../src/types.js";
 
 const {
-  mockGetConfig,
-  mockGetAgentConfig,
+  mockResolveAgentConfig,
   mockGetToolNamesForType,
   mockGetMemoryToolNames,
   mockGetReadOnlyMemoryToolNames,
@@ -14,15 +12,7 @@ const {
   mockBuildReadOnlyMemoryBlock,
   mockPreloadSkills,
 } = vi.hoisted(() => ({
-  mockGetConfig: vi.fn((): ReturnType<typeof getConfig> => ({
-    displayName: "Explore",
-    description: "Fast codebase exploration agent",
-    builtinToolNames: ["read"],
-    extensions: false,
-    skills: false,
-    promptMode: "replace",
-  })),
-  mockGetAgentConfig: vi.fn((): AgentConfig | undefined => ({
+  mockResolveAgentConfig: vi.fn((): AgentConfig => ({
     name: "Explore",
     description: "Fast codebase exploration agent",
     builtinToolNames: ["read"],
@@ -30,9 +20,6 @@ const {
     skills: false,
     systemPrompt: "You are Explore.",
     promptMode: "replace",
-    inheritContext: false,
-    runInBackground: false,
-    isolated: false,
   })),
   mockGetToolNamesForType: vi.fn((): string[] => ["read"]),
   mockGetMemoryToolNames: vi.fn((): string[] => []),
@@ -44,8 +31,7 @@ const {
 }));
 
 vi.mock("../src/agent-types.js", () => ({
-  getConfig: mockGetConfig,
-  getAgentConfig: mockGetAgentConfig,
+  resolveAgentConfig: mockResolveAgentConfig,
   getToolNamesForType: mockGetToolNamesForType,
   getMemoryToolNames: mockGetMemoryToolNames,
   getReadOnlyMemoryToolNames: mockGetReadOnlyMemoryToolNames,
@@ -80,8 +66,7 @@ const ctx = {
 };
 
 beforeEach(() => {
-  mockGetConfig.mockClear();
-  mockGetAgentConfig.mockClear();
+  mockResolveAgentConfig.mockClear();
   mockGetToolNamesForType.mockClear();
   mockGetMemoryToolNames.mockClear();
   mockGetReadOnlyMemoryToolNames.mockClear();
@@ -121,7 +106,7 @@ describe("assembleSessionConfig — default agent shape", () => {
   });
 
   it("builds disallowedSet from agentConfig.disallowedTools", () => {
-    mockGetAgentConfig.mockReturnValueOnce({
+    mockResolveAgentConfig.mockReturnValueOnce({
       name: "Explore",
       description: "test",
       builtinToolNames: ["read"],
@@ -171,7 +156,7 @@ describe("assembleSessionConfig — model resolution", () => {
 
   it("options.model wins over config model and parent model", () => {
     const explicitModel = { provider: "anthropic", id: "claude-opus-4" };
-    mockGetAgentConfig.mockReturnValueOnce({
+    mockResolveAgentConfig.mockReturnValueOnce({
       name: "Explore",
       description: "test",
       extensions: false as const,
@@ -193,7 +178,7 @@ describe("assembleSessionConfig — model resolution", () => {
 
   it("config model string resolves via registry when available", () => {
     const resolvedModel = { provider: "anthropic", id: "claude-opus-4" };
-    mockGetAgentConfig.mockReturnValueOnce({
+    mockResolveAgentConfig.mockReturnValueOnce({
       name: "Explore",
       description: "test",
       extensions: false as const,
@@ -215,7 +200,7 @@ describe("assembleSessionConfig — model resolution", () => {
 
   it("falls back to parentModel when config model string is not in registry", () => {
     const parentModel = { provider: "anthropic", id: "claude-haiku-4" };
-    mockGetAgentConfig.mockReturnValueOnce({
+    mockResolveAgentConfig.mockReturnValueOnce({
       name: "Explore",
       description: "test",
       extensions: false as const,
@@ -240,7 +225,7 @@ describe("assembleSessionConfig — model resolution", () => {
   it("falls back to parentModel when config model is not available (not in getAvailable)", () => {
     const parentModel = { provider: "anthropic", id: "claude-haiku-4" };
     const foundModel = { provider: "anthropic", id: "claude-opus-4" };
-    mockGetAgentConfig.mockReturnValueOnce({
+    mockResolveAgentConfig.mockReturnValueOnce({
       name: "Explore",
       description: "test",
       extensions: false as const,
@@ -265,7 +250,7 @@ describe("assembleSessionConfig — model resolution", () => {
 
   it("falls back to parentModel when config model has no slash", () => {
     const parentModel = { provider: "anthropic", id: "claude-haiku-4" };
-    mockGetAgentConfig.mockReturnValueOnce({
+    mockResolveAgentConfig.mockReturnValueOnce({
       name: "Explore",
       description: "test",
       extensions: false as const,
@@ -309,15 +294,7 @@ describe("assembleSessionConfig — skill preloading", () => {
   });
 
   it("skips preloading when skills is true (resource loader handles it)", () => {
-    mockGetConfig.mockReturnValueOnce({
-      displayName: "Agent",
-      description: "General",
-      builtinToolNames: [],
-      extensions: true as const,
-      skills: true as const,
-      promptMode: "append" as const,
-    });
-    mockGetAgentConfig.mockReturnValueOnce({
+    mockResolveAgentConfig.mockReturnValueOnce({
       name: "general-purpose",
       description: "General",
       extensions: true as const,
@@ -335,17 +312,10 @@ describe("assembleSessionConfig — skill preloading", () => {
 
   it("preloads listed skills and sets extras.skillBlocks", () => {
     const skillList = ["code-style", "testing"];
-    mockGetConfig.mockReturnValueOnce({
-      displayName: "Explore",
-      description: "test",
-      builtinToolNames: ["read"],
-      extensions: false as const,
-      skills: skillList,
-      promptMode: "replace" as const,
-    });
-    mockGetAgentConfig.mockReturnValueOnce({
+    mockResolveAgentConfig.mockReturnValueOnce({
       name: "Explore",
       description: "test",
+      builtinToolNames: ["read"],
       extensions: false as const,
       skills: skillList,
       systemPrompt: "prompt",
@@ -368,17 +338,10 @@ describe("assembleSessionConfig — skill preloading", () => {
 
   it("sets noSkills:true but leaves extras.skillBlocks undefined when preloadSkills returns empty", () => {
     const skillList = ["nonexistent-skill"];
-    mockGetConfig.mockReturnValueOnce({
-      displayName: "Explore",
-      description: "test",
-      builtinToolNames: ["read"],
-      extensions: false as const,
-      skills: skillList,
-      promptMode: "replace" as const,
-    });
-    mockGetAgentConfig.mockReturnValueOnce({
+    mockResolveAgentConfig.mockReturnValueOnce({
       name: "Explore",
       description: "test",
+      builtinToolNames: ["read"],
       extensions: false as const,
       skills: skillList,
       systemPrompt: "prompt",
@@ -393,17 +356,10 @@ describe("assembleSessionConfig — skill preloading", () => {
   });
 
   it("isolated:true suppresses skill preloading even when config has skills", () => {
-    mockGetConfig.mockReturnValueOnce({
-      displayName: "Explore",
-      description: "test",
-      builtinToolNames: ["read"],
-      extensions: false as const,
-      skills: ["code-style"],
-      promptMode: "replace" as const,
-    });
-    mockGetAgentConfig.mockReturnValueOnce({
+    mockResolveAgentConfig.mockReturnValueOnce({
       name: "Explore",
       description: "test",
+      builtinToolNames: ["read"],
       extensions: false as const,
       skills: ["code-style"],
       systemPrompt: "prompt",
@@ -418,7 +374,7 @@ describe("assembleSessionConfig — skill preloading", () => {
 });
 
 describe("assembleSessionConfig — memory block selection", () => {
-  function agentWithMemory(toolNames: string[], disallowedTools?: string[]) {
+  function agentWithMemory(toolNames: string[], disallowedTools?: string[]): AgentConfig {
     return {
       name: "Writer",
       description: "test",
@@ -442,7 +398,7 @@ describe("assembleSessionConfig — memory block selection", () => {
   });
 
   it("agent with memory + write tool → read-write block", () => {
-    mockGetAgentConfig.mockReturnValueOnce(agentWithMemory(["read", "write", "bash"]));
+    mockResolveAgentConfig.mockReturnValueOnce(agentWithMemory(["read", "write", "bash"]));
     mockGetToolNamesForType.mockReturnValueOnce(["read", "write", "bash"]);
     mockGetMemoryToolNames.mockReturnValueOnce([]);
 
@@ -454,7 +410,7 @@ describe("assembleSessionConfig — memory block selection", () => {
   });
 
   it("agent with memory + edit tool (but no write) → read-write block", () => {
-    mockGetAgentConfig.mockReturnValueOnce(agentWithMemory(["read", "edit"]));
+    mockResolveAgentConfig.mockReturnValueOnce(agentWithMemory(["read", "edit"]));
     mockGetToolNamesForType.mockReturnValueOnce(["read", "edit"]);
     mockGetMemoryToolNames.mockReturnValueOnce([]);
 
@@ -465,7 +421,7 @@ describe("assembleSessionConfig — memory block selection", () => {
   });
 
   it("agent with memory + read-only tools → read-only block", () => {
-    mockGetAgentConfig.mockReturnValueOnce(agentWithMemory(["read", "bash", "grep"]));
+    mockResolveAgentConfig.mockReturnValueOnce(agentWithMemory(["read", "bash", "grep"]));
     mockGetToolNamesForType.mockReturnValueOnce(["read", "bash", "grep"]);
     mockGetReadOnlyMemoryToolNames.mockReturnValueOnce([]);
 
@@ -477,7 +433,7 @@ describe("assembleSessionConfig — memory block selection", () => {
   });
 
   it("denied write tool → read-only block (denylist applied before capability check)", () => {
-    mockGetAgentConfig.mockReturnValueOnce(
+    mockResolveAgentConfig.mockReturnValueOnce(
       agentWithMemory(["read", "write", "bash"], ["write"]),
     );
     mockGetToolNamesForType.mockReturnValueOnce(["read", "write", "bash"]);
@@ -490,7 +446,7 @@ describe("assembleSessionConfig — memory block selection", () => {
   });
 
   it("denied edit tool → read-only block when edit was the only write capability", () => {
-    mockGetAgentConfig.mockReturnValueOnce(
+    mockResolveAgentConfig.mockReturnValueOnce(
       agentWithMemory(["read", "edit"], ["edit"]),
     );
     mockGetToolNamesForType.mockReturnValueOnce(["read", "edit"]);
@@ -503,7 +459,7 @@ describe("assembleSessionConfig — memory block selection", () => {
   });
 
   it("adds missing memory tool names from getMemoryToolNames to toolNames", () => {
-    mockGetAgentConfig.mockReturnValueOnce(agentWithMemory(["read", "write"]));
+    mockResolveAgentConfig.mockReturnValueOnce(agentWithMemory(["read", "write"]));
     mockGetToolNamesForType.mockReturnValueOnce(["read", "write"]);
     // getMemoryToolNames returns tools not already present (e.g. edit)
     mockGetMemoryToolNames.mockReturnValueOnce(["edit"]);
@@ -515,7 +471,7 @@ describe("assembleSessionConfig — memory block selection", () => {
   });
 
   it("adds read tool name from getReadOnlyMemoryToolNames when not already present", () => {
-    mockGetAgentConfig.mockReturnValueOnce(agentWithMemory(["bash", "grep"]));
+    mockResolveAgentConfig.mockReturnValueOnce(agentWithMemory(["bash", "grep"]));
     mockGetToolNamesForType.mockReturnValueOnce(["bash", "grep"]);
     mockGetReadOnlyMemoryToolNames.mockReturnValueOnce(["read"]);
 
@@ -527,15 +483,7 @@ describe("assembleSessionConfig — memory block selection", () => {
 
 describe("assembleSessionConfig — isolated mode", () => {
   it("isolated:true forces extensions to false regardless of config", () => {
-    mockGetConfig.mockReturnValueOnce({
-      displayName: "Agent",
-      description: "General",
-      builtinToolNames: [],
-      extensions: true as const,
-      skills: true as const,
-      promptMode: "append" as const,
-    });
-    mockGetAgentConfig.mockReturnValueOnce({
+    mockResolveAgentConfig.mockReturnValueOnce({
       name: "general-purpose",
       description: "General",
       extensions: true as const,
@@ -551,15 +499,7 @@ describe("assembleSessionConfig — isolated mode", () => {
   });
 
   it("isolated:false (default) preserves config extensions setting", () => {
-    mockGetConfig.mockReturnValueOnce({
-      displayName: "Agent",
-      description: "General",
-      builtinToolNames: [],
-      extensions: true as const,
-      skills: true as const,
-      promptMode: "append" as const,
-    });
-    mockGetAgentConfig.mockReturnValueOnce({
+    mockResolveAgentConfig.mockReturnValueOnce({
       name: "general-purpose",
       description: "General",
       extensions: true as const,
@@ -574,17 +514,10 @@ describe("assembleSessionConfig — isolated mode", () => {
   });
 
   it("isolated:true forces extensions to false even for string[] extension list", () => {
-    mockGetConfig.mockReturnValueOnce({
-      displayName: "Explore",
-      description: "test",
-      builtinToolNames: ["read"],
-      extensions: ["pi-github-tools"] as string[],
-      skills: false as const,
-      promptMode: "replace" as const,
-    });
-    mockGetAgentConfig.mockReturnValueOnce({
+    mockResolveAgentConfig.mockReturnValueOnce({
       name: "Explore",
       description: "test",
+      builtinToolNames: ["read"],
       extensions: ["pi-github-tools"] as string[],
       skills: false as const,
       systemPrompt: "prompt",
@@ -598,23 +531,22 @@ describe("assembleSessionConfig — isolated mode", () => {
 });
 
 describe("assembleSessionConfig — unknown type fallback", () => {
-  it("uses general-purpose config when agentConfig returns undefined", () => {
-    mockGetAgentConfig.mockReturnValueOnce(undefined);
-    // getConfig returns general-purpose fallback for unknown types
-    mockGetConfig.mockReturnValueOnce({
-      displayName: "Agent",
+  it("passes resolved config directly to buildAgentPrompt", () => {
+    // resolveAgentConfig handles the fallback internally —
+    // session-config just forwards whatever it returns
+    mockResolveAgentConfig.mockReturnValueOnce({
+      name: "general-purpose",
       description: "General-purpose",
-      builtinToolNames: [],
       extensions: true as const,
       skills: true as const,
+      systemPrompt: "",
       promptMode: "append" as const,
     });
 
     assembleSessionConfig("unknown-custom-agent", ctx, {}, mockEnv);
 
-    // buildAgentPrompt called with the fallback config, name overridden to the type string
     expect(mockBuildAgentPrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "unknown-custom-agent" }),
+      expect.objectContaining({ name: "general-purpose" }),
       expect.any(String),
       expect.any(Object),
       expect.any(String),
@@ -631,7 +563,7 @@ describe("assembleSessionConfig — thinking level", () => {
   });
 
   it("options.thinkingLevel wins over agentConfig.thinking", () => {
-    mockGetAgentConfig.mockReturnValueOnce({
+    mockResolveAgentConfig.mockReturnValueOnce({
       name: "Explore",
       description: "test",
       extensions: false as const,
@@ -652,7 +584,7 @@ describe("assembleSessionConfig — thinking level", () => {
   });
 
   it("agentConfig.thinking is used when no option is provided", () => {
-    mockGetAgentConfig.mockReturnValueOnce({
+    mockResolveAgentConfig.mockReturnValueOnce({
       name: "Explore",
       description: "test",
       extensions: false as const,

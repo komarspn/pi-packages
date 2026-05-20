@@ -11,13 +11,11 @@
  */
 
 import {
-  getAgentConfig,
-  getConfig,
   getMemoryToolNames,
   getReadOnlyMemoryToolNames,
   getToolNamesForType,
+  resolveAgentConfig,
 } from "./agent-types.js";
-import { DEFAULT_AGENTS } from "./default-agents.js";
 import { buildMemoryBlock, buildReadOnlyMemoryBlock } from "./memory.js";
 import { buildAgentPrompt, type PromptExtras } from "./prompts.js";
 import { preloadSkills } from "./skill-loader.js";
@@ -149,14 +147,13 @@ export function assembleSessionConfig(
   options: AssemblerOptions,
   env: EnvInfo,
 ): SessionConfig {
-  const config = getConfig(type);
-  const agentConfig = getAgentConfig(type);
+  const agentConfig = resolveAgentConfig(type);
 
   const effectiveCwd = options.cwd ?? ctx.cwd;
 
   // Resolve extensions/skills: isolated overrides to false
-  const extensions = options.isolated ? false : config.extensions;
-  const skills = options.isolated ? false : config.skills;
+  const extensions = options.isolated ? false : agentConfig.extensions;
+  const skills = options.isolated ? false : agentConfig.skills;
 
   // Build prompt extras (memory, preloaded skills)
   const extras: PromptExtras = {};
@@ -174,7 +171,7 @@ export function assembleSessionConfig(
   // Persistent memory: detect write capability and branch accordingly.
   // Account for disallowedTools — a tool in the base set but on the denylist
   // is not truly available.
-  if (agentConfig?.memory) {
+  if (agentConfig.memory) {
     const existingNames = new Set(toolNames);
     const denied = agentConfig.disallowedTools
       ? new Set(agentConfig.disallowedTools)
@@ -202,51 +199,34 @@ export function assembleSessionConfig(
     }
   }
 
-  // Build system prompt from agent config (or general-purpose fallback for unknown types)
-  let systemPrompt: string;
-  if (agentConfig) {
-    systemPrompt = buildAgentPrompt(
-      agentConfig,
-      effectiveCwd,
-      env,
-      ctx.parentSystemPrompt,
-      extras,
-    );
-  } else {
-    // Unknown type fallback: spread the canonical general-purpose config (defensive —
-    // unreachable in practice since index.ts resolves unknown types before calling runAgent).
-    const fallback = DEFAULT_AGENTS.get("general-purpose");
-    if (!fallback) {
-      throw new Error(`No fallback config available for unknown type "${type}"`);
-    }
-    systemPrompt = buildAgentPrompt(
-      { ...fallback, name: type },
-      effectiveCwd,
-      env,
-      ctx.parentSystemPrompt,
-      extras,
-    );
-  }
+  // Build system prompt from the resolved agent config
+  const systemPrompt = buildAgentPrompt(
+    agentConfig,
+    effectiveCwd,
+    env,
+    ctx.parentSystemPrompt,
+    extras,
+  );
 
   // noSkills: when we've already preloaded skills into the prompt, or skills = false,
   // tell the resource loader not to load them again.
   const noSkills = skills === false || Array.isArray(skills);
 
   // Disallowed tools set (for filterActiveTools in runAgent)
-  const disallowedSet = agentConfig?.disallowedTools
+  const disallowedSet = agentConfig.disallowedTools
     ? new Set(agentConfig.disallowedTools)
     : undefined;
 
   // Model resolution: explicit option > config model string > parent model
   const model =
     options.model ??
-    resolveDefaultModel(ctx.parentModel, ctx.modelRegistry, agentConfig?.model);
+    resolveDefaultModel(ctx.parentModel, ctx.modelRegistry, agentConfig.model);
 
   // Thinking level: explicit option > agent config > undefined (inherit)
-  const thinkingLevel = options.thinkingLevel ?? agentConfig?.thinking;
+  const thinkingLevel = options.thinkingLevel ?? agentConfig.thinking;
 
   // Per-agent max turns (combined with options.maxTurns and defaultMaxTurns by runAgent)
-  const agentMaxTurns = agentConfig?.maxTurns;
+  const agentMaxTurns = agentConfig.maxTurns;
 
   return {
     effectiveCwd,
