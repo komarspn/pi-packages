@@ -1,31 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { type AgentToolDeps, createAgentTool } from "../../src/tools/agent-tool.js";
-import type { AgentRecord } from "../../src/types.js";
 import type { AgentActivity } from "../../src/ui/agent-widget.js";
-
-function makeRecord(overrides: Partial<AgentRecord> = {}): AgentRecord {
-  return {
-    id: "agent-1",
-    type: "general-purpose",
-    description: "Test task",
-    status: "completed",
-    result: "All done.",
-    toolUses: 3,
-    startedAt: 1000,
-    completedAt: 2000,
-    compactionCount: 0,
-    lifetimeUsage: { input: 500, output: 500, cacheWrite: 0 },
-    ...overrides,
-  };
-}
+import { createTestRecord } from "../helpers/make-record.js";
 
 function makeDeps(overrides: Partial<AgentToolDeps> = {}): AgentToolDeps {
   return {
     manager: {
       spawn: vi.fn().mockReturnValue("agent-1"),
-      spawnAndWait: vi.fn().mockResolvedValue(makeRecord()),
-      resume: vi.fn().mockResolvedValue(makeRecord()),
-      getRecord: vi.fn().mockReturnValue(makeRecord()),
+      spawnAndWait: vi.fn().mockResolvedValue(createTestRecord()),
+      resume: vi.fn().mockResolvedValue(createTestRecord()),
+      getRecord: vi.fn().mockReturnValue(createTestRecord()),
       getMaxConcurrent: vi.fn().mockReturnValue(4),
       listAgents: vi.fn().mockReturnValue([]),
     },
@@ -122,7 +106,7 @@ describe("Agent tool — resume path", () => {
 
   it("returns no-session when agent has no active session", async () => {
     const deps = makeDeps();
-    deps.manager.getRecord = vi.fn().mockReturnValue(makeRecord({ session: undefined }));
+    deps.manager.getRecord = vi.fn().mockReturnValue(createTestRecord({ session: undefined }));
     const result = await execute(deps, {
       prompt: "continue",
       description: "resume",
@@ -134,8 +118,8 @@ describe("Agent tool — resume path", () => {
 
   it("returns result text on successful resume", async () => {
     const deps = makeDeps();
-    deps.manager.getRecord = vi.fn().mockReturnValue(makeRecord({ session: {} as any }));
-    deps.manager.resume = vi.fn().mockResolvedValue(makeRecord({ result: "Resumed output." }));
+    deps.manager.getRecord = vi.fn().mockReturnValue(createTestRecord({ session: {} as any }));
+    deps.manager.resume = vi.fn().mockResolvedValue(createTestRecord({ result: "Resumed output." }));
     const result = await execute(deps, {
       prompt: "continue",
       description: "resume",
@@ -171,7 +155,7 @@ describe("Agent tool — model resolution error", () => {
 describe("Agent tool — background execution", () => {
   it("returns background launch message with agent ID", async () => {
     const deps = makeDeps();
-    const record = makeRecord({ status: "running" });
+    const record = createTestRecord({ status: "running" });
     deps.manager.getRecord = vi.fn().mockReturnValue(record);
     const result = await execute(deps, {
       prompt: "do something",
@@ -187,7 +171,7 @@ describe("Agent tool — background execution", () => {
 
   it("emits subagents:created event for background agents", async () => {
     const deps = makeDeps();
-    deps.manager.getRecord = vi.fn().mockReturnValue(makeRecord({ status: "running" }));
+    deps.manager.getRecord = vi.fn().mockReturnValue(createTestRecord({ status: "running" }));
     await execute(deps, {
       prompt: "do something",
       description: "bg task",
@@ -202,7 +186,7 @@ describe("Agent tool — background execution", () => {
 
   it("registers activity in agentActivity map", async () => {
     const deps = makeDeps();
-    deps.manager.getRecord = vi.fn().mockReturnValue(makeRecord({ status: "running" }));
+    deps.manager.getRecord = vi.fn().mockReturnValue(createTestRecord({ status: "running" }));
     await execute(deps, {
       prompt: "do something",
       description: "bg task",
@@ -217,7 +201,7 @@ describe("Agent tool — foreground execution", () => {
   it("returns completion message with stats", async () => {
     const deps = makeDeps();
     deps.manager.spawnAndWait = vi.fn().mockResolvedValue(
-      makeRecord({ result: "Task complete.", toolUses: 5 }),
+      createTestRecord({ result: "Task complete.", toolUses: 5 }),
     );
     const result = await execute(deps, {
       prompt: "do task",
@@ -232,7 +216,7 @@ describe("Agent tool — foreground execution", () => {
   it("returns error message when agent fails", async () => {
     const deps = makeDeps();
     deps.manager.spawnAndWait = vi.fn().mockResolvedValue(
-      makeRecord({ status: "error", error: "Out of context" }),
+      createTestRecord({ status: "error", error: "Out of context" }),
     );
     const result = await execute(deps, {
       prompt: "do task",

@@ -1,21 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSteerTool } from "../../src/tools/steer-tool.js";
 import type { AgentRecord } from "../../src/types.js";
-
-function makeRecord(overrides: Partial<AgentRecord> = {}): AgentRecord {
-  return {
-    id: "agent-1",
-    type: "general-purpose",
-    description: "Test task",
-    status: "running",
-    toolUses: 3,
-    startedAt: 1000,
-    compactionCount: 0,
-    lifetimeUsage: { input: 500, output: 500, cacheWrite: 0 },
-    session: { fake: true },
-    ...overrides,
-  } as AgentRecord;
-}
+import { createTestRecord } from "../helpers/make-record.js";
 
 function makeDeps(records: Map<string, AgentRecord> = new Map()) {
   return {
@@ -45,14 +31,14 @@ describe("createSteerTool", () => {
   });
 
   it("rejects steering a non-running agent", async () => {
-    const records = new Map([["agent-1", makeRecord({ status: "completed" })]]);
+    const records = new Map([["agent-1", createTestRecord({ status: "completed" })]]);
     const result = await execute(makeDeps(records), { agent_id: "agent-1", message: "hi" });
     expect(result.content[0].text).toContain("not running");
     expect(result.content[0].text).toContain("completed");
   });
 
   it("queues steer when session is not ready", async () => {
-    const record = makeRecord({ session: undefined });
+    const record = createTestRecord({ status: "running", session: undefined });
     const records = new Map([["agent-1", record]]);
     const deps = makeDeps(records);
     const result = await execute(deps, { agent_id: "agent-1", message: "redirect" });
@@ -65,7 +51,7 @@ describe("createSteerTool", () => {
   });
 
   it("sends steer and emits event on success", async () => {
-    const record = makeRecord();
+    const record = createTestRecord({ status: "running", session: { fake: true } as any });
     const records = new Map([["agent-1", record]]);
     const deps = makeDeps(records);
     const result = await execute(deps, { agent_id: "agent-1", message: "change plan" });
@@ -79,7 +65,7 @@ describe("createSteerTool", () => {
   });
 
   it("returns error message when steerAgent throws", async () => {
-    const record = makeRecord();
+    const record = createTestRecord({ status: "running", session: { fake: true } as any });
     const records = new Map([["agent-1", record]]);
     const deps = makeDeps(records);
     deps.steerAgent.mockRejectedValue(new Error("session closed"));

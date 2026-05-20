@@ -1,22 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createGetResultTool } from "../../src/tools/get-result-tool.js";
 import type { AgentRecord } from "../../src/types.js";
-
-function makeRecord(overrides: Partial<AgentRecord> = {}): AgentRecord {
-  return {
-    id: "agent-1",
-    type: "general-purpose",
-    description: "Test task",
-    status: "completed",
-    result: "All done.",
-    toolUses: 3,
-    startedAt: 1000,
-    completedAt: 2000,
-    lifetimeUsage: { input: 500, output: 500, cacheWrite: 0 },
-    compactionCount: 0,
-    ...overrides,
-  };
-}
+import { createTestRecord } from "../helpers/make-record.js";
 
 function makeDeps(records: Map<string, AgentRecord> = new Map()) {
   return {
@@ -43,7 +28,7 @@ describe("createGetResultTool", () => {
   });
 
   it("returns status and result for completed agent", async () => {
-    const records = new Map([["agent-1", makeRecord()]]);
+    const records = new Map([["agent-1", createTestRecord()]]);
     const result = await execute(makeDeps(records), { agent_id: "agent-1" });
     const text = result.content[0].text;
     expect(text).toContain("Agent: agent-1");
@@ -52,19 +37,19 @@ describe("createGetResultTool", () => {
   });
 
   it("shows running message for in-progress agent", async () => {
-    const records = new Map([["agent-1", makeRecord({ status: "running", completedAt: undefined })]]);
+    const records = new Map([["agent-1", createTestRecord({ status: "running", completedAt: undefined })]]);
     const result = await execute(makeDeps(records), { agent_id: "agent-1" });
     expect(result.content[0].text).toContain("still running");
   });
 
   it("shows error for failed agent", async () => {
-    const records = new Map([["agent-1", makeRecord({ status: "error", error: "timeout" })]]);
+    const records = new Map([["agent-1", createTestRecord({ status: "error", error: "timeout" })]]);
     const result = await execute(makeDeps(records), { agent_id: "agent-1" });
     expect(result.content[0].text).toContain("Error: timeout");
   });
 
   it("marks result as consumed and cancels nudge for completed agent", async () => {
-    const record = makeRecord();
+    const record = createTestRecord();
     const records = new Map([["agent-1", record]]);
     const deps = makeDeps(records);
     await execute(deps, { agent_id: "agent-1" });
@@ -73,7 +58,7 @@ describe("createGetResultTool", () => {
   });
 
   it("does not mark consumed for running agent", async () => {
-    const record = makeRecord({ status: "running", completedAt: undefined });
+    const record = createTestRecord({ status: "running", completedAt: undefined });
     const records = new Map([["agent-1", record]]);
     const deps = makeDeps(records);
     await execute(deps, { agent_id: "agent-1" });
@@ -82,7 +67,7 @@ describe("createGetResultTool", () => {
   });
 
   it("waits for promise when wait=true and agent is running", async () => {
-    const record = makeRecord({
+    const record = createTestRecord({
       status: "running",
       completedAt: undefined,
       promise: Promise.resolve().then(() => {
@@ -98,7 +83,7 @@ describe("createGetResultTool", () => {
   });
 
   it("includes conversation when verbose=true", async () => {
-    const record = makeRecord({ session: {} as any });
+    const record = createTestRecord({ session: {} as any });
     const records = new Map([["agent-1", record]]);
     const deps = makeDeps(records);
     deps.getConversation.mockReturnValue("User: hello\nAssistant: hi");
