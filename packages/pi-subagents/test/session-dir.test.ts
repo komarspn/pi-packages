@@ -31,8 +31,9 @@ describe("deriveSubagentSessionDir", () => {
 
   it("returns a temp directory when parentSessionFile is undefined", () => {
     const result = deriveSubagentSessionDir(undefined, "/home/user/project");
-    // Should start with the OS temp directory prefix and contain "pi-subagents"
+    // Should contain pi-subagents prefix, encoded cwd, and end with tasks
     expect(result).toMatch(/pi-subagents/);
+    expect(result).toContain("home-user-project");
     expect(result).toMatch(/tasks$/);
   });
 });
