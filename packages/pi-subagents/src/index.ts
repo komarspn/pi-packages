@@ -185,8 +185,8 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerTool(defineTool(createAgentTool({
     manager: {
-      spawn: (ctx, type, prompt, opts) => manager.spawn(pi, ctx as any, type, prompt, opts as any),
-      spawnAndWait: (ctx, type, prompt, opts) => manager.spawnAndWait(pi, ctx as any, type, prompt, opts as any),
+      spawn: (ctx, type, prompt, opts) => manager.spawn(pi, ctx, type, prompt, opts),
+      spawnAndWait: (ctx, type, prompt, opts) => manager.spawnAndWait(pi, ctx, type, prompt, opts),
       resume: (id, prompt, signal) => manager.resume(id, prompt, signal),
       getRecord: (id) => manager.getRecord(id),
       getMaxConcurrent: () => manager.getMaxConcurrent(),
@@ -205,7 +205,7 @@ export default function (pi: ExtensionAPI) {
     availableTypesText: getAvailableTypes().join(", "),
     agentDir: getAgentDir(),
     getDefaultMaxTurns: () => runtime.defaultMaxTurns,
-  }) as any));
+  })));
 
   // ---- get_subagent_result tool ----
 

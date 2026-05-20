@@ -1,5 +1,7 @@
+import type { AgentToolResult, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
+import type { SpawnOptions } from "../agent-manager.js";
 import { normalizeMaxTurns } from "../agent-runner.js";
 import { resolveAgentConfig, resolveType } from "../agent-types.js";
 import { resolveAgentInvocationConfig } from "../invocation-config.js";
@@ -121,8 +123,8 @@ export function buildDetails(
 
 /** Narrow manager interface — only the methods the Agent tool calls. */
 export interface AgentToolManager {
-  spawn: (ctx: unknown, type: string, prompt: string, opts: object) => string;
-  spawnAndWait: (ctx: unknown, type: string, prompt: string, opts: object) => Promise<AgentRecord>;
+  spawn: (ctx: ExtensionContext, type: string, prompt: string, opts: SpawnOptions) => string;
+  spawnAndWait: (ctx: ExtensionContext, type: string, prompt: string, opts: Omit<SpawnOptions, "isBackground">) => Promise<AgentRecord>;
   resume: (id: string, prompt: string, signal: AbortSignal) => Promise<AgentRecord | undefined>;
   getRecord: (id: string) => AgentRecord | undefined;
   getMaxConcurrent: () => number;
@@ -353,8 +355,8 @@ Guidelines:
     execute: async (
       toolCallId: string,
       params: Record<string, unknown>,
-      signal: AbortSignal,
-      onUpdate: ((update: unknown) => void) | undefined,
+      signal: AbortSignal | undefined,
+      onUpdate: ((update: AgentToolResult<any>) => void) | undefined,
       ctx: any,
     ) => {
       // Ensure we have UI context for widget rendering
@@ -436,7 +438,7 @@ Guidelines:
         const record = await deps.manager.resume(
           params.resume as string,
           params.prompt as string,
-          signal,
+          signal ?? new AbortController().signal,
         );
         if (!record) {
           return textResult(`Failed to resume agent "${params.resume}".`);
@@ -465,7 +467,7 @@ Guidelines:
 
         try {
           id = deps.manager.spawn(ctx, subagentType, params.prompt as string, {
-            description: params.description,
+            description: params.description as string,
             model,
             maxTurns: effectiveMaxTurns,
             isolated,
@@ -585,7 +587,7 @@ Guidelines:
           subagentType,
           params.prompt as string,
           {
-            description: params.description,
+            description: params.description as string,
             model,
             maxTurns: effectiveMaxTurns,
             isolated,
