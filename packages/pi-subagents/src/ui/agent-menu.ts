@@ -3,8 +3,9 @@ import { join } from "node:path";
 
 import {
   BUILTIN_TOOL_NAMES,
-  getAgentConfig,
   getAllTypes,
+  resolveAgentConfig,
+  resolveType,
 } from "../agent-types.js";
 import type { AgentConfig, AgentRecord } from "../types.js";
 import type { AgentActivity } from "./agent-widget.js";
@@ -152,21 +153,21 @@ export function createAgentsMenuHandler(deps: AgentMenuDeps) {
     };
 
     const entries = allNames.map((name) => {
-      const cfg = getAgentConfig(name);
-      const disabled = cfg?.enabled === false;
+      const cfg = resolveAgentConfig(name);
+      const disabled = cfg.enabled === false;
       const model = deps.getModelLabel(name, ctx.modelRegistry);
       const indicator = sourceIndicator(cfg);
       const prefix = `${indicator}${name} · ${model}`;
-      const desc = disabled ? "(disabled)" : (cfg?.description ?? name);
+      const desc = disabled ? "(disabled)" : cfg.description;
       return { name, prefix, desc };
     });
     const maxPrefix = Math.max(...entries.map((e) => e.prefix.length));
 
     const hasCustom = allNames.some((n) => {
-      const c = getAgentConfig(n);
-      return c && !c.isDefault && c.enabled !== false;
+      const c = resolveAgentConfig(n);
+      return !c.isDefault && c.enabled !== false;
     });
-    const hasDisabled = allNames.some((n) => getAgentConfig(n)?.enabled === false);
+    const hasDisabled = allNames.some((n) => resolveAgentConfig(n).enabled === false);
     const legendParts: string[] = [];
     if (hasCustom) legendParts.push("• = project  ◦ = global");
     if (hasDisabled) legendParts.push("✕ = disabled");
@@ -184,7 +185,7 @@ export function createAgentsMenuHandler(deps: AgentMenuDeps) {
       .split(" · ")[0]
       .replace(/^[•◦✕\s]+/, "")
       .trim();
-    if (getAgentConfig(agentName)) {
+    if (resolveType(agentName) != null) {
       await showAgentDetail(ctx, agentName);
       await showAllAgentsList(ctx);
     }
@@ -245,11 +246,11 @@ export function createAgentsMenuHandler(deps: AgentMenuDeps) {
   }
 
   async function showAgentDetail(ctx: MenuContext, name: string) {
-    const cfg = getAgentConfig(name);
-    if (!cfg) {
+    if (resolveType(name) == null) {
       ctx.ui.notify(`Agent config not found for "${name}".`, "warning");
       return;
     }
+    const cfg = resolveAgentConfig(name);
 
     const file = findAgentFile(name);
     const isDefault = cfg.isDefault === true;

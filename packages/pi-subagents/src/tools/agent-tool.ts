@@ -1,7 +1,7 @@
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { normalizeMaxTurns } from "../agent-runner.js";
-import { getAgentConfig, resolveType } from "../agent-types.js";
+import { resolveAgentConfig, resolveType } from "../agent-types.js";
 import { resolveAgentInvocationConfig } from "../invocation-config.js";
 import { resolveInvocationModel } from "../model-resolver.js";
 import { createOutputFilePath, streamToOutputFile, writeInitialEntry } from "../output-file.js";
@@ -370,8 +370,8 @@ Guidelines:
 
       const displayName = getDisplayName(subagentType);
 
-      // Get agent config (if any)
-      const customConfig = getAgentConfig(subagentType);
+      // Get agent config for invocation resolution
+      const customConfig = resolveAgentConfig(subagentType);
 
       const resolvedConfig = resolveAgentInvocationConfig(customConfig, params);
 

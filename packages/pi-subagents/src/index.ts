@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { defineTool, type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { AgentManager } from "./agent-manager.js";
 import { getAgentConversation, normalizeMaxTurns, steerAgent } from "./agent-runner.js";
-import { getAgentConfig, getAvailableTypes, getDefaultAgentNames, getUserAgentNames, registerAgents, } from "./agent-types.js";
+import { getAvailableTypes, getDefaultAgentNames, getUserAgentNames, registerAgents, resolveAgentConfig, } from "./agent-types.js";
 import { loadCustomAgents } from "./custom-agents.js";
 import { type ModelRegistry, resolveModel } from "./model-resolver.js";
 import { buildEventData, createNotificationSystem } from "./notification.js";
@@ -149,14 +149,14 @@ export default function (pi: ExtensionAPI) {
     const userNames = getUserAgentNames();
 
     const defaultDescs = defaultNames.map((name) => {
-      const cfg = getAgentConfig(name);
-      const modelSuffix = cfg?.model ? ` (${getModelLabelFromConfig(cfg.model)})` : "";
-      return `- ${name}: ${cfg?.description ?? name}${modelSuffix}`;
+      const cfg = resolveAgentConfig(name);
+      const modelSuffix = cfg.model ? ` (${getModelLabelFromConfig(cfg.model)})` : "";
+      return `- ${name}: ${cfg.description}${modelSuffix}`;
     });
 
     const customDescs = userNames.map((name) => {
-      const cfg = getAgentConfig(name);
-      return `- ${name}: ${cfg?.description ?? name}`;
+      const cfg = resolveAgentConfig(name);
+      return `- ${name}: ${cfg.description}`;
     });
 
     return [
@@ -237,8 +237,8 @@ export default function (pi: ExtensionAPI) {
     reloadCustomAgents,
     agentActivity: runtime.agentActivity,
     getModelLabel: (type, registry) => {
-      const cfg = getAgentConfig(type);
-      if (!cfg?.model) return 'inherit';
+      const cfg = resolveAgentConfig(type);
+      if (!cfg.model) return 'inherit';
       if (registry) {
         const resolved = resolveModel(cfg.model, registry as any);
         if (typeof resolved === 'string') return 'inherit';

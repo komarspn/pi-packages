@@ -116,17 +116,17 @@ export function getToolNamesForType(type: string): string[] {
   return names;
 }
 
-/** Resolve agent config with guaranteed non-null return. Falls back: unknown/disabled → general-purpose → absolute fallback. */
+/** Resolve agent config with guaranteed non-null return. Falls back: unknown → general-purpose → absolute fallback. */
 export function resolveAgentConfig(type: string): AgentConfig {
   const key = resolveKey(type);
   const config = key ? agents.get(key) : undefined;
-  if (config && config.enabled !== false) {
+  if (config) {
     return config;
   }
 
-  // Fallback to general-purpose
+  // Fallback to general-purpose for unknown types
   const gp = agents.get("general-purpose");
-  if (gp && gp.enabled !== false) {
+  if (gp) {
     return gp;
   }
 
