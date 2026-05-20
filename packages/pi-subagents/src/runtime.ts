@@ -6,7 +6,7 @@
  * Follows the same pattern as pi-permission-system's ExtensionRuntime.
  */
 
-import type { AgentActivity, AgentWidget } from "./ui/agent-widget.js";
+import type { AgentActivity, AgentWidget, UICtx } from "./ui/agent-widget.js";
 
 /**
  * Narrow config subset read by AgentManager when constructing RunOptions.
@@ -54,6 +54,33 @@ export class SubagentRuntime {
   /** Clear the session context (called from session_shutdown). */
   clearSessionContext(): void {
     this.currentCtx = undefined;
+  }
+
+  // ── Widget delegation methods ─────────────────────────────────────────────
+
+  /** Delegate to widget.setUICtx — no-op when widget is null. */
+  setUICtx(ctx: UICtx): void {
+    this.widget?.setUICtx(ctx);
+  }
+
+  /** Delegate to widget.onTurnStart — no-op when widget is null. */
+  onTurnStart(): void {
+    this.widget?.onTurnStart();
+  }
+
+  /** Delegate to widget.markFinished — no-op when widget is null. */
+  markFinished(id: string): void {
+    this.widget?.markFinished(id);
+  }
+
+  /** Delegate to widget.update — no-op when widget is null. */
+  updateWidget(): void {
+    this.widget?.update();
+  }
+
+  /** Delegate to widget.ensureTimer — no-op when widget is null. */
+  ensureTimer(): void {
+    this.widget?.ensureTimer();
   }
 }
 
