@@ -755,3 +755,51 @@ describe("AgentManager — queueing and concurrency with injected stubs", () => 
     await manager.getRecord(id2)!.promise;
   });
 });
+
+describe("AgentManager — execution state", () => {
+  let manager: AgentManager;
+
+  afterEach(() => {
+    manager?.dispose();
+  });
+
+  it("sets record.execution with session and outputFile after session creation", async () => {
+    const session = mockSession();
+    session.sessionManager.getSessionFile.mockReturnValue("/tmp/session.jsonl");
+    const runner: AgentRunner = {
+      run: vi.fn().mockImplementation(async (_ctx: any, _type: any, _prompt: any, opts: any) => {
+        opts.onSessionCreated?.(session);
+        return { responseText: "done", session, aborted: false, steered: false };
+      }),
+      resume: vi.fn(),
+    };
+    ({ manager } = createManager({ runner }));
+
+    const id = manager.spawn(mockCtx, "general-purpose", "test", {
+      description: "test",
+      isBackground: true,
+    });
+    await manager.getRecord(id)!.promise;
+
+    const record = manager.getRecord(id)!;
+    expect(record.execution).toBeDefined();
+    expect(record.execution!.session).toBe(session);
+    expect(record.execution!.outputFile).toBe("/tmp/session.jsonl");
+  });
+
+  it("record.execution is undefined before the session is created", () => {
+    const runner: AgentRunner = {
+      run: vi.fn().mockImplementation(() => new Promise(() => {})),
+      resume: vi.fn(),
+    };
+    ({ manager } = createManager({ runner }));
+
+    const id = manager.spawn(mockCtx, "general-purpose", "test", {
+      description: "test",
+      isBackground: true,
+    });
+    const record = manager.getRecord(id)!;
+    expect(record.execution).toBeUndefined();
+    manager.abort(id);
+  });
+});

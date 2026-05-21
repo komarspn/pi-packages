@@ -13,6 +13,7 @@ import { AgentRecord } from "./agent-record.js";
 import type { AgentRunner } from "./agent-runner.js";
 import { AgentTypeRegistry } from "./agent-types.js";
 import { debugLog } from "./debug.js";
+import type { ExecutionState } from "./execution-state.js";
 import { buildParentSnapshot } from "./parent-snapshot.js";
 import { subscribeRecordObserver } from "./record-observer.js";
 import type { RunConfig } from "./runtime.js";
@@ -210,11 +211,15 @@ export class AgentManager {
       signal: record.abortController!.signal,
       registry: this.registry,
       onSessionCreated: (session) => {
-        record.session = session;
         // Capture the session file path early so it's available for display
         // before the run completes (e.g. in background agent status messages).
-        const file = session.sessionManager?.getSessionFile?.();
-        if (file) record.outputFile = file;
+        const outputFile = session.sessionManager?.getSessionFile?.() ?? undefined;
+        // Set the execution-state collaborator — born complete at session creation.
+        const execution: ExecutionState = { session, outputFile };
+        record.execution = execution;
+        // Keep legacy fields in sync during migration
+        record.session = session;
+        if (outputFile) record.outputFile = outputFile;
         // Flush any steers that arrived before the session was ready
         if (record.pendingSteers?.length) {
           for (const msg of record.pendingSteers) {
