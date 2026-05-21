@@ -49,7 +49,7 @@ usage.ts                  — token usage tracking
 model-resolver.ts         — fuzzy model name resolution
 invocation-config.ts      — merge tool params with agent config
 session-dir.ts            — subagent session directory derivation
-settings.ts               — persistent operational settings
+settings.ts               — persistent operational settings; `SettingsManager` class owns all three in-memory values
 
 service.ts                — SubagentsService interface + Symbol.for() accessors
 service-adapter.ts        — SubagentsService implementation wrapping AgentManager
@@ -377,17 +377,17 @@ Each step is sequenced so it makes the next step easier.
 
 ### Current smells
 
-| Smell                      | Location                                  | Evidence                                                                                                                                                                  |
-| -------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ~~Global mutable state~~   | ~~`agent-types.ts`~~                      | **Fixed #108**: `AgentTypeRegistry` class; `reloadCustomAgents` callback removed from `AgentToolDeps` and `AgentMenuDeps`                                                 |
-| Closure bag as class       | `createNotificationSystem()`              | Returns 4 functions sharing closure state (`pendingNudges`, timers)                                                                                                       |
-| Mutable state bag          | `AgentActivity` (7 fields)                | Written by `ui-observer.ts`, read by widget, notification, agent-tool                                                                                                     |
-| Settings relay             | `AgentMenuDeps` (13 fields)               | 6 fields are settings get/set pairs threaded through as callbacks                                                                                                         |
-| Post-construction mutation | `AgentRecord` non-transition state        | `session`, `outputFile`, `worktree`, `promise` written by external code after construction                                                                                |
-| Fire-and-forget callbacks  | `AgentManagerOptions`                     | `onStart`, `onComplete`, `onCompact` wired as closures in `index.ts`                                                                                                      |
-| Duplicate `SpawnOptions`   | `service.ts` + `agent-manager.ts`         | Two incompatible shapes (JSON-friendly vs runtime types) with the same name                                                                                               |
-| Type dumping ground        | `types.ts`                                | `NotificationDetails` used only by notification/renderer; ~~`DEFAULT_AGENT_NAMES` moved to `AgentTypeRegistry` (#108)~~; `AgentConfig` (21 fields) consumers use 2–4 each |
-| Wide dependency bags       | `AgentToolDeps` (8), `AgentMenuDeps` (12) | `reloadCustomAgents` replaced by `registry` (#108); more narrowing planned in D steps                                                                                     |
+| Smell                      | Location                                 | Evidence                                                                                                                                                                  |
+| -------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ~~Global mutable state~~   | ~~`agent-types.ts`~~                     | **Fixed #108**: `AgentTypeRegistry` class; `reloadCustomAgents` callback removed from `AgentToolDeps` and `AgentMenuDeps`                                                 |
+| Closure bag as class       | `createNotificationSystem()`             | Returns 4 functions sharing closure state (`pendingNudges`, timers)                                                                                                       |
+| Mutable state bag          | `AgentActivity` (7 fields)               | Written by `ui-observer.ts`, read by widget, notification, agent-tool                                                                                                     |
+| ~~Settings relay~~         | ~~`AgentMenuDeps` (13 fields)~~          | **Fixed #109**: `SettingsManager` class; 6 callback fields collapsed to `settings: SettingsManager`; `AgentMenuDeps` now 8 fields                                         |
+| Post-construction mutation | `AgentRecord` non-transition state       | `session`, `outputFile`, `worktree`, `promise` written by external code after construction                                                                                |
+| Fire-and-forget callbacks  | `AgentManagerOptions`                    | `onStart`, `onComplete`, `onCompact` wired as closures in `index.ts`                                                                                                      |
+| Duplicate `SpawnOptions`   | `service.ts` + `agent-manager.ts`        | Two incompatible shapes (JSON-friendly vs runtime types) with the same name                                                                                               |
+| Type dumping ground        | `types.ts`                               | `NotificationDetails` used only by notification/renderer; ~~`DEFAULT_AGENT_NAMES` moved to `AgentTypeRegistry` (#108)~~; `AgentConfig` (21 fields) consumers use 2–4 each |
+| Wide dependency bags       | `AgentToolDeps` (7), `AgentMenuDeps` (8) | Settings narrowed (#109); registry narrowed (#108); more narrowing planned in D steps                                                                                     |
 
 ### Step A: Extract state into classes (foundation, parallel)
 
@@ -402,13 +402,16 @@ Wrap the module-scoped `agents` Map and free functions in `agent-types.ts` into 
 
 Impact: eliminates global mutable state, enables test isolation without module resets, removes `reloadCustomAgents` callback from 2 dependency bags.
 
-#### A2. `SettingsManager` class (#109)
+#### ~~A2. `SettingsManager` class (#109)~~ — **Done**
 
-Encapsulate the settings load/save/apply cycle into a class that owns the in-memory values and the persistence layer.
-Absorbs `SettingsAppliers`, `applyAndEmitLoaded`, `saveAndEmitChanged` from free functions in `settings.ts`.
-The 6 settings-related fields in `AgentMenuDeps` (`getDefaultMaxTurns`, `setDefaultMaxTurns`, `getGraceTurns`, `setGraceTurns`, `snapshotSettings`, `saveSettings`) collapse to a single `settings: SettingsManager` collaborator.
+Encapsulated settings load/save/apply cycle into `SettingsManager` (in `settings.ts`).
+Owns `defaultMaxTurns`, `graceTurns`, `maxConcurrent` with normalizing property accessors.
+Absorbed `SettingsAppliers`, `applyAndEmitLoaded`, `saveAndEmitChanged`.
+The 6 settings-related fields in `AgentMenuDeps` collapsed to `settings: AgentMenuSettings`.
+`AgentManager` reads `maxConcurrent` via injected `getMaxConcurrent` function.
+`SubagentRuntime.defaultMaxTurns` and `.graceTurns` removed.
 
-Impact: reduces `AgentMenuDeps` from 13 → 8 fields.
+Impact: reduced `AgentMenuDeps` from 13 → 8 fields; `AgentToolDeps` from 8 → 7 fields.
 
 #### A3. `AgentActivityTracker` class (#110)
 
@@ -473,17 +476,17 @@ The 654-line file splits along a natural seam.
 
 ### Expected impact
 
-| Metric                                     | Before                                                                                           | After   |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------ | ------- |
-| Module-scoped mutable state                | ~~1 (`agent-types.ts` Map)~~                                                                     | **0** ✓ |
-| Closure-bag "classes"                      | 2 (`createNotificationSystem`, settings free functions)                                          | 0       |
-| Externally-mutated state bags              | 2 (`AgentActivity`, `AgentRecord` non-transition fields)                                         | 0       |
-| `AgentManagerOptions` fields               | 8                                                                                                | 5       |
-| `AgentToolDeps` fields                     | 9                                                                                                | ~5      |
-| `AgentMenuDeps` fields                     | 13                                                                                               | ~6      |
-| `SpawnOptions` callback fields             | 1 (`onSessionCreated`)                                                                           | 0       |
-| Callbacks threaded through deps            | 8 (~~`reloadCustomAgents` ×2~~ fixed #108, `emitEvent` ×3, settings ×6, `getDefaultMaxTurns` ×2) | 0       |
-| Types in `types.ts` without a natural home | 4                                                                                                | 0       |
+| Metric                                     | Before                                                                       | After   |
+| ------------------------------------------ | ---------------------------------------------------------------------------- | ------- |
+| Module-scoped mutable state                | ~~1 (`agent-types.ts` Map)~~                                                 | **0** ✓ |
+| Closure-bag "classes"                      | ~~2~~ 1 (`createNotificationSystem`; settings free functions **fixed #109**) | 0       |
+| Externally-mutated state bags              | 2 (`AgentActivity`, `AgentRecord` non-transition fields)                     | 0       |
+| `AgentManagerOptions` fields               | 8                                                                            | 5       |
+| `AgentToolDeps` fields                     | ~~9~~ **7** (−6 registry #108, −1 settings #109 → +1 settings obj)           | ~5      |
+| `AgentMenuDeps` fields                     | ~~13~~ **8** (−6 settings #109 collapsed to 1; −1 registry #108)             | ~6 ✓    |
+| `SpawnOptions` callback fields             | 1 (`onSessionCreated`)                                                       | 0       |
+| Callbacks threaded through deps            | ~~8~~ 0 remaining settings callbacks (**fixed #109**); `emitEvent` ×3 remain | 0       |
+| Types in `types.ts` without a natural home | 4                                                                            | 0       |
 
 ### Dependency graph
 
