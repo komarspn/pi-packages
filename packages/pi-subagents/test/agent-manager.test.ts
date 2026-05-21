@@ -1,4 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../src/parent-snapshot.js", () => ({
+  buildParentSnapshot: vi.fn((_ctx: any, _inherit?: boolean) => ({
+    cwd: "/tmp",
+    systemPrompt: "parent prompt",
+    model: undefined,
+    modelRegistry: { find: vi.fn() },
+  })),
+}));
+
 import { AgentManager, type OnAgentCompact, type OnAgentComplete, type OnAgentStart } from "../src/agent-manager.js";
 import type { AgentRunner, ResumeOptions } from "../src/agent-runner.js";
 import type { RunConfig } from "../src/runtime.js";

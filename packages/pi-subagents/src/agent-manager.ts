@@ -12,8 +12,9 @@ import type { AgentSession, ExtensionContext } from "@earendil-works/pi-coding-a
 import { AgentRecord } from "./agent-record.js";
 import type { AgentRunner, ToolActivity } from "./agent-runner.js";
 import { debugLog } from "./debug.js";
+import { buildParentSnapshot } from "./parent-snapshot.js";
 import type { RunConfig } from "./runtime.js";
-import type { AgentInvocation, IsolationMode, ShellExec, SubagentType, ThinkingLevel } from "./types.js";
+import type { AgentInvocation, IsolationMode, ParentSnapshot, ShellExec, SubagentType, ThinkingLevel } from "./types.js";
 import { addUsage } from "./usage.js";
 import type { WorktreeManager } from "./worktree.js";
 
@@ -37,7 +38,7 @@ export interface AgentManagerOptions {
 }
 
 interface SpawnArgs {
-  ctx: ExtensionContext;
+  snapshot: ParentSnapshot;
   type: SubagentType;
   prompt: string;
   options: SpawnOptions;
@@ -146,7 +147,8 @@ export class AgentManager {
     });
     this.agents.set(id, record);
 
-    const args: SpawnArgs = { ctx, type, prompt, options };
+    const snapshot = buildParentSnapshot(ctx, options.inheritContext);
+    const args: SpawnArgs = { snapshot, type, prompt, options };
 
     if (options.isBackground && !options.bypassQueue && this.runningBackground >= this.maxConcurrent) {
       // Queue it — will be started when a running agent completes
@@ -166,7 +168,7 @@ export class AgentManager {
   }
 
   /** Actually start an agent (called immediately or from queue drain). */
-  private startAgent(id: string, record: AgentRecord, { ctx, type, prompt, options }: SpawnArgs) {
+  private startAgent(id: string, record: AgentRecord, { snapshot, type, prompt, options }: SpawnArgs) {
     // Worktree isolation: try to create a temporary git worktree. Strict —
     // fail loud if not possible (no silent fallback to main tree). Done
     // BEFORE state mutation so a throw doesn't leave the record half-running.
@@ -197,14 +199,13 @@ export class AgentManager {
     const detach = () => { detachParentSignal?.(); detachParentSignal = undefined; };
 
     const runConfig = this.getRunConfig?.();
-    const promise = this.runner.run(ctx, type, prompt, {
+    const promise = this.runner.run(snapshot, type, prompt, {
       exec: this.exec,
       model: options.model,
       maxTurns: options.maxTurns,
       defaultMaxTurns: runConfig?.defaultMaxTurns,
       graceTurns: runConfig?.graceTurns,
       isolated: options.isolated,
-      inheritContext: options.inheritContext,
       thinkingLevel: options.thinkingLevel,
       cwd: worktreeCwd,
       parentSessionFile: options.parentSessionFile,
