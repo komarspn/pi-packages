@@ -56,9 +56,11 @@ export default function (pi: ExtensionAPI) {
   });
 
   // Settings: owns all three in-memory values and handles load/save/emit.
+  // onMaxConcurrentChanged is wired after manager is constructed (closure captures by reference).
   const settings = new SettingsManager({
     emit: (event, payload) => pi.events.emit(event, payload),
     cwd: process.cwd(),
+    onMaxConcurrentChanged: () => manager.notifyConcurrencyChanged(),
   });
   settings.load();
 
@@ -222,7 +224,6 @@ export default function (pi: ExtensionAPI) {
       listAgents: () => manager.listAgents(),
       getRecord: (id) => manager.getRecord(id),
       spawnAndWait: (ctx, type, prompt, opts) => manager.spawnAndWait(ctx, type, prompt, opts),
-      notifyConcurrencyChanged: () => manager.notifyConcurrencyChanged(),
     },
     registry,
     agentActivity: runtime.agentActivity,
