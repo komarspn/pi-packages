@@ -13,7 +13,8 @@ This package is a full fork of [`MasuRii/pi-permission-system`](https://github.c
 It began as a config-layout divergence (#10) and has since diverged substantially in config format, internal architecture, and permission model.
 The `/permission-system` slash command name is the only upstream identity preserved.
 
-Read `docs/plans/` before making architectural changes (created by `/plan-issue` on first use).
+Read `docs/plans/` before making architectural changes.
+Pre-monorepo plans from the upstream fork live in `docs/plans/archive/` — issue numbers there refer to the upstream repo, not this monorepo.
 
 ## Implementation Priorities
 
