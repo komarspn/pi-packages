@@ -6,7 +6,8 @@
  * Follows the same pattern as pi-permission-system's ExtensionRuntime.
  */
 
-import type { AgentActivity, AgentWidget, UICtx } from "./ui/agent-widget.js";
+import type { AgentActivityTracker } from "./ui/agent-activity-tracker.js";
+import type { AgentWidget, UICtx } from "./ui/agent-widget.js";
 
 /**
  * Narrow config subset read by AgentManager when constructing RunOptions.
@@ -31,7 +32,7 @@ export class SubagentRuntime {
    * Per-agent live activity state shared across the notification system,
    * widget, and tool handlers. The Map itself is never replaced.
    */
-  readonly agentActivity: Map<string, AgentActivity> = new Map();
+  readonly agentActivity: Map<string, AgentActivityTracker> = new Map();
   /**
    * Persistent widget reference. Null until constructed after AgentManager.
    * Delegation methods use optional chaining so callers never need `widget!`.
