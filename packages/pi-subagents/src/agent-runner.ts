@@ -64,12 +64,6 @@ export function normalizeMaxTurns(n: number | undefined): number | undefined {
 }
 
 
-/** Info about a tool event in the subagent. */
-export interface ToolActivity {
-  type: "start" | "end";
-  toolName: string;
-}
-
 export interface RunOptions {
   /** Shell-exec callback for detectEnv — injected from pi.exec(). */
   exec: ShellExec;
@@ -84,31 +78,8 @@ export interface RunOptions {
   parentSessionFile?: string;
   /** Session ID of the parent agent (stored in the child session's parentSession header). */
   parentSessionId?: string;
-  /** Called on tool start/end with activity info. */
-  onToolActivity?: (activity: ToolActivity) => void;
-  /** Called on streaming text deltas from the assistant response. */
-  onTextDelta?: (delta: string, fullText: string) => void;
+  /** Called once after session creation — session delivery mechanism. */
   onSessionCreated?: (session: AgentSession) => void;
-  /** Called at the end of each agentic turn with the cumulative count. */
-  onTurnEnd?: (turnCount: number) => void;
-  /**
-   * Called once per assistant message_end with that message's usage delta.
-   * Lets callers maintain a lifetime accumulator that survives compaction
-   * (which replaces session.state.messages and resets stats-derived sums).
-   */
-  onAssistantUsage?: (usage: {
-    input: number;
-    output: number;
-    cacheWrite: number;
-  }) => void;
-  /**
-   * Called when the session successfully compacts. `tokensBefore` is upstream's
-   * pre-compaction context size estimate. Aborted compactions don't fire.
-   */
-  onCompaction?: (info: {
-    reason: "manual" | "threshold" | "overflow";
-    tokensBefore: number;
-  }) => void;
   /**
    * Default max turns from runtime config. Falls back to the module-scope
    * `defaultMaxTurns` during the lift-and-shift migration; superseded by
@@ -135,9 +106,6 @@ export interface RunResult {
 
 /** Options for resuming an existing agent session. */
 export interface ResumeOptions {
-  onToolActivity?: (activity: ToolActivity) => void;
-  onAssistantUsage?: (usage: { input: number; output: number; cacheWrite: number }) => void;
-  onCompaction?: (info: { reason: "manual" | "threshold" | "overflow"; tokensBefore: number }) => void;
   signal?: AbortSignal;
 }
 
@@ -284,14 +252,7 @@ export async function runAgent(
   // (e.g. loading credentials, setting up state). Placed after tool filtering
   // so extension-provided skills/prompts from extendResourcesFromExtensions()
   // respect the active tool set. All ExtensionBindings fields are optional.
-  await session.bindExtensions({
-    onError: (err) => {
-      options.onToolActivity?.({
-        type: "end",
-        toolName: `extension-error:${err.extensionPath}`,
-      });
-    },
-  });
+  await session.bindExtensions({});
 
   // Patch 2 (RepOne #443): re-filter active tools after bindExtensions.
   // Extension-registered tools (added during bindExtensions) are not in the
@@ -319,11 +280,9 @@ export async function runAgent(
   let softLimitReached = false;
   let aborted = false;
 
-  let currentMessageText = "";
   const unsubTurns = session.subscribe((event: AgentSessionEvent) => {
     if (event.type === "turn_end") {
       turnCount++;
-      options.onTurnEnd?.(turnCount);
       if (maxTurns != null) {
         if (!softLimitReached && turnCount >= maxTurns) {
           softLimitReached = true;
@@ -335,40 +294,6 @@ export async function runAgent(
           session.abort();
         }
       }
-    }
-    if (event.type === "message_start") {
-      currentMessageText = "";
-    }
-    if (
-      event.type === "message_update" &&
-      event.assistantMessageEvent.type === "text_delta"
-    ) {
-      currentMessageText += event.assistantMessageEvent.delta;
-      options.onTextDelta?.(
-        event.assistantMessageEvent.delta,
-        currentMessageText,
-      );
-    }
-    if (event.type === "tool_execution_start") {
-      options.onToolActivity?.({ type: "start", toolName: event.toolName });
-    }
-    if (event.type === "tool_execution_end") {
-      options.onToolActivity?.({ type: "end", toolName: event.toolName });
-    }
-    if (event.type === "message_end" && event.message.role === "assistant") {
-      const u = (event.message as any).usage;
-      if (u)
-        options.onAssistantUsage?.({
-          input: u.input ?? 0,
-          output: u.output ?? 0,
-          cacheWrite: u.cacheWrite ?? 0,
-        });
-    }
-    if (event.type === "compaction_end" && !event.aborted && event.result) {
-      options.onCompaction?.({
-        reason: event.reason,
-        tokensBefore: event.result.tokensBefore,
-      });
     }
   });
 
@@ -411,46 +336,10 @@ export async function resumeAgent(
   const collector = collectResponseText(session);
   const cleanupAbort = forwardAbortSignal(session, options.signal);
 
-  const unsubEvents =
-    options.onToolActivity || options.onAssistantUsage || options.onCompaction
-      ? session.subscribe((event: AgentSessionEvent) => {
-          if (event.type === "tool_execution_start")
-            options.onToolActivity?.({
-              type: "start",
-              toolName: event.toolName,
-            });
-          if (event.type === "tool_execution_end")
-            options.onToolActivity?.({ type: "end", toolName: event.toolName });
-          if (
-            event.type === "message_end" &&
-            event.message.role === "assistant"
-          ) {
-            const u = (event.message as any).usage;
-            if (u)
-              options.onAssistantUsage?.({
-                input: u.input ?? 0,
-                output: u.output ?? 0,
-                cacheWrite: u.cacheWrite ?? 0,
-              });
-          }
-          if (
-            event.type === "compaction_end" &&
-            !event.aborted &&
-            event.result
-          ) {
-            options.onCompaction?.({
-              reason: event.reason,
-              tokensBefore: event.result.tokensBefore,
-            });
-          }
-        })
-      : () => {};
-
   try {
     await session.prompt(prompt);
   } finally {
     collector.unsubscribe();
-    unsubEvents();
     cleanupAbort();
   }
 
