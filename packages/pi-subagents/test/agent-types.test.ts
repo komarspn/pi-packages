@@ -563,6 +563,13 @@ describe("AgentTypeRegistry", () => {
     it("contains the three built-in default names", () => {
       expect(AgentTypeRegistry.DEFAULT_AGENT_NAMES).toEqual(["general-purpose", "Explore", "Plan"]);
     });
+
+    it("is no longer exported from types.ts", async () => {
+      // DEFAULT_AGENT_NAMES was moved to AgentTypeRegistry; it must NOT appear
+      // as a named export from types.ts anymore.
+      const typesModule = await import("../src/types.js");
+      expect((typesModule as Record<string, unknown>)["DEFAULT_AGENT_NAMES"]).toBeUndefined();
+    });
   });
 
   describe("instance isolation", () => {
