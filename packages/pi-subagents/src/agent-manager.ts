@@ -11,6 +11,7 @@ import type { Model } from "@earendil-works/pi-ai";
 import type { AgentSession, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { AgentRecord } from "./agent-record.js";
 import type { AgentRunner } from "./agent-runner.js";
+import { AgentTypeRegistry } from "./agent-types.js";
 import { debugLog } from "./debug.js";
 import { buildParentSnapshot } from "./parent-snapshot.js";
 import { subscribeRecordObserver } from "./record-observer.js";
@@ -30,6 +31,7 @@ export interface AgentManagerOptions {
   runner: AgentRunner;
   worktrees: WorktreeManager;
   exec: ShellExec;
+  registry: AgentTypeRegistry;
   maxConcurrent?: number;
   getRunConfig?: () => RunConfig;
   onStart?: OnAgentStart;
@@ -81,6 +83,7 @@ export class AgentManager {
   private readonly runner: AgentRunner;
   private readonly worktrees: WorktreeManager;
   private readonly exec: ShellExec;
+  private readonly registry: AgentTypeRegistry;
   private maxConcurrent: number;
   private getRunConfig?: () => RunConfig;
 
@@ -93,6 +96,7 @@ export class AgentManager {
     this.runner = options.runner;
     this.worktrees = options.worktrees;
     this.exec = options.exec;
+    this.registry = options.registry;
     this.onComplete = options.onComplete;
     this.onStart = options.onStart;
     this.onCompact = options.onCompact;
@@ -203,6 +207,7 @@ export class AgentManager {
       parentSessionFile: options.parentSessionFile,
       parentSessionId: options.parentSessionId,
       signal: record.abortController!.signal,
+      registry: this.registry,
       onSessionCreated: (session) => {
         record.session = session;
         // Capture the session file path early so it's available for display

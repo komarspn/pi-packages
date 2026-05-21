@@ -12,6 +12,7 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import type { AgentConfigLookup } from "./agent-types.js";
 import { extractText } from "./context.js";
 import { detectEnv } from "./env.js";
 import { assembleSessionConfig } from "./session-config.js";
@@ -91,6 +92,8 @@ export interface RunOptions {
    * module-scope `graceTurns` during migration.
    */
   graceTurns?: number;
+  /** Agent config lookup — provides resolveAgentConfig and getToolNamesForType. */
+  registry: AgentConfigLookup;
 }
 
 export interface RunResult {
@@ -189,6 +192,7 @@ export async function runAgent(
       thinkingLevel: options.thinkingLevel,
     },
     env,
+    options.registry,
   );
 
   const agentDir = getAgentDir();

@@ -11,10 +11,9 @@
  */
 
 import {
+  type AgentConfigLookup,
   getMemoryToolNames,
   getReadOnlyMemoryToolNames,
-  getToolNamesForType,
-  resolveAgentConfig,
 } from "./agent-types.js";
 import { buildMemoryBlock, buildReadOnlyMemoryBlock } from "./memory.js";
 import { buildAgentPrompt, type PromptExtras } from "./prompts.js";
@@ -140,14 +139,16 @@ function resolveDefaultModel(
  * @param ctx        Narrow context from the parent session.
  * @param options    Per-call overrides (cwd, isolated, model, thinkingLevel).
  * @param env        Pre-resolved environment info from `detectEnv()`.
+ * @param registry   Agent config lookup — provides resolveAgentConfig and getToolNamesForType.
  */
 export function assembleSessionConfig(
   type: SubagentType,
   ctx: AssemblerContext,
   options: AssemblerOptions,
   env: EnvInfo,
+  registry: AgentConfigLookup,
 ): SessionConfig {
-  const agentConfig = resolveAgentConfig(type);
+  const agentConfig = registry.resolveAgentConfig(type);
 
   const effectiveCwd = options.cwd ?? ctx.cwd;
 
@@ -166,7 +167,7 @@ export function assembleSessionConfig(
     }
   }
 
-  let toolNames = getToolNamesForType(type);
+  let toolNames = registry.getToolNamesForType(type);
 
   // Persistent memory: detect write capability and branch accordingly.
   // Account for disallowedTools — a tool in the base set but on the denylist

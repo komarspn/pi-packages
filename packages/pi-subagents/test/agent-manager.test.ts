@@ -11,9 +11,13 @@ vi.mock("../src/parent-snapshot.js", () => ({
 
 import { AgentManager, type OnAgentCompact, type OnAgentComplete, type OnAgentStart } from "../src/agent-manager.js";
 import type { AgentRunner } from "../src/agent-runner.js";
+import { AgentTypeRegistry } from "../src/agent-types.js";
 import type { RunConfig } from "../src/runtime.js";
 import type { AgentRecord } from "../src/types.js";
 import type { WorktreeManager } from "../src/worktree.js";
+
+/** Minimal registry with no user agents — sufficient since AgentManager only relays it to the runner. */
+const testRegistry = new AgentTypeRegistry(() => new Map());
 
 const mockCtx = { cwd: "/tmp" } as any;
 
@@ -61,6 +65,7 @@ function createManager(overrides?: {
     runner,
     worktrees,
     exec: vi.fn(),
+    registry: testRegistry,
     onComplete: overrides?.onComplete,
     onStart: overrides?.onStart,
     onCompact: overrides?.onCompact,

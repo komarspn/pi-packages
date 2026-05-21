@@ -34,23 +34,30 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   SettingsManager: { create: settingsManagerCreate },
 }));
 
-vi.mock("../src/agent-types.js", () => ({
-  resolveAgentConfig: vi.fn(() => ({
+vi.mock("../src/agent-types.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/agent-types.js")>(),
+  // Only mock the free-function exports still imported by session-config.ts.
+  // resolveAgentConfig / getToolNamesForType are now injected via RunOptions.registry.
+  getMemoryToolNames: vi.fn(() => []),
+  getReadOnlyMemoryToolNames: vi.fn(() => []),
+}));
+
+/** Mock AgentConfigLookup injected via RunOptions.registry. */
+const mockAgentLookup = {
+  resolveAgentConfig: vi.fn((): import("../src/types.js").AgentConfig => ({
     name: "Explore",
     description: "Explore",
     builtinToolNames: ["read"],
-    extensions: false,
-    skills: false,
+    extensions: false as const,
+    skills: false as const,
     systemPrompt: "You are Explore.",
-    promptMode: "replace",
+    promptMode: "replace" as const,
     inheritContext: false,
     runInBackground: false,
     isolated: false,
   })),
-  getMemoryToolNames: vi.fn(() => []),
-  getReadOnlyMemoryToolNames: vi.fn(() => []),
-  getToolNamesForType: vi.fn(() => ["read"]),
-}));
+  getToolNamesForType: vi.fn((): string[] => ["read"]),
+};
 
 vi.mock("../src/env.js", () => ({
   detectEnv: vi.fn(async () => ({ isGitRepo: false, branch: "", platform: "linux" })),
@@ -128,7 +135,7 @@ describe("agent-runner final output capture", () => {
     const { session } = createSession("LOCKED");
     createAgentSession.mockResolvedValue({ session });
 
-    const result = await runAgent(snapshot, "Explore", "Say LOCKED", { exec });
+    const result = await runAgent(snapshot, "Explore", "Say LOCKED", { exec, registry: mockAgentLookup });
 
     expect(result.responseText).toBe("LOCKED");
   });
@@ -137,7 +144,7 @@ describe("agent-runner final output capture", () => {
     const { session } = createSession("BOUND");
     createAgentSession.mockResolvedValue({ session });
 
-    await runAgent(snapshot, "Explore", "Say BOUND", { exec });
+    await runAgent(snapshot, "Explore", "Say BOUND", { exec, registry: mockAgentLookup });
 
     expect(session.bindExtensions).toHaveBeenCalledTimes(1);
     expect(session.bindExtensions).toHaveBeenCalledWith({});
@@ -151,7 +158,7 @@ describe("agent-runner final output capture", () => {
     const { session } = createSession("CONFIGURED");
     createAgentSession.mockResolvedValue({ session });
 
-    await runAgent(snapshot, "Explore", "Say CONFIGURED", { exec, cwd: "/tmp/worktree" });
+    await runAgent(snapshot, "Explore", "Say CONFIGURED", { exec, cwd: "/tmp/worktree" , registry: mockAgentLookup });
 
     expect(getAgentDir).toHaveBeenCalledTimes(1);
     expect(defaultResourceLoaderCtor).toHaveBeenCalledWith(expect.objectContaining({
@@ -170,7 +177,7 @@ describe("agent-runner final output capture", () => {
     const { session } = createSession("ISOLATED");
     createAgentSession.mockResolvedValue({ session });
 
-    await runAgent(snapshot, "Explore", "Say ISOLATED", { exec });
+    await runAgent(snapshot, "Explore", "Say ISOLATED", { exec, registry: mockAgentLookup });
 
     // noContextFiles skips AGENTS.md/CLAUDE.md at the loader source;
     // appendSystemPromptOverride suppresses APPEND_SYSTEM.md (no flag equivalent).
@@ -189,7 +196,7 @@ describe("agent-runner final output capture", () => {
     const { session } = createSession("WITH_FILE");
     createAgentSession.mockResolvedValue({ session });
 
-    const result = await runAgent(snapshot, "Explore", "go", { exec });
+    const result = await runAgent(snapshot, "Explore", "go", { exec, registry: mockAgentLookup });
 
     expect(result.sessionFile).toBe("/sessions/child.jsonl");
   });
@@ -202,6 +209,7 @@ describe("agent-runner final output capture", () => {
       exec,
       parentSessionFile: "/sessions/parent.jsonl",
       parentSessionId: "parent-id-123",
+      registry: mockAgentLookup,
     });
 
     const sm = sessionManagerCreate.mock.results[0].value;
@@ -246,6 +254,7 @@ describe("agent-runner RunOptions — defaultMaxTurns and graceTurns", () => {
       exec,
       defaultMaxTurns: 2,
       graceTurns: 1,
+      registry: mockAgentLookup,
     } as any);
 
     expect(session.steer).toHaveBeenCalledWith(expect.stringContaining("turn limit"));
@@ -269,6 +278,7 @@ describe("agent-runner RunOptions — defaultMaxTurns and graceTurns", () => {
       exec,
       defaultMaxTurns: 1,
       graceTurns: 3,
+      registry: mockAgentLookup,
     } as any);
 
     // Steered at turn 1, but not aborted (turn 3 < 1+3=4)
@@ -293,6 +303,7 @@ describe("agent-runner RunOptions — defaultMaxTurns and graceTurns", () => {
       maxTurns: 3,       // explicit per-call limit
       defaultMaxTurns: 1, // should be overridden
       graceTurns: 1,
+      registry: mockAgentLookup,
     } as any);
 
     // Only 2 turns fired, maxTurns=3, so steer should NOT be called

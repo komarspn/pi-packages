@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { defineTool, type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { AgentManager } from "./agent-manager.js";
 import { getAgentConversation, normalizeMaxTurns, resumeAgent, runAgent, steerAgent } from "./agent-runner.js";
-import { getAvailableTypes, getDefaultAgentNames, getUserAgentNames, registerAgents, resolveAgentConfig, } from "./agent-types.js";
+import { AgentTypeRegistry, getAvailableTypes, getDefaultAgentNames, getUserAgentNames, resolveAgentConfig, } from "./agent-types.js";
 import { loadCustomAgents } from "./custom-agents.js";
 import { SessionLifecycleHandler, ToolStartHandler } from "./handlers/index.js";
 import { type ModelRegistry, resolveModel } from "./model-resolver.js";
@@ -40,14 +40,10 @@ export default function (pi: ExtensionAPI) {
   // ---- Register custom notification renderer ----
   pi.registerMessageRenderer<NotificationDetails>("subagent-notification", createNotificationRenderer());
 
-  /** Reload agents from .pi/agents/*.md and merge with defaults (called on init and each Agent invocation). */
-  const reloadCustomAgents = () => {
-    const userAgents = loadCustomAgents(process.cwd());
-    registerAgents(userAgents);
-  };
+  const registry = new AgentTypeRegistry(() => loadCustomAgents(process.cwd()));
 
-  // Initial load
-  reloadCustomAgents();
+  /** Reload agents from .pi/agents/*.md and merge with defaults (called on init and each Agent invocation). */
+  const reloadCustomAgents = () => registry.reload();
 
   // ---- Runtime: all mutable extension state in one place ----
   const runtime = createSubagentRuntime();
@@ -67,6 +63,7 @@ export default function (pi: ExtensionAPI) {
     runner: { run: runAgent, resume: resumeAgent },
     worktrees: new GitWorktreeManager(process.cwd()),
     exec: (cmd, args, opts) => pi.exec(cmd, args, opts),
+    registry,
     onComplete: (record) => {
       // Emit lifecycle event based on terminal status
       const isError = record.status === "error" || record.status === "stopped" || record.status === "aborted";
