@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentActivityAccess } from "../../src/tools/agent-tool.js";
-import { type ForegroundDeps, type ForegroundParams, runForeground } from "../../src/tools/foreground-runner.js";
-import { AgentActivityTracker } from "../../src/ui/agent-activity-tracker.js";
+import { type ForegroundParams, runForeground } from "../../src/tools/foreground-runner.js";
+import { createToolDeps } from "../helpers/make-deps.js";
 import { createTestRecord } from "../helpers/make-record.js";
 
 function makeCtx() {
@@ -10,20 +9,6 @@ function makeCtx() {
       getSessionFile: vi.fn().mockReturnValue("/sessions/parent.jsonl"),
       getSessionId: vi.fn().mockReturnValue("session-1"),
     },
-  };
-}
-
-function makeDeps(overrides: Partial<ForegroundDeps> = {}): ForegroundDeps {
-  return {
-    manager: {
-      spawnAndWait: vi.fn().mockResolvedValue(createTestRecord({ result: "Task done.", toolUses: 3 })),
-    },
-    widget: {
-      ensureTimer: vi.fn(),
-      markFinished: vi.fn(),
-    },
-    agentActivity: new Map<string, AgentActivityTracker>() as AgentActivityAccess,
-    ...overrides,
   };
 }
 
@@ -71,16 +56,17 @@ describe("runForeground", () => {
   });
 
   it("returns completion message with tool use count on success", async () => {
-    const deps = makeDeps();
+    const deps = createToolDeps();
     const result = await runForeground(deps, makeParams(), undefined, undefined);
     expect(result.content[0].text).toContain("Agent completed");
     expect(result.content[0].text).toContain("3 tool uses");
-    expect(result.content[0].text).toContain("Task done.");
+    expect(result.content[0].text).toContain("All done.");
   });
 
   it("returns error message when agent record status is error", async () => {
-    const deps = makeDeps({
+    const deps = createToolDeps({
       manager: {
+        ...createToolDeps().manager,
         spawnAndWait: vi.fn().mockResolvedValue(
           createTestRecord({ status: "error", error: "Context window exceeded" }),
         ),
@@ -92,8 +78,9 @@ describe("runForeground", () => {
   });
 
   it("returns error text when spawnAndWait throws", async () => {
-    const deps = makeDeps({
+    const deps = createToolDeps({
       manager: {
+        ...createToolDeps().manager,
         spawnAndWait: vi.fn().mockRejectedValue(new Error("runner crashed")),
       },
     });
@@ -102,7 +89,7 @@ describe("runForeground", () => {
   });
 
   it("includes fallback note when fellBack is true", async () => {
-    const deps = makeDeps();
+    const deps = createToolDeps();
     const result = await runForeground(
       deps,
       makeParams({ fellBack: true, rawType: "unknown-type" }),
@@ -115,8 +102,9 @@ describe("runForeground", () => {
   it("calls widget.ensureTimer and widget.markFinished after completion", async () => {
     // spawnAndWait invokes onSessionCreated to register the agent in activity map
     const mockSess = { subscribe: vi.fn().mockReturnValue(() => {}) };
-    const deps = makeDeps({
+    const deps = createToolDeps({
       manager: {
+        ...createToolDeps().manager,
         spawnAndWait: vi.fn().mockImplementation(
           async (_ctx: any, _type: any, _prompt: any, opts: any) => {
             const record = createTestRecord({ result: "done" });
@@ -134,8 +122,9 @@ describe("runForeground", () => {
 
   it("registers activity tracker in agentActivity on session creation", async () => {
     const mockSess = { subscribe: vi.fn().mockReturnValue(() => {}) };
-    const deps = makeDeps({
+    const deps = createToolDeps({
       manager: {
+        ...createToolDeps().manager,
         spawnAndWait: vi.fn().mockImplementation(
           async (_ctx: any, _type: any, _prompt: any, opts: any) => {
             const record = createTestRecord({ result: "done" });
@@ -155,8 +144,9 @@ describe("runForeground", () => {
   it("calls onUpdate with streaming details while running", async () => {
     let resolve!: (r: any) => void;
     const promise = new Promise<any>((res) => { resolve = res; });
-    const deps = makeDeps({
+    const deps = createToolDeps({
       manager: {
+        ...createToolDeps().manager,
         spawnAndWait: vi.fn().mockReturnValue(promise),
       },
     });
@@ -172,8 +162,9 @@ describe("runForeground", () => {
   });
 
   it("clears spinner interval on error and does not leave it running", async () => {
-    const deps = makeDeps({
+    const deps = createToolDeps({
       manager: {
+        ...createToolDeps().manager,
         spawnAndWait: vi.fn().mockRejectedValue(new Error("fail")),
       },
     });
