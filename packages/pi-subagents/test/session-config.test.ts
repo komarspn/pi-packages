@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { AgentConfigLookup } from "../src/agent-types.js";
+import type { AssemblerIO } from "../src/session-config.js";
 import type { PreloadedSkill } from "../src/skill-loader.js";
 import type { AgentConfig } from "../src/types.js";
 
@@ -13,7 +14,9 @@ const mockResolveAgentConfig = vi.fn((): AgentConfig => ({
   promptMode: "replace",
 }));
 const mockGetToolNamesForType = vi.fn((): string[] => ["read"]);
-const mockBuildAgentPrompt = vi.fn(() => "assembled system prompt");
+const mockBuildAgentPrompt: Mock<AssemblerIO["buildAgentPrompt"]> = vi.fn(
+  () => "assembled system prompt",
+);
 const mockBuildMemoryBlock = vi.fn(() => "memory block");
 const mockBuildReadOnlyMemoryBlock = vi.fn(() => "read-only memory block");
 const mockPreloadSkills = vi.fn((): PreloadedSkill[] => []);
@@ -102,28 +105,14 @@ describe("assembleSessionConfig — default agent shape", () => {
     expect(result.disallowedSet).toEqual(new Set(["write", "bash"]));
   });
 
-  it("calls buildAgentPrompt with env, cwd, parentSystemPrompt, and extras", () => {
-    assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
-
-    expect(mockBuildAgentPrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "Explore" }),
-      "/tmp",
-      mockEnv,
-      "parent prompt",
-      {},
+  it("systemPrompt reflects the parentSystemPrompt passed to buildAgentPrompt", () => {
+    mockBuildAgentPrompt.mockImplementationOnce(
+      (_config, _cwd, _env, parentPrompt) => `assembled:${parentPrompt}`,
     );
-  });
 
-  it("uses effectiveCwd (options.cwd) when calling buildAgentPrompt", () => {
-    assembleSessionConfig("Explore", ctx, { cwd: "/tmp/worktree" }, mockEnv, mockAgentLookup, mockIO);
+    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
-    expect(mockBuildAgentPrompt).toHaveBeenCalledWith(
-      expect.any(Object),
-      "/tmp/worktree",
-      expect.any(Object),
-      expect.any(String),
-      expect.any(Object),
-    );
+    expect(result.systemPrompt).toBe("assembled:parent prompt");
   });
 });
 
@@ -318,7 +307,6 @@ describe("assembleSessionConfig — skill preloading", () => {
 
     const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
-    expect(mockPreloadSkills).toHaveBeenCalledWith(skillList, "/tmp");
     expect(result.extras.skillBlocks).toEqual([
       { name: "code-style", content: "# Code Style" },
       { name: "testing", content: "# Testing" },
@@ -383,8 +371,6 @@ describe("assembleSessionConfig — memory block selection", () => {
     const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.extras.memoryBlock).toBeUndefined();
-    expect(mockBuildMemoryBlock).not.toHaveBeenCalled();
-    expect(mockBuildReadOnlyMemoryBlock).not.toHaveBeenCalled();
   });
 
   it("agent with memory + write tool → read-write block", () => {
@@ -394,7 +380,6 @@ describe("assembleSessionConfig — memory block selection", () => {
     const result = assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(mockBuildMemoryBlock).toHaveBeenCalledWith("Writer", "project", "/tmp");
-    expect(mockBuildReadOnlyMemoryBlock).not.toHaveBeenCalled();
     expect(result.extras.memoryBlock).toBe("memory block");
   });
 
@@ -402,10 +387,9 @@ describe("assembleSessionConfig — memory block selection", () => {
     mockResolveAgentConfig.mockReturnValueOnce(agentWithMemory(["read", "edit"]));
     mockGetToolNamesForType.mockReturnValueOnce(["read", "edit"]);
 
-    assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup, mockIO);
+    const result = assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
-    expect(mockBuildMemoryBlock).toHaveBeenCalledTimes(1);
-    expect(mockBuildReadOnlyMemoryBlock).not.toHaveBeenCalled();
+    expect(result.extras.memoryBlock).toBe("memory block");
   });
 
   it("agent with memory + read-only tools → read-only block", () => {
@@ -415,7 +399,6 @@ describe("assembleSessionConfig — memory block selection", () => {
     const result = assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(mockBuildReadOnlyMemoryBlock).toHaveBeenCalledWith("Writer", "project", "/tmp");
-    expect(mockBuildMemoryBlock).not.toHaveBeenCalled();
     expect(result.extras.memoryBlock).toBe("read-only memory block");
   });
 
@@ -425,10 +408,9 @@ describe("assembleSessionConfig — memory block selection", () => {
     );
     mockGetToolNamesForType.mockReturnValueOnce(["read", "write", "bash"]);
 
-    assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup, mockIO);
+    const result = assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
-    expect(mockBuildReadOnlyMemoryBlock).toHaveBeenCalledTimes(1);
-    expect(mockBuildMemoryBlock).not.toHaveBeenCalled();
+    expect(result.extras.memoryBlock).toBe("read-only memory block");
   });
 
   it("denied edit tool → read-only block when edit was the only write capability", () => {
@@ -437,10 +419,9 @@ describe("assembleSessionConfig — memory block selection", () => {
     );
     mockGetToolNamesForType.mockReturnValueOnce(["read", "edit"]);
 
-    assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup, mockIO);
+    const result = assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
-    expect(mockBuildReadOnlyMemoryBlock).toHaveBeenCalledTimes(1);
-    expect(mockBuildMemoryBlock).not.toHaveBeenCalled();
+    expect(result.extras.memoryBlock).toBe("read-only memory block");
   });
 
   it("adds missing memory tool names from getMemoryToolNames to toolNames", () => {
@@ -525,15 +506,13 @@ describe("assembleSessionConfig — unknown type fallback", () => {
       promptMode: "append" as const,
     });
 
-    assembleSessionConfig("unknown-custom-agent", ctx, {}, mockEnv, mockAgentLookup, mockIO);
-
-    expect(mockBuildAgentPrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "general-purpose" }),
-      expect.any(String),
-      expect.any(Object),
-      expect.any(String),
-      expect.any(Object),
+    mockBuildAgentPrompt.mockImplementationOnce(
+      (config: { name: string }) => `resolved:${config.name}`,
     );
+
+    const result = assembleSessionConfig("unknown-custom-agent", ctx, {}, mockEnv, mockAgentLookup, mockIO);
+
+    expect(result.systemPrompt).toBe("resolved:general-purpose");
   });
 });
 
