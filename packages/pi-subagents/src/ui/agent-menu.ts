@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { SpawnOptions } from "../agent-manager.js";
+import type { AgentSpawnConfig } from "../agent-manager.js";
 import {
   AgentTypeRegistry,
   BUILTIN_TOOL_NAMES,
@@ -19,7 +19,7 @@ export interface AgentMenuManager {
   listAgents: () => AgentRecord[];
   getRecord: (id: string) => AgentRecord | undefined;
   /** Used by generate wizard to spawn an agent that writes the .md file. */
-  spawnAndWait: (ctx: ExtensionContext, type: string, prompt: string, opts: Omit<SpawnOptions, "isBackground">) => Promise<AgentRecord>;
+  spawnAndWait: (ctx: ExtensionContext, type: string, prompt: string, opts: Omit<AgentSpawnConfig, "isBackground">) => Promise<AgentRecord>;
 }
 
 /** Narrow settings interface required by the agent menu. */

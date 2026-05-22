@@ -464,7 +464,7 @@ describe("AgentManager — parent session threading", () => {
     manager?.dispose();
   });
 
-  it("threads parentSessionFile and parentSessionId from SpawnOptions to RunOptions", async () => {
+  it("threads parentSessionFile and parentSessionId from AgentSpawnConfig to RunOptions", async () => {
     let runner: AgentRunner;
     ({ manager, runner } = createManager());
 

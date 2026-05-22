@@ -47,10 +47,10 @@ interface SpawnArgs {
   snapshot: ParentSnapshot;
   type: SubagentType;
   prompt: string;
-  options: SpawnOptions;
+  options: AgentSpawnConfig;
 }
 
-export interface SpawnOptions {
+export interface AgentSpawnConfig {
   description: string;
   model?: Model<any>;
   maxTurns?: number;
@@ -138,7 +138,7 @@ export class AgentManager {
     ctx: ExtensionContext,
     type: SubagentType,
     prompt: string,
-    options: SpawnOptions,
+    options: AgentSpawnConfig,
   ): string {
     const id = randomUUID().slice(0, 17);
     const abortController = new AbortController();
@@ -321,7 +321,7 @@ export class AgentManager {
     ctx: ExtensionContext,
     type: SubagentType,
     prompt: string,
-    options: Omit<SpawnOptions, "isBackground">,
+    options: Omit<AgentSpawnConfig, "isBackground">,
   ): Promise<AgentRecord> {
     const id = this.spawn(ctx, type, prompt, { ...options, isBackground: false });
     const record = this.agents.get(id)!;
