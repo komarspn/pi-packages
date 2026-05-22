@@ -506,8 +506,8 @@ Phase 7 eliminated all structural smells (mutable state, closure bags, callback 
 Phase 8 targets the next layer: testability friction, display module cohesion, and menu decomposition.
 
 The test suite (690 tests, 1.4:1 test-to-code ratio) is comprehensive but uneven in quality.
-Two files — `session-config.test.ts` and `agent-runner.test.ts` — account for 11 of 12 total `vi.mock()` calls and rely heavily on verifying internal call sequences rather than observable outputs.
-This fragility is a symptom of production code that imports IO-touching collaborators directly instead of receiving them through injection.
+`agent-runner.test.ts` accounts for 7 of 8 remaining `vi.mock()` calls and relies heavily on verifying internal call sequences rather than observable outputs.
+This fragility is a symptom of production code that imports IO-touching collaborators directly instead of receiving them through injection. (Step G resolved `session-config.test.ts`, which previously held 4 of the 12 total mocks.)
 
 The display and menu improvements were identified during Phase 7 but deferred because they don't gate encapsulation work.
 They are included here because the display extraction unblocks menu decomposition.
@@ -517,7 +517,7 @@ They are included here because the display extraction unblocks menu decompositio
 | Symptom                       | Location                                                | Root cause                                                        |
 | ----------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------- |
 | 7 `vi.mock()` calls           | `agent-runner.test.ts`                                  | Runner imports prompts, memory, skills, env, session-dir directly |
-| 4 `vi.mock()` calls           | `session-config.test.ts`                                | Assembler imports prompts, memory, skills directly                |
+| 7 `vi.mock()` calls           | `agent-runner.test.ts`                                  | Runner imports prompts, memory, skills, env, session-dir directly |
 | 52 `as any` casts             | Across test suite                                       | SDK session/context interfaces too wide to construct in tests     |
 | 3× duplicated `mockSession()` | agent-manager, record-observer, ui-observer tests       | No shared test fixture                                            |
 | 3× duplicated `makeDeps()`    | agent-tool, background-spawner, foreground-runner tests | No shared tool-deps fixture                                       |
@@ -535,26 +535,11 @@ Consolidate duplicated mock factories into `test/helpers/`.
 
 Impact: reduces test boilerplate; single source of truth for mock shapes; changes to dep interfaces propagate automatically.
 
-### Step G: Inject IO collaborators into session-config (#132)
+### Step G: Inject IO collaborators into session-config (#132) ✓ done
 
-`assembleSessionConfig` is described as a pure assembler, but it directly imports three IO-touching functions: `preloadSkills` (reads `.pi/skills` files), `buildMemoryBlock` (reads `MEMORY.md`), and `buildReadOnlyMemoryBlock` (reads `MEMORY.md`).
-It also imports `buildAgentPrompt`, which is pure but mocked anyway because tests verify call arguments instead of output properties.
-
-Inject these as an `AssemblerIO` parameter:
-
-```typescript
-export interface AssemblerIO {
-  preloadSkills: (skills: string[], cwd: string) => PreloadedSkill[];
-  buildMemoryBlock: (name: string, scope: MemoryScope, cwd: string) => string;
-  buildReadOnlyMemoryBlock: (name: string, scope: MemoryScope, cwd: string) => string;
-  buildAgentPrompt: (config: AgentPromptConfig, cwd: string, env: EnvInfo, parentPrompt: string, extras: PromptExtras) => string;
-}
-```
-
-The production call site in `agent-runner.ts` passes the real implementations.
-Tests pass stubs or let real implementations run against controlled inputs.
-
-Impact: eliminates all 4 `vi.mock()` calls in `session-config.test.ts`; tests verify `SessionConfig` output properties instead of mock call arguments; the assembler becomes truly pure.
+`assembleSessionConfig` now accepts `io: AssemblerIO` as a required parameter.
+`agent-runner.ts` constructs the real `AssemblerIO` from direct imports and passes it through.
+`session-config.test.ts` injects stubs — all 4 `vi.mock()` calls eliminated, assertions shifted to `SessionConfig` output properties.
 
 ### Step H: Inject SDK boundary into agent-runner (#133)
 
