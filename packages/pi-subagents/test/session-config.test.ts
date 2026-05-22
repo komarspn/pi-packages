@@ -73,6 +73,14 @@ const ctx = {
   modelRegistry: mockRegistry,
 };
 
+/** IO stubs injected into assembleSessionConfig in place of module-level imports. */
+const mockIO = {
+  preloadSkills: mockPreloadSkills,
+  buildMemoryBlock: mockBuildMemoryBlock,
+  buildReadOnlyMemoryBlock: mockBuildReadOnlyMemoryBlock,
+  buildAgentPrompt: mockBuildAgentPrompt,
+};
+
 beforeEach(() => {
   mockResolveAgentConfig.mockClear();
   mockGetToolNamesForType.mockClear();
@@ -88,7 +96,7 @@ beforeEach(() => {
 
 describe("assembleSessionConfig — default agent shape", () => {
   it("returns correct shape for Explore agent with defaults", () => {
-    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.effectiveCwd).toBe("/tmp");
     expect(result.systemPrompt).toBe("assembled system prompt");
@@ -102,13 +110,13 @@ describe("assembleSessionConfig — default agent shape", () => {
   });
 
   it("uses options.cwd as effectiveCwd when provided", () => {
-    const result = assembleSessionConfig("Explore", ctx, { cwd: "/tmp/worktree" }, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("Explore", ctx, { cwd: "/tmp/worktree" }, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.effectiveCwd).toBe("/tmp/worktree");
   });
 
   it("falls back to ctx.cwd when options.cwd is not set", () => {
-    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.effectiveCwd).toBe("/tmp");
   });
@@ -125,13 +133,13 @@ describe("assembleSessionConfig — default agent shape", () => {
       disallowedTools: ["write", "bash"],
     });
 
-    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.disallowedSet).toEqual(new Set(["write", "bash"]));
   });
 
   it("calls buildAgentPrompt with env, cwd, parentSystemPrompt, and extras", () => {
-    assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup);
+    assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(mockBuildAgentPrompt).toHaveBeenCalledWith(
       expect.objectContaining({ name: "Explore" }),
@@ -143,7 +151,7 @@ describe("assembleSessionConfig — default agent shape", () => {
   });
 
   it("uses effectiveCwd (options.cwd) when calling buildAgentPrompt", () => {
-    assembleSessionConfig("Explore", ctx, { cwd: "/tmp/worktree" }, mockEnv, mockAgentLookup);
+    assembleSessionConfig("Explore", ctx, { cwd: "/tmp/worktree" }, mockEnv, mockAgentLookup, mockIO);
 
     expect(mockBuildAgentPrompt).toHaveBeenCalledWith(
       expect.any(Object),
@@ -157,7 +165,7 @@ describe("assembleSessionConfig — default agent shape", () => {
 
 describe("assembleSessionConfig — model resolution", () => {
   it("returns undefined model when no option, no config model, no parent", () => {
-    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.model).toBeUndefined();
   });
@@ -180,6 +188,7 @@ describe("assembleSessionConfig — model resolution", () => {
       { model: explicitModel },
       mockEnv,
       mockAgentLookup,
+      mockIO,
     );
 
     expect(result.model).toBe(explicitModel);
@@ -201,7 +210,7 @@ describe("assembleSessionConfig — model resolution", () => {
       { provider: "anthropic", id: "claude-opus-4" },
     ]);
 
-    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(mockRegistry.find).toHaveBeenCalledWith("anthropic", "claude-opus-4");
     expect(result.model).toBe(resolvedModel);
@@ -227,6 +236,7 @@ describe("assembleSessionConfig — model resolution", () => {
       {},
       mockEnv,
       mockAgentLookup,
+      mockIO,
     );
 
     expect(result.model).toBe(parentModel);
@@ -254,6 +264,7 @@ describe("assembleSessionConfig — model resolution", () => {
       {},
       mockEnv,
       mockAgentLookup,
+      mockIO,
     );
 
     expect(result.model).toBe(parentModel);
@@ -277,6 +288,7 @@ describe("assembleSessionConfig — model resolution", () => {
       {},
       mockEnv,
       mockAgentLookup,
+      mockIO,
     );
 
     expect(result.model).toBe(parentModel);
@@ -291,6 +303,7 @@ describe("assembleSessionConfig — model resolution", () => {
       {},
       mockEnv,
       mockAgentLookup,
+      mockIO,
     );
 
     expect(result.model).toBe(parentModel);
@@ -300,10 +313,10 @@ describe("assembleSessionConfig — model resolution", () => {
 describe("assembleSessionConfig — skill preloading", () => {
   it("skips preloading when skills is false", () => {
     // default mock has skills: false
-    assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup);
+    assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(mockPreloadSkills).not.toHaveBeenCalled();
-    expect(assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup).extras).toEqual({});
+    expect(assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO).extras).toEqual({});
   });
 
   it("skips preloading when skills is true (resource loader handles it)", () => {
@@ -316,7 +329,7 @@ describe("assembleSessionConfig — skill preloading", () => {
       promptMode: "append" as const,
     });
 
-    const result = assembleSessionConfig("general-purpose", ctx, {}, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("general-purpose", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(mockPreloadSkills).not.toHaveBeenCalled();
     expect(result.noSkills).toBe(false);
@@ -339,7 +352,7 @@ describe("assembleSessionConfig — skill preloading", () => {
       { name: "testing", content: "# Testing" },
     ]);
 
-    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(mockPreloadSkills).toHaveBeenCalledWith(skillList, "/tmp");
     expect(result.extras.skillBlocks).toEqual([
@@ -362,7 +375,7 @@ describe("assembleSessionConfig — skill preloading", () => {
     });
     mockPreloadSkills.mockReturnValueOnce([]);
 
-    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.noSkills).toBe(true);
     expect(result.extras.skillBlocks).toBeUndefined();
@@ -379,7 +392,7 @@ describe("assembleSessionConfig — skill preloading", () => {
       promptMode: "replace" as const,
     });
 
-    const result = assembleSessionConfig("Explore", ctx, { isolated: true }, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("Explore", ctx, { isolated: true }, mockEnv, mockAgentLookup, mockIO);
 
     expect(mockPreloadSkills).not.toHaveBeenCalled();
     expect(result.noSkills).toBe(true);
@@ -403,7 +416,7 @@ describe("assembleSessionConfig — memory block selection", () => {
 
   it("no memory config → no memory block in extras", () => {
     // default mock has no memory field
-    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.extras.memoryBlock).toBeUndefined();
     expect(mockBuildMemoryBlock).not.toHaveBeenCalled();
@@ -415,7 +428,7 @@ describe("assembleSessionConfig — memory block selection", () => {
     mockGetToolNamesForType.mockReturnValueOnce(["read", "write", "bash"]);
     mockGetMemoryToolNames.mockReturnValueOnce([]);
 
-    const result = assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(mockBuildMemoryBlock).toHaveBeenCalledWith("Writer", "project", "/tmp");
     expect(mockBuildReadOnlyMemoryBlock).not.toHaveBeenCalled();
@@ -427,7 +440,7 @@ describe("assembleSessionConfig — memory block selection", () => {
     mockGetToolNamesForType.mockReturnValueOnce(["read", "edit"]);
     mockGetMemoryToolNames.mockReturnValueOnce([]);
 
-    assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup);
+    assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(mockBuildMemoryBlock).toHaveBeenCalledTimes(1);
     expect(mockBuildReadOnlyMemoryBlock).not.toHaveBeenCalled();
@@ -438,7 +451,7 @@ describe("assembleSessionConfig — memory block selection", () => {
     mockGetToolNamesForType.mockReturnValueOnce(["read", "bash", "grep"]);
     mockGetReadOnlyMemoryToolNames.mockReturnValueOnce([]);
 
-    const result = assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(mockBuildReadOnlyMemoryBlock).toHaveBeenCalledWith("Writer", "project", "/tmp");
     expect(mockBuildMemoryBlock).not.toHaveBeenCalled();
@@ -452,7 +465,7 @@ describe("assembleSessionConfig — memory block selection", () => {
     mockGetToolNamesForType.mockReturnValueOnce(["read", "write", "bash"]);
     mockGetReadOnlyMemoryToolNames.mockReturnValueOnce([]);
 
-    assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup);
+    assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(mockBuildReadOnlyMemoryBlock).toHaveBeenCalledTimes(1);
     expect(mockBuildMemoryBlock).not.toHaveBeenCalled();
@@ -465,7 +478,7 @@ describe("assembleSessionConfig — memory block selection", () => {
     mockGetToolNamesForType.mockReturnValueOnce(["read", "edit"]);
     mockGetReadOnlyMemoryToolNames.mockReturnValueOnce([]);
 
-    assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup);
+    assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(mockBuildReadOnlyMemoryBlock).toHaveBeenCalledTimes(1);
     expect(mockBuildMemoryBlock).not.toHaveBeenCalled();
@@ -477,7 +490,7 @@ describe("assembleSessionConfig — memory block selection", () => {
     // getMemoryToolNames returns tools not already present (e.g. edit)
     mockGetMemoryToolNames.mockReturnValueOnce(["edit"]);
 
-    const result = assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.toolNames).toContain("edit");
     expect(mockGetMemoryToolNames).toHaveBeenCalledWith(new Set(["read", "write"]));
@@ -488,7 +501,7 @@ describe("assembleSessionConfig — memory block selection", () => {
     mockGetToolNamesForType.mockReturnValueOnce(["bash", "grep"]);
     mockGetReadOnlyMemoryToolNames.mockReturnValueOnce(["read"]);
 
-    const result = assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.toolNames).toContain("read");
   });
@@ -505,7 +518,7 @@ describe("assembleSessionConfig — isolated mode", () => {
       promptMode: "append" as const,
     });
 
-    const result = assembleSessionConfig("general-purpose", ctx, { isolated: true }, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("general-purpose", ctx, { isolated: true }, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.extensions).toBe(false);
     expect(result.noSkills).toBe(true);
@@ -521,7 +534,7 @@ describe("assembleSessionConfig — isolated mode", () => {
       promptMode: "append" as const,
     });
 
-    const result = assembleSessionConfig("general-purpose", ctx, {}, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("general-purpose", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.extensions).toBe(true);
   });
@@ -537,7 +550,7 @@ describe("assembleSessionConfig — isolated mode", () => {
       promptMode: "replace" as const,
     });
 
-    const result = assembleSessionConfig("Explore", ctx, { isolated: true }, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("Explore", ctx, { isolated: true }, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.extensions).toBe(false);
   });
@@ -556,7 +569,7 @@ describe("assembleSessionConfig — unknown type fallback", () => {
       promptMode: "append" as const,
     });
 
-    assembleSessionConfig("unknown-custom-agent", ctx, {}, mockEnv, mockAgentLookup);
+    assembleSessionConfig("unknown-custom-agent", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(mockBuildAgentPrompt).toHaveBeenCalledWith(
       expect.objectContaining({ name: "general-purpose" }),
@@ -570,7 +583,7 @@ describe("assembleSessionConfig — unknown type fallback", () => {
 
 describe("assembleSessionConfig — thinking level", () => {
   it("returns undefined thinkingLevel when neither option nor config sets it", () => {
-    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.thinkingLevel).toBeUndefined();
   });
@@ -592,6 +605,7 @@ describe("assembleSessionConfig — thinking level", () => {
       { thinkingLevel: "high" },
       mockEnv,
       mockAgentLookup,
+      mockIO,
     );
 
     expect(result.thinkingLevel).toBe("high");
@@ -608,7 +622,7 @@ describe("assembleSessionConfig — thinking level", () => {
       thinking: "medium" as const,
     });
 
-    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup);
+    const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     expect(result.thinkingLevel).toBe("medium");
   });

@@ -15,9 +15,12 @@ import {
 import type { AgentConfigLookup } from "./agent-types.js";
 import { extractText } from "./context.js";
 import { detectEnv } from "./env.js";
+import { buildMemoryBlock, buildReadOnlyMemoryBlock } from "./memory.js";
 import type { ParentSnapshot } from "./parent-snapshot.js";
-import { assembleSessionConfig } from "./session-config.js";
+import { buildAgentPrompt } from "./prompts.js";
+import { type AssemblerIO, assembleSessionConfig } from "./session-config.js";
 import { deriveSubagentSessionDir } from "./session-dir.js";
+import { preloadSkills } from "./skill-loader.js";
 import type { ShellExec, SubagentType, ThinkingLevel } from "./types.js";
 
 /** Names of tools registered by this extension that subagents must NOT inherit. */
@@ -178,6 +181,12 @@ export async function runAgent(
   const env = await detectEnv(options.exec, effectiveCwd);
 
   // Assemble session configuration (synchronous, no SDK objects).
+  const io: AssemblerIO = {
+    preloadSkills,
+    buildMemoryBlock,
+    buildReadOnlyMemoryBlock,
+    buildAgentPrompt,
+  };
   const cfg = assembleSessionConfig(
     type,
     {
@@ -194,6 +203,7 @@ export async function runAgent(
     },
     env,
     options.registry,
+    io,
   );
 
   const agentDir = getAgentDir();

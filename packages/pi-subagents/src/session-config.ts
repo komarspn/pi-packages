@@ -16,12 +16,41 @@ import {
   getReadOnlyMemoryToolNames,
 } from "./agent-types.js";
 import type { EnvInfo } from "./env.js";
-import { buildMemoryBlock, buildReadOnlyMemoryBlock } from "./memory.js";
-import { buildAgentPrompt, type PromptExtras } from "./prompts.js";
-import { preloadSkills } from "./skill-loader.js";
-import type { SubagentType, ThinkingLevel } from "./types.js";
+import type { PromptExtras } from "./prompts.js";
+import type { PreloadedSkill } from "./skill-loader.js";
+import type {
+  AgentPromptConfig,
+  MemoryScope,
+  SubagentType,
+  ThinkingLevel,
+} from "./types.js";
 
 // ── Public interfaces ────────────────────────────────────────────────────────
+
+/**
+ * IO collaborators injected into `assembleSessionConfig`.
+ *
+ * Bundling the four IO-touching (or promptly testable) functions into a single
+ * interface keeps the assembler free of direct module imports and makes it
+ * trivially testable without `vi.mock()` — callers inject real implementations
+ * at the edge (`agent-runner.ts`) or stubs in tests.
+ */
+export interface AssemblerIO {
+  preloadSkills: (skills: string[], cwd: string) => PreloadedSkill[];
+  buildMemoryBlock: (name: string, scope: MemoryScope, cwd: string) => string;
+  buildReadOnlyMemoryBlock: (
+    name: string,
+    scope: MemoryScope,
+    cwd: string,
+  ) => string;
+  buildAgentPrompt: (
+    config: AgentPromptConfig,
+    cwd: string,
+    env: EnvInfo,
+    parentPrompt?: string,
+    extras?: PromptExtras,
+  ) => string;
+}
 
 /**
  * Narrow context the assembler reads from the parent session.
@@ -132,8 +161,8 @@ function resolveDefaultModel(
 /**
  * Assemble all configuration needed to create an agent session.
  *
- * Synchronous and side-effect-free (beyond calling `preloadSkills` which reads
- * the filesystem). The caller is responsible for resolving `EnvInfo` beforehand
+ * Synchronous and side-effect-free — all IO is delegated through the `io`
+ * parameter. The caller is responsible for resolving `EnvInfo` beforehand
  * via `detectEnv()`.
  *
  * @param type       The subagent type name (case-insensitive registry lookup).
@@ -141,6 +170,7 @@ function resolveDefaultModel(
  * @param options    Per-call overrides (cwd, isolated, model, thinkingLevel).
  * @param env        Pre-resolved environment info from `detectEnv()`.
  * @param registry   Agent config lookup — provides resolveAgentConfig and getToolNamesForType.
+ * @param io         IO collaborators (skill loader, memory builder, prompt builder).
  */
 export function assembleSessionConfig(
   type: SubagentType,
@@ -148,6 +178,7 @@ export function assembleSessionConfig(
   options: AssemblerOptions,
   env: EnvInfo,
   registry: AgentConfigLookup,
+  io: AssemblerIO,
 ): SessionConfig {
   const agentConfig = registry.resolveAgentConfig(type);
 
@@ -162,7 +193,7 @@ export function assembleSessionConfig(
 
   // Skill preloading: when skills is string[], preload their content into the prompt
   if (Array.isArray(skills)) {
-    const loaded = preloadSkills(skills, effectiveCwd);
+    const loaded = io.preloadSkills(skills, effectiveCwd);
     if (loaded.length > 0) {
       extras.skillBlocks = loaded;
     }
@@ -185,7 +216,7 @@ export function assembleSessionConfig(
     if (hasWriteTools) {
       const extraNames = getMemoryToolNames(existingNames);
       if (extraNames.length > 0) toolNames = [...toolNames, ...extraNames];
-      extras.memoryBlock = buildMemoryBlock(
+      extras.memoryBlock = io.buildMemoryBlock(
         agentConfig.name,
         agentConfig.memory,
         effectiveCwd,
@@ -193,7 +224,7 @@ export function assembleSessionConfig(
     } else {
       const extraNames = getReadOnlyMemoryToolNames(existingNames);
       if (extraNames.length > 0) toolNames = [...toolNames, ...extraNames];
-      extras.memoryBlock = buildReadOnlyMemoryBlock(
+      extras.memoryBlock = io.buildReadOnlyMemoryBlock(
         agentConfig.name,
         agentConfig.memory,
         effectiveCwd,
@@ -202,7 +233,7 @@ export function assembleSessionConfig(
   }
 
   // Build system prompt from the resolved agent config
-  const systemPrompt = buildAgentPrompt(
+  const systemPrompt = io.buildAgentPrompt(
     agentConfig,
     effectiveCwd,
     env,
