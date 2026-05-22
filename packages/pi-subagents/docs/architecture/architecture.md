@@ -54,10 +54,12 @@ settings.ts               — persistent operational settings; `SettingsManager`
 service.ts                — SubagentsService interface + Symbol.for() accessors
 service-adapter.ts        — SubagentsService implementation wrapping AgentManager
 
-tools/agent-tool.ts       — Agent tool definition + execute
-tools/get-result-tool.ts  — get_subagent_result tool
-tools/steer-tool.ts       — steer_subagent tool
-tools/helpers.ts          — shared tool utilities
+tools/agent-tool.ts          — Agent tool definition, parameter validation, dispatch
+tools/foreground-runner.ts   — foreground execution loop (spinner, streaming, result)
+tools/background-spawner.ts  — background spawn (activity setup, notification wiring)
+tools/get-result-tool.ts     — get_subagent_result tool
+tools/steer-tool.ts          — steer_subagent tool
+tools/helpers.ts             — shared tool utilities (textResult, buildDetails, getStatusNote, …)
 
 handlers/lifecycle.ts     — session_start, session_before_switch, session_shutdown
 handlers/tool-start.ts    — tool_execution_start handler
@@ -259,10 +261,12 @@ src/
 ├── index.ts                  — slimmed entry point: init, tool registration
 ├── runtime.ts                — SubagentRuntime: session-scoped state + methods
 ├── tools/
-│   ├── agent-tool.ts         — Agent tool definition + execute
+│   ├── agent-tool.ts         — Agent tool definition, parameter validation, dispatch
+│   ├── foreground-runner.ts  — foreground execution loop (spinner, streaming, result)
+│   ├── background-spawner.ts — background spawn (activity setup, notification wiring)
 │   ├── get-result-tool.ts    — get_subagent_result tool
 │   ├── steer-tool.ts         — steer_subagent tool
-│   └── helpers.ts            — shared tool utilities
+│   └── helpers.ts            — shared tool utilities (textResult, buildDetails, getStatusNote, …)
 ├── handlers/
 │   ├── lifecycle.ts          — session_start, session_before_switch, session_shutdown
 │   └── tool-start.ts         — tool_execution_start handler
@@ -437,7 +441,7 @@ Split post-construction mutation into phase-specific collaborators, each born co
 
 - **`ExecutionState`** (`session`, `outputFile`) — constructed in `onSessionCreated`, attached as `record.execution`.
 - **`WorktreeState`** (`path`, `branch`, `cleanupResult`) — constructed at worktree setup, attached as `record.worktreeState`.
-- **`NotificationState`** (`toolCallId`, `resultConsumed`) — constructed by agent-tool after spawn, attached as `record.notification`.
+- **`NotificationState`** (`toolCallId`, `resultConsumed`) — constructed by `AgentManager.spawn()` when `toolCallId` is provided in `AgentSpawnConfig`, attached as `record.notification`.
 - **`pendingSteers`** moved to `Map<string, string[]>` on `AgentManager`; steer-tool and service-adapter call `manager.queueSteer()`.
 - Stats (`toolUses`, `lifetimeUsage`, `compactionCount`) encapsulated behind mutation methods (`incrementToolUses`, `addUsage`, `incrementCompactions`) with read-only getters.
 - `AgentRecordInit` trimmed from 19 optional fields to 4 construction-time fields.
@@ -476,10 +480,12 @@ Public `SpawnOptions` in `service.ts` is unchanged.
 
 ### Step E: Decompose large files and relocate types (parallel)
 
-#### E1. Split `agent-tool.ts` foreground/background (#115)
+#### E1. Split `agent-tool.ts` foreground/background (#115) ✅
 
-Extract the foreground execution loop (spinner, streaming, result rendering) and background spawn path into separate modules.
-The 654-line file splits along a natural seam.
+**Done.**
+Fixed two upstream API gaps before extracting: `onSessionCreated` now receives `(session, record)` (eliminating a `listAgents()` reverse-search), and `AgentSpawnConfig` accepts `toolCallId` (moving `NotificationState` wiring into `AgentManager.spawn()`).
+Extracted `foreground-runner.ts` (~175 lines) and `background-spawner.ts` (~116 lines).
+`agent-tool.ts` reduced from 579 → 411 lines (orchestrator + rendering).
 
 #### E2. Type housekeeping (#116)
 
