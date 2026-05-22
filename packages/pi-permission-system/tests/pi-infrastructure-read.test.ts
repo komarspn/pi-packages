@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -259,5 +260,110 @@ describe("isPiInfrastructureRead", () => {
         CWD,
       ),
     ).toBe(true);
+  });
+});
+
+// ── isPiInfrastructureRead — glob patterns ─────────────────────────────────
+
+describe("isPiInfrastructureRead with glob patterns", () => {
+  test("glob entry matches a versioned nested path", () => {
+    expect(
+      isPiInfrastructureRead(
+        "read",
+        "/opt/homebrew/Cellar/pi-coding-agent/0.74.0/libexec/lib/node_modules/@earendil-works/pi-coding-agent/SKILL.md",
+        ["/opt/homebrew/*/@earendil-works/pi-coding-agent/*"],
+        CWD,
+      ),
+    ).toBe(true);
+  });
+
+  test("** behaves the same as * (matches across path separators)", () => {
+    expect(
+      isPiInfrastructureRead(
+        "read",
+        "/opt/homebrew/Cellar/pi-coding-agent/0.74.0/libexec/lib/node_modules/@earendil-works/pi-coding-agent/SKILL.md",
+        ["/opt/homebrew/**/@earendil-works/pi-coding-agent/**"],
+        CWD,
+      ),
+    ).toBe(true);
+  });
+
+  test("glob entry does not match an unrelated path", () => {
+    expect(
+      isPiInfrastructureRead(
+        "read",
+        "/etc/passwd",
+        ["/opt/homebrew/*/@earendil-works/pi-coding-agent/*"],
+        CWD,
+      ),
+    ).toBe(false);
+  });
+
+  test("? matches exactly one character", () => {
+    expect(
+      isPiInfrastructureRead(
+        "read",
+        "/opt/homebrew/X/file.md",
+        ["/opt/homebrew/?/file.md"],
+        CWD,
+      ),
+    ).toBe(true);
+  });
+
+  test("? does not match multiple characters", () => {
+    expect(
+      isPiInfrastructureRead(
+        "read",
+        "/opt/homebrew/abc/file.md",
+        ["/opt/homebrew/?/file.md"],
+        CWD,
+      ),
+    ).toBe(false);
+  });
+
+  test("mixed array of plain dirs and glob patterns — both branches work", () => {
+    const dirs = [
+      "/home/user/.pi/agent",
+      "/opt/homebrew/*/@earendil-works/pi-coding-agent/*",
+    ];
+    expect(
+      isPiInfrastructureRead(
+        "read",
+        "/home/user/.pi/agent/config.json",
+        dirs,
+        CWD,
+      ),
+    ).toBe(true);
+    expect(
+      isPiInfrastructureRead(
+        "read",
+        "/opt/homebrew/Cellar/pi-coding-agent/0.74.0/libexec/lib/node_modules/@earendil-works/pi-coding-agent/SKILL.md",
+        dirs,
+        CWD,
+      ),
+    ).toBe(true);
+  });
+
+  test("plain entry with ~ prefix matches after home expansion", () => {
+    const home = homedir();
+    expect(
+      isPiInfrastructureRead(
+        "read",
+        `${home}/.pi/agent/config.json`,
+        ["~/.pi/agent"],
+        CWD,
+      ),
+    ).toBe(true);
+  });
+
+  test("write tool with a glob-matching path is still rejected", () => {
+    expect(
+      isPiInfrastructureRead(
+        "write",
+        "/opt/homebrew/Cellar/pi-coding-agent/0.74.0/libexec/lib/node_modules/@earendil-works/pi-coding-agent/SKILL.md",
+        ["/opt/homebrew/**/@earendil-works/pi-coding-agent/**"],
+        CWD,
+      ),
+    ).toBe(false);
   });
 });

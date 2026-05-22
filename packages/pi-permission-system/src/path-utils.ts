@@ -2,6 +2,8 @@ import { homedir } from "node:os";
 import { join, normalize, resolve, sep } from "node:path";
 
 import { getNonEmptyString, toRecord } from "./common";
+import { expandHomePath } from "./expand-home";
+import { wildcardMatch } from "./wildcard-matcher";
 
 export function normalizePathForComparison(
   pathValue: string,
@@ -111,6 +113,10 @@ export function isPathOutsideWorkingDirectory(
   return !isPathWithinDirectory(normalizedPath, normalizedCwd);
 }
 
+function containsGlobChars(value: string): boolean {
+  return value.includes("*") || value.includes("?");
+}
+
 /**
  * Returns true if the given tool + normalized path combination qualifies for
  * automatic allow as a Pi infrastructure read.
@@ -121,7 +127,8 @@ export function isPathOutsideWorkingDirectory(
  *    OR within the project-local Pi package directories
  *    (`<cwd>/.pi/npm/` or `<cwd>/.pi/git/`).
  *
- * `infrastructureDirs` should contain pre-expanded absolute paths (no `~`).
+ * `infrastructureDirs` entries may be absolute paths or patterns containing
+ * `~`/`$HOME` (expanded at call time) or glob characters (`*`, `?`).
  * Project-local paths are computed fresh from `cwd` on each call so they
  * follow working-directory changes without a runtime rebuild.
  */
@@ -136,8 +143,11 @@ export function isPiInfrastructureRead(
   }
 
   for (const dir of infrastructureDirs) {
-    if (isPathWithinDirectory(normalizedPath, dir)) {
-      return true;
+    if (containsGlobChars(dir)) {
+      if (wildcardMatch(dir, normalizedPath)) return true;
+    } else {
+      if (isPathWithinDirectory(normalizedPath, expandHomePath(dir)))
+        return true;
     }
   }
 
