@@ -91,10 +91,20 @@ export interface AgentToolWidget {
   markFinished: (id: string) => void;
 }
 
+/**
+ * Narrow read/write interface for the agent-tool's agentActivity access.
+ * The full Map satisfies this structurally — no wrapper needed.
+ */
+export interface AgentActivityAccess {
+  get(id: string): AgentActivityTracker | undefined;
+  set(id: string, tracker: AgentActivityTracker): void;
+  delete(id: string): void;
+}
+
 export interface AgentToolDeps {
   manager: AgentToolManager;
   widget: AgentToolWidget;
-  agentActivity: Map<string, AgentActivityTracker>;
+  agentActivity: AgentActivityAccess;
   registry: AgentTypeRegistry;
   agentDir: string;
   /** Narrow settings accessor — only the default max turns is needed here. */

@@ -32,10 +32,18 @@ export interface AgentMenuSettings {
   applyGraceTurns(n: number): { message: string; level: "info" | "warning" };
 }
 
+/**
+ * Read-only interface for the agent-menu's agentActivity access.
+ * Only the conversation viewer needs to read a tracker by agent ID.
+ */
+export interface AgentActivityReader {
+  get(id: string): AgentActivityTracker | undefined;
+}
+
 export interface AgentMenuDeps {
   manager: AgentMenuManager;
   registry: AgentTypeRegistry;
-  agentActivity: Map<string, AgentActivityTracker>;
+  agentActivity: AgentActivityReader;
   /** Resolve model label for a given agent type + registry. */
   getModelLabel: (type: string, registry?: ModelRegistry) => string;
   /** Settings manager — owns in-memory values and persistence. */

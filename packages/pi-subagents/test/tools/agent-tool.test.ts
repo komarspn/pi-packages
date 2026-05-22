@@ -200,7 +200,7 @@ describe("Agent tool — background execution", () => {
       subagent_type: "general-purpose",
       run_in_background: true,
     });
-    expect(deps.agentActivity.has("agent-1")).toBe(true);
+    expect(deps.agentActivity.get("agent-1")).toBeDefined();
   });
 
   it("sets record.notification with the tool call id for background agents", async () => {
