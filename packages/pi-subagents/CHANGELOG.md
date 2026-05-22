@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.8.1](https://github.com/gotgenes/pi-packages/compare/pi-subagents-v6.8.0...pi-subagents-v6.8.1) (2026-05-21)
+
+
+### Documentation
+
+* plan remove vi.fn() cast smell from test helpers ([#123](https://github.com/gotgenes/pi-packages/issues/123)) ([d0e33b3](https://github.com/gotgenes/pi-packages/commit/d0e33b39cf419bb03a2d69c39992600752ce8517))
+* **retro:** add retro notes for issue [#111](https://github.com/gotgenes/pi-packages/issues/111) ([37eea32](https://github.com/gotgenes/pi-packages/commit/37eea32b32135b792c6c94933267c3e5a5f2cd7b))
+
 ## [6.8.0](https://github.com/gotgenes/pi-packages/compare/pi-subagents-v6.7.0...pi-subagents-v6.8.0) (2026-05-21)
 
 
