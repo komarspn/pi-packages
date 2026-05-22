@@ -3,7 +3,7 @@
  */
 
 import type { EnvInfo } from "./env.js";
-import type { AgentConfig } from "./types.js";
+import type { AgentPromptConfig } from "./types.js";
 
 /** Extra sections to inject into the system prompt (memory, skills, etc.). */
 export interface PromptExtras {
@@ -28,7 +28,7 @@ export interface PromptExtras {
  * @param extras  Optional extra sections to inject (memory, preloaded skills).
  */
 export function buildAgentPrompt(
-  config: AgentConfig,
+  config: AgentPromptConfig,
   cwd: string,
   env: EnvInfo,
   parentSystemPrompt?: string,

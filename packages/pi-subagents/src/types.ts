@@ -18,11 +18,23 @@ export type MemoryScope = "user" | "project" | "local";
 /** Isolation mode for agent execution. */
 export type IsolationMode = "worktree";
 
-/** Unified agent configuration — used for both default and user-defined agents. */
-export interface AgentConfig {
+/** UI display and agent listing — name, display name, description, prompt mode. */
+export interface AgentIdentity {
   name: string;
   displayName?: string;
   description: string;
+  promptMode: "replace" | "append";
+}
+
+/** Prompt assembly — name, prompt mode, system prompt. */
+export interface AgentPromptConfig {
+  name: string;
+  promptMode: "replace" | "append";
+  systemPrompt: string;
+}
+
+/** Unified agent configuration — used for both default and user-defined agents. */
+export interface AgentConfig extends AgentIdentity, AgentPromptConfig {
   builtinToolNames?: string[];
   /** Tool denylist — these tools are removed even if `builtinToolNames` or extensions include them. */
   disallowedTools?: string[];
@@ -33,8 +45,6 @@ export interface AgentConfig {
   model?: string;
   thinking?: ThinkingLevel;
   maxTurns?: number;
-  systemPrompt: string;
-  promptMode: "replace" | "append";
   /** Default for spawn: fork parent conversation. undefined = caller decides. */
   inheritContext?: boolean;
   /** Default for spawn: run in background. undefined = caller decides. */
