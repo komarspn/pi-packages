@@ -310,4 +310,38 @@ describe("renderWidgetLines", () => {
 		expect(lines[1]).toContain("[success:\u2713]");
 		expect(lines[1]).not.toContain("error");
 	});
+
+	it("overflows when too many agents, prioritizing running > queued > finished", () => {
+		// MAX_WIDGET_LINES = 12: heading takes 1, max body = 11.
+		// 6 running agents = 12 body lines, which exceeds maxBody (11).
+		// With 1 line reserved for overflow indicator, budget = 10.
+		// 5 running agents fit (10 lines), 1 hidden.
+		const agents: WidgetAgent[] = [];
+		const activityMap = new Map<string, WidgetActivity>();
+		for (let i = 0; i < 6; i++) {
+			const id = `r${i}`;
+			agents.push(makeAgent({ id, status: "running", completedAt: undefined }));
+			activityMap.set(id, makeActivity());
+		}
+		// Add a finished agent — should be hidden since running takes priority
+		agents.push(makeAgent({ id: "f1", status: "completed", completedAt: 6000 }));
+
+		const lines = renderWidgetLines({
+			agents,
+			activityMap,
+			registry: testRegistry,
+			spinnerFrame: 0,
+			terminalWidth: 200,
+			theme,
+			shouldShowFinished: () => true,
+		});
+
+		// heading(1) + 5 running*2(10) + overflow(1) = 12
+		expect(lines).toHaveLength(12);
+		// Last line is overflow indicator
+		const lastLine = lines[lines.length - 1];
+		expect(lastLine).toContain("+2 more");
+		expect(lastLine).toContain("1 running");
+		expect(lastLine).toContain("1 finished");
+	});
 });
