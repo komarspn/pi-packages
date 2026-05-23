@@ -35,8 +35,7 @@
     "@earendil-works/pi-tui": ">=0.75.0"
   },
   "dependencies": {
-    "@sinclair/typebox": "^0.34.49",
-    "nanoid": "^5.0.0"
+    "@sinclair/typebox": "^0.34.49"
   },
   "engines": {
     "node": ">=22"

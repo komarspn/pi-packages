@@ -64,6 +64,7 @@ export class AgentWidget {
   ) {}
 
   /** Set the UI context (grabbed from first tool execution). */
+  // fallow-ignore-next-line unused-class-member
   setUICtx(ctx: UICtx) {
     if (ctx !== this.uiCtx) {
       // UICtx changed — the widget registered on the old context is gone.
@@ -79,6 +80,7 @@ export class AgentWidget {
    * Called on each new turn (tool_execution_start).
    * Ages finished agents and clears those that have lingered long enough.
    */
+  // fallow-ignore-next-line unused-class-member
   onTurnStart() {
     // Age all finished agents
     for (const [id, age] of this.finishedTurnAge) {
@@ -89,6 +91,7 @@ export class AgentWidget {
   }
 
   /** Ensure the widget update timer is running. */
+  // fallow-ignore-next-line unused-class-member
   ensureTimer() {
     if (!this.widgetInterval) {
       this.widgetInterval = setInterval(() => this.update(), 80);
@@ -103,6 +106,7 @@ export class AgentWidget {
   }
 
   /** Record an agent as finished (call when agent completes). */
+  // fallow-ignore-next-line unused-class-member
   markFinished(agentId: string) {
     if (!this.finishedTurnAge.has(agentId)) {
       this.finishedTurnAge.set(agentId, 0);
@@ -354,6 +358,7 @@ export class AgentWidget {
     }
   }
 
+  // fallow-ignore-next-line unused-class-member
   dispose() {
     if (this.widgetInterval) {
       clearInterval(this.widgetInterval);

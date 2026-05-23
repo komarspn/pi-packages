@@ -48,7 +48,7 @@ export function compileWildcardPatternEntries<TState>(
   );
 }
 
-export function compileWildcardPatterns<TState>(
+function compileWildcardPatterns<TState>(
   patterns: Record<string, TState>,
 ): CompiledWildcardPattern<TState>[] {
   return compileWildcardPatternEntries(Object.entries(patterns));

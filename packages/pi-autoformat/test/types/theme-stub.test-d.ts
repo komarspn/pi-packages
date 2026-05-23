@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-file
 /**
  * Type-only test: Pi's real `Theme` class must reject the duck-typed
  * `{ fg: (name, text) => text }` stub shape that hid the

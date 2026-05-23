@@ -430,6 +430,7 @@ export class AgentManager {
   }
 
   /** Whether any agents are still running or queued. */
+  // fallow-ignore-next-line unused-class-member
   hasRunning(): boolean {
     return [...this.agents.values()].some(
       r => r.status === "running" || r.status === "queued",
@@ -437,6 +438,7 @@ export class AgentManager {
   }
 
   /** Abort all running and queued agents immediately. */
+  // fallow-ignore-next-line unused-class-member
   abortAll(): number {
     let count = 0;
     // Clear queued agents first
@@ -460,6 +462,7 @@ export class AgentManager {
   }
 
   /** Wait for all running and queued agents to complete (including queued ones). */
+  // fallow-ignore-next-line unused-class-member
   async waitForAll(): Promise<void> {
     // Loop because drainQueue respects the concurrency limit — as running
     // agents finish they start queued ones, which need awaiting too.

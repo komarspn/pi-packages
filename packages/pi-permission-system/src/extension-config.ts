@@ -20,7 +20,7 @@ export const DEFAULT_EXTENSION_CONFIG: PermissionSystemExtensionConfig = {
   yoloMode: false,
 };
 
-export function resolveExtensionRoot(moduleUrl = import.meta.url): string {
+function resolveExtensionRoot(moduleUrl = import.meta.url): string {
   return join(dirname(fileURLToPath(moduleUrl)), "..");
 }
 

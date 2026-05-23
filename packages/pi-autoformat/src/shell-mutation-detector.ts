@@ -437,7 +437,7 @@ function parseLinesOutput(output: string): string[] {
 // Strategy 2: pre/post snapshot of explicit globs
 // ---------------------------------------------------------------------------
 
-export type SnapshotEntry = { path: string; mtimeMs: number };
+type SnapshotEntry = { path: string; mtimeMs: number };
 
 export type SnapshotTrackerOptions = {
   cwd: string;

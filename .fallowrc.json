@@ -5,6 +5,8 @@
     "packages/*/src/index.ts",
     "packages/*/src/service.ts"
   ],
+  "ignoreExportsUsedInFile": true,
+  "ignoreDependencies": ["tree-sitter-bash"],
   "ignorePatterns": ["**/test/fixtures/**", "**/tests/fixtures/**"],
   "rules": {
     "unused-files": "warn",

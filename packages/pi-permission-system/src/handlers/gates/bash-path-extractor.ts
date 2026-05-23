@@ -54,7 +54,7 @@ function getParser(): Promise<TSParser> {
  * Reset the cached parser promise.  Only used by tests to avoid
  * cross-test pollution or to inject a mock parser.
  */
-export function resetParserForTesting(): void {
+function resetParserForTesting(): void {
   parserPromise = null;
 }
 

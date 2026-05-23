@@ -12,7 +12,7 @@ import { join } from "node:path";
 
 export const EXTENSION_ID = "pi-github-tools";
 
-export const MERGE_METHODS = ["rebase", "squash", "merge"] as const;
+const MERGE_METHODS = ["rebase", "squash", "merge"] as const;
 export type MergeMethod = (typeof MERGE_METHODS)[number];
 
 export interface GithubToolsConfig {

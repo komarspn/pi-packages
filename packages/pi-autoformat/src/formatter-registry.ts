@@ -17,9 +17,7 @@ export type FallbackChainStep = {
 
 export type ChainStep = string | FallbackChainStep;
 
-export function isFallbackChainStep(
-  step: ChainStep,
-): step is FallbackChainStep {
+function isFallbackChainStep(step: ChainStep): step is FallbackChainStep {
   return typeof step === "object" && step !== null && "fallback" in step;
 }
 

@@ -90,6 +90,7 @@ export class ConversationViewer implements Component {
     });
   }
 
+  // fallow-ignore-next-line unused-class-member
   handleInput(data: string): void {
     if (matchesKey(data, "escape") || matchesKey(data, "q")) {
       this.closed = true;
@@ -199,8 +200,10 @@ export class ConversationViewer implements Component {
     return lines;
   }
 
+  // fallow-ignore-next-line unused-class-member
   invalidate(): void { /* no cached state to clear */ }
 
+  // fallow-ignore-next-line unused-class-member
   dispose(): void {
     this.closed = true;
     if (this.unsubscribe) {

@@ -92,9 +92,7 @@ function parseSkillEntries(sectionBody: string): ParsedSkillPromptEntry[] {
   return entries;
 }
 
-export function parseSkillPromptSection(
-  prompt: string,
-): SkillPromptSection | null {
+function parseSkillPromptSection(prompt: string): SkillPromptSection | null {
   const start = prompt.indexOf(AVAILABLE_SKILLS_OPEN_TAG);
   if (start === -1) {
     return null;
