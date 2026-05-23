@@ -3,7 +3,7 @@ import {
   type CIJob,
   findRetryDelay,
   formatProgress,
-} from "../../src/lib/ci-helpers";
+} from "#src/lib/ci-helpers";
 
 describe("findRetryDelay", () => {
   it("returns 0 for the first attempt", () => {

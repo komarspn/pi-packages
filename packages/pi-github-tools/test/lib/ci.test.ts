@@ -8,7 +8,7 @@ vi.mock("../../src/lib/process", () => ({
   sleep: mockSleep,
 }));
 
-import { findRun, listRuns, watchRun } from "../../src/lib/ci";
+import { findRun, listRuns, watchRun } from "#src/lib/ci";
 
 beforeEach(() => {
   mockRunCommand.mockReset();

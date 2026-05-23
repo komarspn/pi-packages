@@ -7,7 +7,7 @@ vi.mock("../../src/lib/process", () => ({
   sleep: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { closeIssue } from "../../src/lib/issue";
+import { closeIssue } from "#src/lib/issue";
 
 beforeEach(() => {
   mockRunCommand.mockReset();

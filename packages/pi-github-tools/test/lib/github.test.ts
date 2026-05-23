@@ -6,13 +6,7 @@ vi.mock("../../src/lib/process", () => ({
   runCommand: mockRunCommand,
 }));
 
-import {
-  detectRepo,
-  gh,
-  ghJson,
-  git,
-  resetRepoCache,
-} from "../../src/lib/github";
+import { detectRepo, gh, ghJson, git, resetRepoCache } from "#src/lib/github";
 
 beforeEach(() => {
   mockRunCommand.mockReset();

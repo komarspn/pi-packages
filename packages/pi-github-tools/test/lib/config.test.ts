@@ -9,7 +9,7 @@ import {
   loadConfig,
   loadSingleConfig,
   normalizeConfig,
-} from "../../src/lib/config";
+} from "#src/lib/config";
 
 describe("getGlobalConfigPath", () => {
   it("constructs the expected path", () => {

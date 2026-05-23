@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runCommand, sleep } from "../../src/lib/process";
+import { runCommand, sleep } from "#src/lib/process";
 
 afterEach(() => {
   vi.useRealTimers();

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createProgressCallback } from "../src/progress";
+import { createProgressCallback } from "#src/progress";
 
 describe("createProgressCallback", () => {
   it("returns undefined when onUpdate is undefined", () => {

@@ -8,11 +8,7 @@ vi.mock("../../src/lib/process", () => ({
   sleep: mockSleep,
 }));
 
-import {
-  findReleasePR,
-  mergeReleasePR,
-  watchRelease,
-} from "../../src/lib/release";
+import { findReleasePR, mergeReleasePR, watchRelease } from "#src/lib/release";
 
 beforeEach(() => {
   mockRunCommand.mockReset();
