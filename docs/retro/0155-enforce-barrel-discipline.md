@@ -37,3 +37,5 @@ Released as `pi-subagents@6.14.1`.
 
 1. Added colgrep nudge to `AGENTS.md` Code Style section for codebase exploration.
 2. Updated `.pi/prompts/plan-issue.md` step 7 to mention `colgrep or grep` for convention discovery.
+3. Moved plan and retro from `packages/pi-permission-system/docs/` to top-level `docs/` for cross-package placement.
+4. Added cross-package plan/retro guidance to `AGENTS.md`, `.pi/prompts/plan-issue.md`, `.pi/prompts/build-plan.md`, `.pi/prompts/tdd-plan.md`, and `.pi/prompts/retro.md`.

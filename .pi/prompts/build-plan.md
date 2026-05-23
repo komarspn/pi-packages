@@ -21,10 +21,11 @@ Before locating or reading the plan, make sure the working tree is up to date wi
 ## Locate the plan
 
 - If `$1` looks like a path, use it.
-- If `$1` is a number, find `packages/*/docs/plans/NNNN-*.md` matching that integer (issue number or plan number).
-- Otherwise, use the newest file across all `packages/*/docs/plans/` (by mtime).
+- If `$1` is a number, find `packages/*/docs/plans/NNNN-*.md` or `docs/plans/NNNN-*.md` matching that integer (issue number or plan number).
+- Otherwise, use the newest file across all `packages/*/docs/plans/` and `docs/plans/` (by mtime).
 
-The plan's path determines the target package: `packages/<PKG>/docs/plans/...` → `PKG` is that directory name.
+If the plan lives under `packages/<PKG>/docs/plans/`, that determines the target package.
+If the plan lives under `docs/plans/`, it is cross-package — load skills for each affected package listed in the plan.
 
 Read the plan in full before doing anything else.
 If the plan has a "TDD Order" section with red→green test cycles, stop and tell the user to run `/tdd-plan` instead.

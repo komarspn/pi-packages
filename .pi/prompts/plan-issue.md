@@ -6,7 +6,8 @@ description: Read a GitHub issue, gather context, and write a numbered plan to t
 
 Issue number: `$1`
 
-Your job is to produce a numbered implementation plan at `packages/<PKG>/docs/plans/NNNN-<slug>.md` for issue #$1, then commit it.
+Your job is to produce a numbered implementation plan for issue #$1, then commit it.
+Single-package plans go in `packages/<PKG>/docs/plans/NNNN-<slug>.md`; cross-package plans go in `docs/plans/NNNN-<slug>.md`.
 Stop after the commit.
 Do **not** start implementation — the next step is `/tdd-plan` (for plans with test cycles) or `/build-plan` (for docs-only or non-code changes).
 
@@ -22,13 +23,14 @@ Before reading anything, make sure the working tree is up to date with the remot
 ## Gather context (do this first, in parallel where possible)
 
 1. Run `gh issue view $1` to read the issue body and labels.
-2. **Determine the target package.**
-   Extract the `pkg:*` label from the issue (e.g., `pkg:pi-permission-system` → package is `pi-permission-system`).
+2. **Determine the target package(s).**
+   Extract the `pkg:*` label(s) from the issue (e.g., `pkg:pi-permission-system` → package is `pi-permission-system`).
    If no `pkg:*` label exists or it seems incongruent with the issue content, ask the user which package this issue belongs to.
-   Set `PKG` to the package name (e.g., `pi-permission-system`) for the rest of this template.
+   If the issue has **multiple** `pkg:*` labels, the plan is cross-package — use `docs/plans/` at the repo root instead of a single package's directory.
+   Set `PKG` to the package name for single-package issues; for cross-package issues, load skills for each affected package.
 3. Read `AGENTS.md` for project priorities, constraints, and code-design rules.
    Honor them in the plan.
-4. List `packages/<PKG>/docs/plans/` to see numbering and style conventions (create the directory if it does not exist yet).
+4. List the target plans directory (`packages/<PKG>/docs/plans/` for single-package, `docs/plans/` for cross-package) to see numbering and style conventions (create the directory if it does not exist yet).
    Pick the next free `NNNN` (prefer matching the issue number when reasonable).
    If `docs/plans/archive/` exists, those files use issue numbers from a previous repository — ignore them when resolving conflicts.
 5. Read every issue the body references as a prerequisite or related (`gh issue view <n>`).
@@ -40,7 +42,7 @@ Before reading anything, make sure the working tree is up to date with the remot
 
 Before writing the plan, load skills relevant to the change:
 
-- Always load the `package-<PKG>` skill (e.g., `package-pi-permission-system`) for package-specific architecture, priorities, and testing context.
+- Load the `package-<PKG>` skill for each affected package (e.g., `package-pi-permission-system`) for package-specific architecture, priorities, and testing context.
 - If the plan involves code changes: load the `code-design` skill and the `colgrep` skill for convention discovery during exploration.
 - If the plan involves test changes or TDD steps: load the `testing` skill.
 - If the plan involves markdown/doc changes: load the `markdown-conventions` skill.
@@ -54,7 +56,7 @@ Skip this step if the issue's "Proposed change" section is unambiguous.
 
 ## Write the plan
 
-File: `packages/<PKG>/docs/plans/NNNN-<short-slug>.md`.
+File: `packages/<PKG>/docs/plans/NNNN-<short-slug>.md` (single-package) or `docs/plans/NNNN-<short-slug>.md` (cross-package).
 
 Start with YAML frontmatter:
 
@@ -94,7 +96,7 @@ If the change is breaking, say so explicitly in Goals and use `feat!:` in the su
 ## Commit
 
 ```bash
-git add packages/<PKG>/docs/plans/NNNN-*.md
+git add <plan-file>
 git commit -m "docs: plan <short summary> (#$1)"
 ```
 

@@ -49,7 +49,8 @@ Before authoring or reviewing Mermaid diagrams, load the `mermaid` skill.
 ## Documentation Frontmatter
 
 Docs under `docs/plans/` and `docs/retro/` use YAML frontmatter for structured metadata.
-GitHub renders it as a table at the top of the file.
+Single-package work lives in `packages/<PKG>/docs/{plans,retro}/`; cross-package work lives in the top-level `docs/{plans,retro}/`.
+GitHub renders frontmatter as a table at the top of the file.
 
 Schema (both fields are strings/numbers — quote any title containing backticks or colons):
 

@@ -6,10 +6,11 @@ deterministic:
     git log --oneline -25
     echo
     echo "=== Existing retros ==="
+    if [ -d docs/retro ]; then echo "--- docs/retro (cross-package) ---"; ls docs/retro 2>/dev/null || echo "(empty)"; fi
     for d in packages/*/docs/retro; do echo "--- $d ---"; ls "$d" 2>/dev/null || echo "(empty)"; done
     echo
     echo "=== Plans referenced this session ==="
-    find packages/*/docs/plans -type f -name '*.md' -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -5
+    find docs/plans packages/*/docs/plans -type f -name '*.md' -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -5
   handoff: always
 ---
 
@@ -26,13 +27,15 @@ After identifying the target package in Step 1, load the `package-<PKG>` skill (
 1. If `$1` is set, treat it as the issue number `N`.
 2. Otherwise, infer `N` from the most recent commit subject in the deterministic output above (look for `(#N)` at the end of `feat:`, `fix:`, or `docs:` commits).
    If multiple issues appear, list them and ask the user which to retro on with `ask-user`.
-3. **Determine the target package.**
-   Find the plan for issue `N` at `packages/*/docs/plans/NNNN-<slug>.md`.
-   The matching path determines `PKG`.
-   If no plan exists, run `gh issue view N` and extract the `pkg:*` label.
+3. **Determine the target package(s).**
+   Find the plan for issue `N` at `packages/*/docs/plans/NNNN-<slug>.md` or `docs/plans/NNNN-<slug>.md`.
+   If the plan is under `packages/<PKG>/docs/plans/`, the retro goes in `packages/<PKG>/docs/retro/`.
+   If the plan is under `docs/plans/` (cross-package), the retro goes in `docs/retro/`.
+   If no plan exists, run `gh issue view N` and extract the `pkg:*` label(s).
+   Multiple `pkg:*` labels → cross-package → use `docs/retro/`.
    If no label exists or it seems incongruent, ask the user which package.
 4. Resolve the slug from the plan filename; if no plan exists, derive a short slug from the issue title via `gh issue view N --json title -q .title`.
-5. The retro file is `packages/<PKG>/docs/retro/NNNN-<slug>.md`.
+5. The retro file is `packages/<PKG>/docs/retro/NNNN-<slug>.md` (single-package) or `docs/retro/NNNN-<slug>.md` (cross-package).
    Create the directory if missing.
 
 ## Step 2 — Synthesize observations
@@ -152,7 +155,7 @@ Do not split this into multiple sections; one coherent list per retro.
 
 ## Step 9 — Commit and push
 
-1. `git add packages/<PKG>/docs/retro/ AGENTS.md .pi/prompts/` (and any other touched files).
+1. `git add` the retro file (`packages/<PKG>/docs/retro/` or `docs/retro/`), `AGENTS.md`, `.pi/prompts/`, and any other touched files.
 2. Commit as `docs(retro): add retro notes for issue #N`.
 3. `git push`.
 
