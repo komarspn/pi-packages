@@ -617,13 +617,11 @@ Phase 9 targets the next layer: observation model consolidation, `ExtensionConte
 
 | Smell                                            | Location                                                              | Evidence                                                                                                                                                       | Severity |
 | ------------------------------------------------ | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| Dual observation                                 | `record-observer.ts`, `ui-observer.ts`                                | Both independently count tool uses and accumulate lifetime usage from the same session events; consumers use `activity?.toolUses ?? record.toolUses` fallbacks | High     |
 | `execute` does config resolution for its callees | `agent-tool.ts` (145-line `execute`)                                  | ~60 lines unpack config, resolve model, compute metadata, repack into 16-field bags for spawners; `ctx` threaded 4 layers deep                                 | Medium   |
 | Wide `ctx` in menu handlers                      | `agent-menu.ts`, `agent-config-editor.ts`, `agent-creation-wizard.ts` | Functions declare `ctx: ExtensionContext` but only call `ctx.ui.select/confirm/input/notify/editor`; 43 `ctx as any` casts across 3 test files                 | Medium   |
-| `record.execution?.session` traversal            | 15+ callsites across tools, notification, widget, menu                | Callers reach through `ExecutionState` to access session and outputFile - Law of Demeter violation                                                             | Medium   |
 | Direct SDK import in `conversation-viewer.ts`    | `conversation-viewer.test.ts`                                         | Hoisted `vi.mock("@earendil-works/pi-tui")` to intercept `wrapTextWithAnsi`                                                                                    | Low      |
 | Widget mixes rendering, lifecycle, and state     | `agent-widget.ts` (370 lines)                                         | `renderWidget` is ~109 lines mixing data collection, formatting, and overflow layout; constructor takes 3 concrete collaborators                               | Low      |
-| `deps.` prefix noise in function bodies          | 12 modules across tools, UI, notification, service-adapter            | Functions accept a `deps` bag and access every field as `deps.foo`; hides real dependencies and lengthens every call line                                      | Low      |
+| `deps.` prefix noise in function bodies          | remaining modules across tools, UI, service-adapter                   | Functions accept a `deps` bag and access every field as `deps.foo`; hides real dependencies and lengthens every call line                                      | Low      |
 
 ### Dependency bag convention
 
@@ -634,9 +632,9 @@ Applied incrementally as each step touches a module:
 
 This eliminates the `deps.` prefix noise across ~124 callsites in 12 modules.
 
-### Step L: Consolidate observation model (#144)
+### Step L: Consolidate observation model (#144) ✓
 
-Remove `_toolUses` and `_lifetimeUsage` from `AgentActivityTracker`.
+Removed `_toolUses` and `_lifetimeUsage` from `AgentActivityTracker`.
 UI consumers read stats from `AgentRecord` instead of the tracker.
 The UI observer retains event subscriptions for re-render triggers but no longer accumulates stats independently.
 
