@@ -1,3 +1,4 @@
+import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { AgentTypeRegistry } from "../agent-types.js";
 import type { ModelRegistry } from "../model-resolver.js";
 import type { ParentSnapshot } from "../parent-snapshot.js";
@@ -260,6 +261,7 @@ export function createAgentsMenuHandler({
           theme,
           done,
           registry,
+          wrapText: wrapTextWithAnsi,
         });
       },
       {

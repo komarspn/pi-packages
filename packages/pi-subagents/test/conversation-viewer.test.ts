@@ -29,7 +29,7 @@ vi.mock("@earendil-works/pi-tui", async (importOriginal) => {
 
 // Must import AFTER vi.mock declaration (vitest hoists vi.mock but the
 // dynamic import of the test subject must happen after)
-const { visibleWidth } = await import("@earendil-works/pi-tui");
+const { visibleWidth, wrapTextWithAnsi } = await import("@earendil-works/pi-tui");
 const { ConversationViewer } = await import("../src/ui/conversation-viewer.js");
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -79,6 +79,7 @@ describe("ConversationViewer", () => {
         const viewer = new ConversationViewer({
           tui: mockTui(30, w), session: mockSession([]), record: createTestRecord({ status: "running" }),
           activity: undefined, theme: ansiTheme(), done: vi.fn(), registry: testRegistry,
+          wrapText: wrapTextWithAnsi,
         });
         assertAllLinesFit(viewer.render(w), w);
       }
@@ -93,6 +94,7 @@ describe("ConversationViewer", () => {
         const viewer = new ConversationViewer({
           tui: mockTui(30, w), session: mockSession(messages), record: createTestRecord({ status: "running" }),
           activity: undefined, theme: ansiTheme(), done: vi.fn(), registry: testRegistry,
+          wrapText: wrapTextWithAnsi,
         });
         assertAllLinesFit(viewer.render(w), w);
       }
@@ -109,6 +111,7 @@ describe("ConversationViewer", () => {
         const viewer = new ConversationViewer({
           tui: mockTui(30, w), session: mockSession(messages), record: createTestRecord({ status: "running" }),
           activity: undefined, theme: ansiTheme(), done: vi.fn(), registry: testRegistry,
+          wrapText: wrapTextWithAnsi,
         });
         assertAllLinesFit(viewer.render(w), w);
       }
@@ -123,6 +126,7 @@ describe("ConversationViewer", () => {
         const viewer = new ConversationViewer({
           tui: mockTui(30, w), session: mockSession(messages), record: createTestRecord({ status: "running" }),
           activity: undefined, theme: ansiTheme(), done: vi.fn(), registry: testRegistry,
+          wrapText: wrapTextWithAnsi,
         });
         assertAllLinesFit(viewer.render(w), w);
       }
@@ -137,6 +141,7 @@ describe("ConversationViewer", () => {
         const viewer = new ConversationViewer({
           tui: mockTui(30, w), session: mockSession(messages), record: createTestRecord({ status: "running" }),
           activity: undefined, theme: ansiTheme(), done: vi.fn(), registry: testRegistry,
+          wrapText: wrapTextWithAnsi,
         });
         assertAllLinesFit(viewer.render(w), w);
       }
@@ -153,6 +158,7 @@ describe("ConversationViewer", () => {
         const viewer = new ConversationViewer({
           tui: mockTui(30, w), session: mockSession(messages), record: createTestRecord({ status: "running" }),
           activity: undefined, theme: ansiTheme(), done: vi.fn(), registry: testRegistry,
+          wrapText: wrapTextWithAnsi,
         });
         assertAllLinesFit(viewer.render(w), w);
       }
@@ -170,6 +176,7 @@ describe("ConversationViewer", () => {
         const viewer = new ConversationViewer({
           tui: mockTui(30, w), session: mockSession(messages), record: createTestRecord({ status: "running" }),
           activity: undefined, theme: ansiTheme(), done: vi.fn(), registry: testRegistry,
+          wrapText: wrapTextWithAnsi,
         });
         assertAllLinesFit(viewer.render(w), w);
       }
@@ -189,6 +196,7 @@ describe("ConversationViewer", () => {
         const viewer = new ConversationViewer({
           tui: mockTui(30, w), session: mockSession(messages), record: createTestRecord({ status: "running" }),
           activity: activity as unknown as AgentActivityTracker, theme: ansiTheme(), done: vi.fn(), registry: testRegistry,
+          wrapText: wrapTextWithAnsi,
         });
         assertAllLinesFit(viewer.render(w), w);
       }
@@ -208,6 +216,7 @@ describe("ConversationViewer", () => {
         const viewer = new ConversationViewer({
           tui: mockTui(30, w), session: mockSession(messages), record: createTestRecord({ status: "running" }),
           activity: undefined, theme: ansiTheme(), done: vi.fn(), registry: testRegistry,
+          wrapText: wrapTextWithAnsi,
         });
         assertAllLinesFit(viewer.render(w), w);
       }
@@ -222,6 +231,7 @@ describe("ConversationViewer", () => {
         const viewer = new ConversationViewer({
           tui: mockTui(30, w), session: mockSession(messages), record: createTestRecord({ status: "running" }),
           activity: undefined, theme: ansiTheme(), done: vi.fn(), registry: testRegistry,
+          wrapText: wrapTextWithAnsi,
         });
         assertAllLinesFit(viewer.render(w), w);
       }
@@ -236,6 +246,7 @@ describe("ConversationViewer", () => {
         const viewer = new ConversationViewer({
           tui: mockTui(30, w), session: mockSession(messages), record: createTestRecord({ status: "running" }),
           activity: undefined, theme: ansiTheme(), done: vi.fn(), registry: testRegistry,
+          wrapText: wrapTextWithAnsi,
         });
         assertAllLinesFit(viewer.render(w), w);
       }
@@ -253,57 +264,46 @@ describe("ConversationViewer", () => {
       return (viewer as any).buildContentLines(width);
     }
 
-    it("mock is intercepting wrapTextWithAnsi", async () => {
-      const { wrapTextWithAnsi } = await import("@earendil-works/pi-tui");
-      wrapOverride = () => ["MOCK_SENTINEL"];
-      expect(wrapTextWithAnsi("anything", 10)).toEqual(["MOCK_SENTINEL"]);
-      wrapOverride = null;
-    });
 
     it("clamps overwidth lines from toolResult content", () => {
       const w = 80;
-      wrapOverride = () => ["X".repeat(w + 50)];
-
       const messages = [
         { role: "toolResult", toolUseId: "t1", content: [{ type: "text", text: "output" }] },
       ];
       const viewer = new ConversationViewer({
           tui: mockTui(30, w), session: mockSession(messages), record: createTestRecord({ status: "running" }),
           activity: undefined, theme: ansiTheme(), done: vi.fn(), registry: testRegistry,
+          wrapText: () => ["X".repeat(w + 50)],
         });
       assertAllLinesFit(callBuildContentLines(viewer, w), w);
     });
 
     it("clamps overwidth lines from user message content", () => {
       const w = 80;
-      wrapOverride = () => ["Y".repeat(w + 100)];
-
       const messages = [{ role: "user", content: "hello" }];
       const viewer = new ConversationViewer({
           tui: mockTui(30, w), session: mockSession(messages), record: createTestRecord({ status: "running" }),
           activity: undefined, theme: ansiTheme(), done: vi.fn(), registry: testRegistry,
+          wrapText: () => ["Y".repeat(w + 100)],
         });
       assertAllLinesFit(callBuildContentLines(viewer, w), w);
     });
 
     it("clamps overwidth lines from assistant message content", () => {
       const w = 80;
-      wrapOverride = () => ["Z".repeat(w + 100)];
-
       const messages = [
         { role: "assistant", content: [{ type: "text", text: "response" }] },
       ];
       const viewer = new ConversationViewer({
           tui: mockTui(30, w), session: mockSession(messages), record: createTestRecord({ status: "running" }),
           activity: undefined, theme: ansiTheme(), done: vi.fn(), registry: testRegistry,
+          wrapText: () => ["Z".repeat(w + 100)],
         });
       assertAllLinesFit(callBuildContentLines(viewer, w), w);
     });
 
     it("clamps overwidth lines from bashExecution output", () => {
       const w = 80;
-      wrapOverride = () => ["B".repeat(w + 100)];
-
       const messages = [
         {
           role: "bashExecution", command: "ls", output: "out",
@@ -313,20 +313,20 @@ describe("ConversationViewer", () => {
       const viewer = new ConversationViewer({
           tui: mockTui(30, w), session: mockSession(messages), record: createTestRecord({ status: "running" }),
           activity: undefined, theme: ansiTheme(), done: vi.fn(), registry: testRegistry,
+          wrapText: () => ["B".repeat(w + 100)],
         });
       assertAllLinesFit(callBuildContentLines(viewer, w), w);
     });
 
     it("clamps overwidth lines that also contain ANSI codes", () => {
       const w = 80;
-      wrapOverride = () => [`\x1b[1m\x1b[31m${"W".repeat(w + 30)}\x1b[0m`];
-
       const messages = [
         { role: "toolResult", toolUseId: "t1", content: [{ type: "text", text: "output" }] },
       ];
       const viewer = new ConversationViewer({
           tui: mockTui(30, w), session: mockSession(messages), record: createTestRecord({ status: "running" }),
           activity: undefined, theme: ansiTheme(), done: vi.fn(), registry: testRegistry,
+          wrapText: () => [`\x1b[1m\x1b[31m${"W".repeat(w + 30)}\x1b[0m`],
         });
       assertAllLinesFit(callBuildContentLines(viewer, w), w);
     });

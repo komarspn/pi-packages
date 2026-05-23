@@ -6,7 +6,7 @@
  */
 
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
-import { type Component, matchesKey, type TUI, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { type Component, matchesKey, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { AgentConfigLookup } from "../agent-types.js";
 import { extractText } from "../context.js";
 import type { AgentRecord } from "../types.js";
@@ -59,6 +59,7 @@ export interface ConversationViewerOptions {
   theme: Theme;
   done: (result: undefined) => void;
   registry: AgentConfigLookup;
+  wrapText: (text: string, width: number) => string[];
 }
 
 export class ConversationViewer implements Component {
@@ -75,16 +76,27 @@ export class ConversationViewer implements Component {
   private theme: Theme;
   private done: (result: undefined) => void;
   private registry: AgentConfigLookup;
+  private wrapText: (text: string, width: number) => string[];
 
-  constructor(options: ConversationViewerOptions) {
-    this.tui = options.tui;
-    this.session = options.session;
-    this.record = options.record;
-    this.activity = options.activity;
-    this.theme = options.theme;
-    this.done = options.done;
-    this.registry = options.registry;
-    this.unsubscribe = options.session.subscribe(() => {
+  constructor({
+    tui,
+    session,
+    record,
+    activity,
+    theme,
+    done,
+    registry,
+    wrapText,
+  }: ConversationViewerOptions) {
+    this.tui = tui;
+    this.session = session;
+    this.record = record;
+    this.activity = activity;
+    this.theme = theme;
+    this.done = done;
+    this.registry = registry;
+    this.wrapText = wrapText;
+    this.unsubscribe = session.subscribe(() => {
       if (this.closed) return;
       this.tui.requestRender();
     });
@@ -253,7 +265,7 @@ export class ConversationViewer implements Component {
         if (!text.trim()) continue;
         if (needsSeparator) lines.push(th.fg("dim", "───"));
         lines.push(th.fg("accent", "[User]"));
-        for (const line of wrapTextWithAnsi(text.trim(), width)) {
+        for (const line of this.wrapText(text.trim(), width)) {
           lines.push(line);
         }
       } else if (msg.role === "assistant") {
@@ -268,7 +280,7 @@ export class ConversationViewer implements Component {
         if (needsSeparator) lines.push(th.fg("dim", "───"));
         lines.push(th.bold("[Assistant]"));
         if (textParts.length > 0) {
-          for (const line of wrapTextWithAnsi(textParts.join("\n").trim(), width)) {
+          for (const line of this.wrapText(textParts.join("\n").trim(), width)) {
             lines.push(line);
           }
         }
@@ -281,7 +293,7 @@ export class ConversationViewer implements Component {
         if (!truncated.trim()) continue;
         if (needsSeparator) lines.push(th.fg("dim", "───"));
         lines.push(th.fg("dim", "[Result]"));
-        for (const line of wrapTextWithAnsi(truncated.trim(), width)) {
+        for (const line of this.wrapText(truncated.trim(), width)) {
           lines.push(th.fg("dim", line));
         }
       } else if (isBashExecution(msg)) {
@@ -291,7 +303,7 @@ export class ConversationViewer implements Component {
           const out = msg.output.length > 500
             ? msg.output.slice(0, 500) + "... (truncated)"
             : msg.output;
-          for (const line of wrapTextWithAnsi(out.trim(), width)) {
+          for (const line of this.wrapText(out.trim(), width)) {
             lines.push(th.fg("dim", line));
           }
         }
