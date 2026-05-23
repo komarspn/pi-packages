@@ -314,27 +314,27 @@ Model strings are resolved inside the adapter.
 Extracted tools, notifications, activity tracking, event handlers, and the `/agents` command into separate modules.
 Created `SubagentRuntime` factory to hold session-scoped state.
 
-### Phase 6 (future): Extract UI to `@gotgenes/pi-subagents-ui`
+### Phase 6 (deferred): Extract UI to `@gotgenes/pi-subagents-ui`
 
-Move `ui/agent-widget.ts`, `ui/conversation-viewer.ts`, the `/agents` command, notifications, and activity tracking to a separate extension that consumes `SubagentsService` + lifecycle events.
+The widget, conversation viewer, `/agents` command, notifications, and activity tracking are candidates for extraction to a separate extension that consumes `SubagentsService` + lifecycle events.
 This phase is deferred until the API boundary is proven stable in production.
 
 ### Phase 7: Encapsulation and dependency narrowing
 
-Target: every mutable state bag becomes a class, every dependency bag narrows to what its consumer uses, every callback becomes either a method on a collaborator or an event on an observable.
+Every mutable state bag became a class, every dependency bag narrowed to what its consumer uses, every callback became either a method on a collaborator or an event on an observable.
 
-The work is sequenced so each change makes the next change easy.
 See the [Encapsulation roadmap](#encapsulation-roadmap) section for the full breakdown.
 
 ### Phase 8: Testability, display extraction, and menu decomposition
 
-Target: eliminate `vi.mock()` module mocking in the two most fragile test suites by injecting IO-touching collaborators; consolidate shared test fixtures; extract display helpers into a reusable module; decompose the largest UI file.
+Eliminated `vi.mock()` module mocking in the two most fragile test suites by injecting IO-touching collaborators; consolidated shared test fixtures; extracted display helpers into a reusable module; decomposed the largest UI file.
 
 See the [Phase 8 roadmap](#phase-8-roadmap) section for the full breakdown.
 
 ## Structural refactoring roadmap
 
-Phases 1–5 and 7 are complete.
+Phases 1–5, 7, and 8 are complete.
+Phase 6 (UI extraction) is deferred.
 See `git log` for the full history; issue references are preserved below for traceability.
 
 | Phase              | Issue              | Summary                                                               |
@@ -384,9 +384,9 @@ Replaced three-layer callback threading with direct session subscriptions.
 
 ## Encapsulation roadmap
 
-This section describes the Phase 7 targets: encapsulating mutable state into classes, replacing callbacks with semantic components, and narrowing dependency bags.
+Phase 7 encapsulated mutable state into classes, replaced callbacks with semantic components, and narrowed dependency bags.
 
-Each step is sequenced so it makes the next step easier.
+Each step was sequenced so it made the next step easier.
 
 ### Resolved smells
 
@@ -507,44 +507,44 @@ E2 (Type housekeeping) ── can start after A1, runs parallel to later steps
 ## Phase 8 roadmap
 
 Phase 7 eliminated all structural smells (mutable state, closure bags, callback threading, wide dependency bags).
-Phase 8 targets the next layer: testability friction, display module cohesion, and menu decomposition.
+Phase 8 targeted the next layer: testability friction, display module cohesion, and menu decomposition.
 
-The test suite (714 tests) is comprehensive but uneven in quality.
-Steps G and H have eliminated 11 of the original 12 `vi.mock()` calls in the runner tests, removing fragile call-sequence assertions in favour of injected stubs. (Step G resolved `session-config.test.ts`; Step H resolved both `agent-runner.test.ts` and `agent-runner-extension-tools.test.ts`.)
+Steps G and H eliminated 11 of the original 12 `vi.mock()` calls in the runner tests, removing fragile call-sequence assertions in favour of injected stubs.
+Step G resolved `session-config.test.ts`; Step H resolved both `agent-runner.test.ts` and `agent-runner-extension-tools.test.ts`.
 
-The display and menu improvements were identified during Phase 7 but deferred because they don't gate encapsulation work.
-They are included here because the display extraction unblocks menu decomposition.
+The display and menu improvements were identified during Phase 7 but deferred because they did not gate encapsulation work.
+The display extraction unblocked menu decomposition.
 
-### Test pain points
+### Test pain points (resolved)
 
-| Symptom                       | Location                                                | Root cause                                                        |
-| ----------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------- |
-| ~~7 `vi.mock()` calls~~       | ~~`agent-runner.test.ts`~~                              | ~~Resolved by Step H (#133)~~                                     |
-| ~~7 `vi.mock()` calls~~       | ~~`agent-runner-extension-tools.test.ts`~~              | ~~Resolved by Step H (#133)~~                                     |
-| ~~52 `as any` casts~~         | ~~Across test suite~~                                   | ~~Reduced to 15 by Step I (#134)~~                                |
-| 3× duplicated `mockSession()` | agent-manager, record-observer, ui-observer tests       | No shared test fixture                                            |
-| 3× duplicated `makeDeps()`    | agent-tool, background-spawner, foreground-runner tests | No shared tool-deps fixture                                       |
-| Weak assertions               | lifecycle, renderer, session-config tests               | `toHaveBeenCalled()` without args, `toContain()` on large strings |
+| Symptom                                                       | Resolution                                                     |
+| ------------------------------------------------------------- | -------------------------------------------------------------- |
+| 7 `vi.mock()` calls in `agent-runner.test.ts`                 | Step H (#133): injected `RunnerIO` stubs                       |
+| 7 `vi.mock()` calls in `agent-runner-extension-tools.test.ts` | Step H (#133): same                                            |
+| 52 `as any` casts across test suite                           | Step I (#134): reduced to 15                                   |
+| 3× duplicated `mockSession()`                                 | Step F (#131): shared `createMockSession()` in `test/helpers/` |
+| 3× duplicated `makeDeps()`                                    | Step F (#131): shared `createToolDeps()` in `test/helpers/`    |
 
-Contrast with the well-designed test suites: `agent-manager.test.ts` (1 mock, DI via `AgentRunner` interface), `notification.test.ts` (0 mocks, pure functions + DI), and `agent-tool.test.ts` (0 mocks, tests via deps bag).
-The pattern is clear: modules that accept collaborators through injection produce resilient tests; modules that import collaborators directly produce fragile mock-heavy tests.
+The well-designed test suites — `agent-manager.test.ts` (1 mock, DI via `AgentRunner` interface), `notification.test.ts` (0 mocks, pure functions + DI), and `agent-tool.test.ts` (0 mocks, tests via deps bag) — confirmed the pattern: modules that accept collaborators through injection produce resilient tests; modules that import collaborators directly produce fragile mock-heavy tests.
 
 ### Step F: Shared test fixtures (#131)
 
-Consolidate duplicated mock factories into `test/helpers/`.
+Consolidated duplicated mock factories into `test/helpers/`.
 
-1. `createMockSession()` — subscribable event bus with `emit()` helper; replaces 3 hand-rolled copies.
-2. `createToolDeps()` — builds `AgentToolDeps` with sensible defaults and override support; replaces 3 `makeDeps()` copies.
+1. `createMockSession()` — subscribable event bus with `emit()` helper; replaced 3 hand-rolled copies.
+2. `createToolDeps()` — builds `AgentToolDeps` with sensible defaults and override support; replaced 3 `makeDeps()` copies.
+3. `makeRecord()` — `AgentRecord` factory with sensible defaults; replaced scattered inline construction.
+4. `STUB_CTX` — shared stub `ExtensionContext` constant; centralised unavoidable bridge casts.
 
-Impact: reduces test boilerplate; single source of truth for mock shapes; changes to dep interfaces propagate automatically.
+Impact: reduced test boilerplate; single source of truth for mock shapes; changes to dep interfaces propagate automatically.
 
-### Step G: Inject IO collaborators into session-config (#132) ✓ done
+### Step G: Inject IO collaborators into session-config (#132)
 
 `assembleSessionConfig` now accepts `io: AssemblerIO` as a required parameter.
 `index.ts` constructs the real `AssemblerIO` from direct imports via the `RunnerIO.assemblerIO` field (wired in Step H).
 `session-config.test.ts` injects stubs — all 4 `vi.mock()` calls eliminated, assertions shifted to `SessionConfig` output properties.
 
-### Step H: Inject SDK boundary into agent-runner (#133) ✓ done
+### Step H: Inject SDK boundary into agent-runner (#133)
 
 `runAgent()` now accepts `io: RunnerIO` as a required parameter bundling all IO collaborators: `detectEnv`, `getAgentDir`, `createResourceLoader`, `deriveSessionDir`, `createSessionManager`, `createSettingsManager`, `createSession`, and `assemblerIO`.
 
@@ -553,7 +553,7 @@ Impact: reduces test boilerplate; single source of truth for mock shapes; change
 
 Impact: all 7 `vi.mock()` calls eliminated from both `agent-runner.test.ts` and `agent-runner-extension-tools.test.ts`; tests verify behavior (turn limits, tool filtering, response collection) through injected stubs; SDK imports moved to the extension entry point.
 
-### Step I: Reduce `as any` casts in tests (#134) ✓ done
+### Step I: Reduce `as any` casts in tests (#134)
 
 Reduced `as any` count from 93 to 15 (plus 13 explicit `as unknown as T` bridge casts).
 
@@ -568,14 +568,14 @@ Production changes:
 
 Remaining 15 `as any` casts are: 8 menu-handler `ctx as any` (deferred — requires `AgentManager.spawn` to accept `ParentSnapshot` directly), 2 `print-mode.test.ts` (same ExtensionContext/API pattern), 2 private-field test access, 1 `createSession` SDK bridge in `index.ts`, 1 `foreground-runner.ts` `AgentToolResult<any>` detail, 1 `stub-ctx.ts` comment.
 
-### Step J: Extract display helpers (#135) ✓ done
+### Step J: Extract display helpers (#135)
 
 `ui/display.ts` now contains all pure formatters, display helpers, constants, and shared types (`Theme`, `AgentDetails`).
 `agent-widget.ts` dropped from 522 → ~340 lines.
 All consumer modules (menu, tools, renderer, conversation viewer) import from `ui/display.ts` directly.
 `test/agent-widget.test.ts` renamed to `test/display.test.ts`.
 
-### Step K: Decompose agent-menu.ts (#136) ✅
+### Step K: Decompose agent-menu.ts (#136)
 
 `agent-menu.ts` (668 lines) decomposed into four modules:
 
