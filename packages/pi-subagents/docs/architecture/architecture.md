@@ -616,14 +616,14 @@ Phase 9 targets the next layer: observation model consolidation, `ExtensionConte
 
 ### Current smells
 
-| Smell                                         | Location                                                              | Evidence                                                                                                                                                       | Severity |
-| --------------------------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| Dual observation                              | `record-observer.ts`, `ui-observer.ts`                                | Both independently count tool uses and accumulate lifetime usage from the same session events; consumers use `activity?.toolUses ?? record.toolUses` fallbacks | High     |
-| `ExtensionContext` in AgentManager            | `agent-manager.ts:171`                                                | `spawn()` accepts `ctx: ExtensionContext` only to call `buildParentSnapshot(ctx)`; directly imports `parent-snapshot.ts`                                       | Medium   |
-| Wide `ctx` in menu handlers                   | `agent-menu.ts`, `agent-config-editor.ts`, `agent-creation-wizard.ts` | Functions declare `ctx: ExtensionContext` but only call `ctx.ui.select/confirm/input/notify/editor`; 43 `ctx as any` casts across 3 test files                 | Medium   |
-| `record.execution?.session` traversal         | 15+ callsites across tools, notification, widget, menu                | Callers reach through `ExecutionState` to access session and outputFile — Law of Demeter violation                                                             | Medium   |
-| Direct SDK import in `conversation-viewer.ts` | `conversation-viewer.test.ts`                                         | Hoisted `vi.mock("@earendil-works/pi-tui")` to intercept `wrapTextWithAnsi`                                                                                    | Low      |
-| Widget mixes rendering, lifecycle, and state  | `agent-widget.ts` (370 lines)                                         | `renderWidget` is ~109 lines mixing data collection, formatting, and overflow layout; constructor takes 3 concrete collaborators                               | Low      |
+| Smell                                            | Location                                                              | Evidence                                                                                                                                                       | Severity |
+| ------------------------------------------------ | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| Dual observation                                 | `record-observer.ts`, `ui-observer.ts`                                | Both independently count tool uses and accumulate lifetime usage from the same session events; consumers use `activity?.toolUses ?? record.toolUses` fallbacks | High     |
+| `execute` does config resolution for its callees | `agent-tool.ts` (145-line `execute`)                                  | ~60 lines unpack config, resolve model, compute metadata, repack into 16-field bags for spawners; `ctx` threaded 4 layers deep                                 | Medium   |
+| Wide `ctx` in menu handlers                      | `agent-menu.ts`, `agent-config-editor.ts`, `agent-creation-wizard.ts` | Functions declare `ctx: ExtensionContext` but only call `ctx.ui.select/confirm/input/notify/editor`; 43 `ctx as any` casts across 3 test files                 | Medium   |
+| `record.execution?.session` traversal            | 15+ callsites across tools, notification, widget, menu                | Callers reach through `ExecutionState` to access session and outputFile — Law of Demeter violation                                                             | Medium   |
+| Direct SDK import in `conversation-viewer.ts`    | `conversation-viewer.test.ts`                                         | Hoisted `vi.mock("@earendil-works/pi-tui")` to intercept `wrapTextWithAnsi`                                                                                    | Low      |
+| Widget mixes rendering, lifecycle, and state     | `agent-widget.ts` (370 lines)                                         | `renderWidget` is ~109 lines mixing data collection, formatting, and overflow layout; constructor takes 3 concrete collaborators                               | Low      |
 
 ### Step L: Consolidate observation model
 
@@ -636,16 +636,36 @@ The 15+ callsites that navigate `record.execution?.session` simplify to `record.
 
 Impact: eliminates dual counting; removes `??` fallback pattern from widget and conversation viewer; hides `ExecutionState` structure from consumers.
 
-### Step M: Remove ExtensionContext from AgentManager
+### Step M: Decompose execute and push ExtensionContext to the boundary
 
-`spawn()` and `spawnAndWait()` accept `ParentSnapshot` instead of `ExtensionContext`.
-Callers (`agent-tool.ts`, `service-adapter.ts`) call `buildParentSnapshot()` before spawning.
-Menu handlers delegate to an `index.ts`-provided factory that captures `ctx` at call time.
+`execute` is 145 lines with three responsibilities mixed together:
 
-`buildParentSnapshot` is removed from AgentManager's direct imports.
-AgentManager no longer depends on `ExtensionContext` at all — it operates entirely on domain types.
+1. **Boundary extraction** (~5 lines) — read `ctx.model`, `ctx.modelRegistry`, `ctx.ui`, `ctx.sessionManager`, call `buildParentSnapshot(ctx)`.
+2. **Config resolution** (~60 lines) — resolve agent type, merge invocation config, resolve model, compute max turns, build tags and display metadata.
+3. **Dispatch** (~80 lines) — resume / background / foreground, each passing 14–16 field parameter bags.
 
-Impact: eliminates 1 `vi.mock()` call in `agent-manager.test.ts`; tests pass plain `ParentSnapshot` objects instead of mocking the snapshot builder.
+The config resolution section is working for the dependencies: manually unpacking `resolvedConfig` field by field, computing derived values, then repacking everything into massive objects for `spawnBackground` and `runForeground`.
+The 16-field bags are the symptom — they exist because the resolution happened in the wrong place.
+
+The fix has two parts:
+
+1. **Extract config resolution** into a pure function (e.g. `resolveSpawnConfig`) that accepts the raw tool params, registry, model info, and settings, and returns a single `ResolvedSpawnConfig` object.
+   `execute` becomes: extract ctx → resolve config → dispatch.
+   `spawnBackground` and `runForeground` receive `ResolvedSpawnConfig` instead of 16 individual fields.
+2. **Push `ctx` to the boundary.**
+   `execute` extracts everything from `ctx` in its first few lines.
+   `foreground-runner.ts` and `background-spawner.ts` receive domain values (`snapshot`, `parentSessionFile`, `parentSessionId`) instead of `ctx`.
+   `AgentManager.spawn()` and `spawnAndWait()` accept `ParentSnapshot` instead of `ExtensionContext`.
+   `service-adapter.ts` calls `buildParentSnapshot(session.ctx)` at its boundary.
+
+After this step, `ExtensionContext` appears only in:
+
+- `agent-tool.ts execute` (SDK callback — unavoidable)
+- `service-adapter.ts` (cross-extension boundary)
+- `index.ts` (extension entry point)
+- Menu handlers (addressed by Step N)
+
+Impact: `execute` drops from ~145 to ~30 lines; eliminates 16-field parameter bags; eliminates 1 `vi.mock()` call in `agent-manager.test.ts`; `foreground-runner` and `background-spawner` tests no longer need `ctx` mocks; `AgentManager` operates entirely on domain types.
 
 ### Step N: Narrow UI context for menu handlers
 
