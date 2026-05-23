@@ -4,7 +4,6 @@
 
 import type { ThinkingLevel } from "@earendil-works/pi-ai";
 
-export type { AgentRecordInit, AgentRecordStatus } from "./agent-record.js";
 
 export { AgentRecord } from "./agent-record.js";
 export type { ThinkingLevel };
