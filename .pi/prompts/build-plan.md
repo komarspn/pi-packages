@@ -30,12 +30,13 @@ If the plan lives under `docs/plans/`, it is cross-package — load skills for e
 Read the plan in full before doing anything else.
 If the plan has a "TDD Order" section with red→green test cycles, stop and tell the user to run `/tdd-plan` instead.
 
-## Read project rules and load skills
+## Load skills
 
-Read `AGENTS.md` for project priorities and conventions.
-Load the `package-<PKG>` skill (e.g., `package-pi-permission-system`) for package-specific architecture, priorities, and testing context.
-If the plan touches code: load the `code-design` skill.
-If the plan touches markdown/docs: load the `markdown-conventions` skill.
+Before executing the plan, load skills relevant to the change:
+
+- Load the `package-<PKG>` skill (e.g., `package-pi-permission-system`) for package-specific architecture, priorities, and testing context.
+- Load the `code-design` skill if the plan touches code.
+- Load the `markdown-conventions` skill if the plan touches markdown or docs.
 
 ## Verify green baseline
 

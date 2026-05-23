@@ -20,7 +20,17 @@ Before reading anything, make sure the working tree is up to date with the remot
    Do not attempt to stash, rebase, force, or otherwise resolve.
 3. Only proceed once the pull reports a clean fast-forward (or `Already up to date.`).
 
-## Gather context (do this first, in parallel where possible)
+## Load skills
+
+Before investigating the plan, load skills relevant to the change:
+
+- Load the `package-<PKG>` skill for each affected package (e.g., `package-pi-permission-system`) for package-specific architecture, priorities, and testing context.
+- Load the `code-design` skill and the `colgrep` skill for convention discovery during exploration.
+- Load the `testing` skill if the plan involves test changes or TDD steps.
+- Load the `markdown-conventions` skill.
+- Load the `design-review` skill and run its checklist on the affected modules if the plan adds fields to shared interfaces or touches wiring between layers.
+
+## Gather context
 
 1. Run `gh issue view $1` to read the issue body and labels.
 2. **Determine the target package(s).**
@@ -28,25 +38,13 @@ Before reading anything, make sure the working tree is up to date with the remot
    If no `pkg:*` label exists or it seems incongruent with the issue content, ask the user which package this issue belongs to.
    If the issue has **multiple** `pkg:*` labels, the plan is cross-package — use `docs/plans/` at the repo root instead of a single package's directory.
    Set `PKG` to the package name for single-package issues; for cross-package issues, load skills for each affected package.
-3. Read `AGENTS.md` for project priorities, constraints, and code-design rules.
-   Honor them in the plan.
-4. List the target plans directory (`packages/<PKG>/docs/plans/` for single-package, `docs/plans/` for cross-package) to see numbering and style conventions (create the directory if it does not exist yet).
+3. List the target plans directory (`packages/<PKG>/docs/plans/` for single-package, `docs/plans/` for cross-package) to see numbering and style conventions (create the directory if it does not exist yet).
    Pick the next free `NNNN` (prefer matching the issue number when reasonable).
    If `docs/plans/archive/` exists, those files use issue numbers from a previous repository — ignore them when resolving conflicts.
-5. Read every issue the body references as a prerequisite or related (`gh issue view <n>`).
+4. Read every issue the body references as a prerequisite or related (`gh issue view <n>`).
    Note whether each is implemented yet — your plan must say what it depends on vs. defers.
-6. Open the source files most relevant to the change and skim them before writing.
-7. When the plan introduces a public API pattern (package `exports`, `Symbol.for()` accessor, service interface) or agent-facing message formatting (attribution tags, error prefixes, log labels), use colgrep or grep to search sibling packages for the established convention and follow it unless there is a documented reason to diverge.
-
-## Load skills
-
-Before writing the plan, load skills relevant to the change:
-
-- Load the `package-<PKG>` skill for each affected package (e.g., `package-pi-permission-system`) for package-specific architecture, priorities, and testing context.
-- If the plan involves code changes: load the `code-design` skill and the `colgrep` skill for convention discovery during exploration.
-- If the plan involves test changes or TDD steps: load the `testing` skill.
-- If the plan involves markdown/doc changes: load the `markdown-conventions` skill.
-- If the plan adds fields to shared interfaces or touches wiring between layers: load the `design-review` skill and run its checklist on the affected modules.
+5. Open the source files most relevant to the change and skim them before writing.
+6. When the plan introduces a public API pattern (package `exports`, `Symbol.for()` accessor, service interface) or agent-facing message formatting (attribution tags, error prefixes, log labels), use colgrep or grep to search sibling packages for the established convention and follow it unless there is a documented reason to diverge.
 
 ## Decide
 

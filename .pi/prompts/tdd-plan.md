@@ -27,12 +27,13 @@ If the plan lives under `docs/plans/`, it is cross-package — load skills for e
 Read the plan in full before doing anything else.
 If "TDD Order" is missing or empty, stop and report — re-run `/plan-issue` first.
 
-## Read project rules and load skills
+## Load skills
 
-Read `AGENTS.md` for project priorities and conventions.
-Load the `package-<PKG>` skill (e.g., `package-pi-permission-system`) for package-specific architecture, priorities, and testing context.
-Load the `code-design` skill (design principles, TypeScript conventions, structural heuristics).
-Load the `testing` skill (Vitest mock patterns, TDD planning rules).
+Before executing the TDD cycle, load skills relevant to the change:
+
+- Load the `package-<PKG>` skill (e.g., `package-pi-permission-system`) for package-specific architecture, priorities, and testing context.
+- Load the `code-design` skill for design principles, TypeScript conventions, and structural heuristics.
+- Load the `testing` skill for Vitest mock patterns and TDD planning rules.
 
 ## Verify green baseline
 

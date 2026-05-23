@@ -19,8 +19,14 @@ deterministic:
 The user wants a retrospective on this session.
 Issue number (if provided): `$1`
 
-You **must** load the `ask-user` skill before proposing any changes.
-After identifying the target package in Step 1, load the `package-<PKG>` skill (e.g., `package-pi-permission-system`) for package-specific context.
+## Load skills
+
+Before investigating or proposing changes, load skills relevant to the retro:
+
+- Load the `ask-user` skill for the structured clarification flow.
+- Load the `package-<PKG>` skill (e.g., `package-pi-permission-system`) for package-specific architecture, priorities, and testing context.
+- Load the `markdown-conventions` skill for writing the retro file.
+- Load the `code-design` skill if proposing code-related adjustments to prompts or `AGENTS.md`.
 
 ## Step 1 — Identify the retro file
 
