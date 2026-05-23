@@ -29,6 +29,13 @@ describe("createGetResultTool", () => {
     expect(tool.name).toBe("get_subagent_result");
   });
 
+  it("includes promptSnippet", () => {
+    const tool = createGetResultTool(makeDeps());
+    expect(tool.promptSnippet).toBe(
+      "get_subagent_result: Check status and retrieve results from a background agent.",
+    );
+  });
+
   it("returns not-found message for unknown agent ID", async () => {
     const result = await execute(makeDeps(), { agent_id: "unknown" });
     expect(result.content[0].text).toContain("Agent not found");

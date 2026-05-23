@@ -71,6 +71,7 @@ export function createAgentTool(deps: AgentToolDeps) {
   return {
     name: "Agent" as const,
     label: "Agent",
+    promptSnippet: "Agent: Launch a specialized agent for complex, multi-step tasks.",
     description: `Launch a new agent to handle complex, multi-step tasks autonomously.
 
 The Agent tool launches specialized agents that autonomously handle complex tasks. Each agent type has specific capabilities and tools available to it.

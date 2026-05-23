@@ -37,6 +37,13 @@ describe("createAgentTool", () => {
     expect(tool.label).toBe("Agent");
   });
 
+  it("includes promptSnippet", () => {
+    const tool = createAgentTool(createToolDeps());
+    expect(tool.promptSnippet).toBe(
+      "Agent: Launch a specialized agent for complex, multi-step tasks.",
+    );
+  });
+
   it("derives type list from registry — includes default agents in description", () => {
     const tool = createAgentTool(createToolDeps());
     // testRegistry loads default agents: general-purpose, Explore, Plan

@@ -28,6 +28,13 @@ describe("createSteerTool", () => {
     expect(tool.name).toBe("steer_subagent");
   });
 
+  it("includes promptSnippet", () => {
+    const tool = createSteerTool(makeDeps());
+    expect(tool.promptSnippet).toBe(
+      "steer_subagent: Send a mid-run message to redirect a running background agent.",
+    );
+  });
+
   it("returns not-found message for unknown agent ID", async () => {
     const result = await execute(makeDeps(), { agent_id: "unknown", message: "hi" });
     expect(result.content[0].text).toContain("Agent not found");
