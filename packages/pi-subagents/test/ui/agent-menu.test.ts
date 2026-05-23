@@ -4,28 +4,6 @@ import type { AgentConfig } from "../../src/types.js";
 import { type AgentMenuDeps, createAgentsMenuHandler } from "../../src/ui/agent-menu.js";
 import { createTestRecord } from "../helpers/make-record.js";
 
-const { mockExistsSync } = vi.hoisted(() => ({
-  mockExistsSync: vi.fn((): boolean => false),
-}));
-
-vi.mock("node:fs", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs")>();
-  return {
-    ...actual,
-    existsSync: mockExistsSync,
-    mkdirSync: vi.fn(),
-    readFileSync: vi.fn(),
-    unlinkSync: vi.fn(),
-    default: {
-      ...actual,
-      existsSync: mockExistsSync,
-      mkdirSync: vi.fn(),
-      readFileSync: vi.fn(),
-      unlinkSync: vi.fn(),
-    },
-  };
-});
-
 const testDefaultAgentConfig: AgentConfig = {
   name: "test-agent",
   description: "A test agent",
@@ -101,7 +79,6 @@ function makeCtx(selectResults: (string | undefined)[] = []) {
 }
 
 beforeEach(() => {
-  mockExistsSync.mockClear();
   vi.restoreAllMocks();
   // Default spy: resolveAgentConfig returns testDefaultAgentConfig
   vi.spyOn(testRegistry, "resolveAgentConfig").mockReturnValue(testDefaultAgentConfig);

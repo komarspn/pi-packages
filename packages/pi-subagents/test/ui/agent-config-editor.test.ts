@@ -337,8 +337,6 @@ describe("createAgentConfigEditor", () => {
     it("creates a disable-only file when no agent file exists", async () => {
       const deps = makeDeps();
       deps.fileOps.findAgentFile.mockReturnValue(undefined);
-      const ctx = makeCtx(["Eject (export as .md)"]);
-      // Override to test disable path for default agent without file
       vi.spyOn(testRegistry, "resolveAgentConfig").mockReturnValue(testDefaultConfig);
       const disableCtx = makeCtx(["Disable", "Project (.pi/agents/)"]);
       const editor = createAgentConfigEditor(deps);
