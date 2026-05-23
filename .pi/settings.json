@@ -1,14 +1,24 @@
 {
   "packages": [
+    "../packages/pi-colgrep/",
     "../packages/pi-github-tools",
     "../packages/pi-autoformat",
     "../packages/pi-permission-system",
     "../packages/pi-subagents",
 
-    { "source": "npm:@gotgenes/pi-github-tools", "extensions": [] },
-    { "source": "npm:@gotgenes/pi-autoformat", "extensions": [] },
-    { "source": "npm:@gotgenes/pi-permission-system", "extensions": [] },
-    { "source": "npm:@gotgenes/pi-subagents", "extensions": [] },
+    { "source": "npm:@gotgenes/pi-colgrep", "extensions": [], "skills": [] },
+    {
+      "source": "npm:@gotgenes/pi-github-tools",
+      "extensions": [],
+      "skills": []
+    },
+    { "source": "npm:@gotgenes/pi-autoformat", "extensions": [], "skills": [] },
+    {
+      "source": "npm:@gotgenes/pi-permission-system",
+      "extensions": [],
+      "skills": []
+    },
+    { "source": "npm:@gotgenes/pi-subagents", "extensions": [], "skills": [] },
 
     "npm:pi-prompt-template-model",
     "npm:pi-web-access",
