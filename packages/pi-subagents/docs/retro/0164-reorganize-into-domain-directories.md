@@ -26,3 +26,21 @@ Explored the full `src/` and `test/` structure, mapped every relative import in 
   those src modules have no dedicated test files.
 - The import tables in the plan enumerate every path change; `pnpm run check` will catch
   any missed update before each commit.
+
+## Stage: Implementation — TDD (2026-05-23T16:55:00Z)
+
+### Session summary
+
+Executed all four plan steps (config, session, lifecycle+observation, service) plus a fifth unplanned step converting all `src/` internal imports to `#src/` aliases.
+All 50 test files and 805 tests pass throughout.
+Updated `docs/architecture/architecture.md` to reflect the completed restructuring.
+
+### Observations
+
+- The plan's consumer tables were mostly complete but missed a few files: `src/ui/widget-renderer.ts` and `src/session-config.ts` (still at root during step 1) both imported `agent-types`; `src/service-adapter.ts` imported `model-resolver`; `test/parent-snapshot.test.ts` had a `vi.mock("#src/context")` path.
+  All caught immediately by `pnpm run check` or a failing test.
+- `src/service-adapter.ts` and `src/service.ts` (still at root during step 3) imported `parent-snapshot` and `usage` which moved in that step, so they had to be fixed as part of step 3's commit rather than step 4's.
+- The `#src/` alias conversion (fifth commit) was added after the user correctly observed that `src/` files should use the same alias style as `test/` files.
+  This eliminates all `../` relative cross-directory imports from `src/`.
+  Future file moves in `src/` now only require updating the `#src/domain/name` string — no relative depth arithmetic.
+- Biome auto-fixed 14 files (import sorting / trailing whitespace) during the `#src/` conversion step; committed via `git add -A` after the pre-commit hook run.
