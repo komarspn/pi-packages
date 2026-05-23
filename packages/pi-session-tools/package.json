@@ -1,12 +1,42 @@
 {
   "name": "@gotgenes/pi-session-tools",
   "version": "0.1.0",
-  "description": "Pi extension providing session metadata tools (naming, context)",
+  "description": "Pi extension providing session metadata tools (naming, context) for multi-session workflows",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "session",
+    "workflow"
+  ],
+  "author": {
+    "name": "Chris Lasher"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gotgenes/pi-packages.git",
+    "directory": "packages/pi-session-tools"
+  },
+  "bugs": {
+    "url": "https://github.com/gotgenes/pi-packages/issues"
+  },
+  "homepage": "https://github.com/gotgenes/pi-packages/tree/main/packages/pi-session-tools#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "type": "module",
   "pi": {
     "extensions": [
       "./src/index.ts"
     ]
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "lint": "biome check ."
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
