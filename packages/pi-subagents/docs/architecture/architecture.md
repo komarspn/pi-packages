@@ -221,8 +221,8 @@ sequenceDiagram
 ## Module organization
 
 The extension has 53 source files (7,288 LOC) organized into six domains plus entry-point wiring.
-The three existing subdirectories (`tools/`, `ui/`, `handlers/`) reflect three of these domains.
-The remaining 31 root-level files span four more domains but are not yet grouped in the filesystem.
+All eight domains now have directories: `config/`, `session/`, `lifecycle/`, `observation/`, `service/`, `tools/`, `ui/`, and `handlers/`.
+Issue #164 moved the 26 previously flat root-level files into the five new domain directories.
 
 ### Current layout
 
@@ -661,15 +661,14 @@ The runner would accept `EnvironmentIO & SessionFactoryIO` (keeping backward com
 
 Phase 10 addresses the structural gaps identified in this analysis: flat code organization, oversized dependency bags, and complexity hotspots.
 
-### Step 1: Reorganize source into domain directories ([#164][164])
+### Step 1: Reorganize source into domain directories ([#164][164]) ✓ Done
 
-Move files into `config/`, `session/`, `lifecycle/`, `observation/`, and `service/` subdirectories as described in the [proposed directory restructuring](#proposed-directory-restructuring).
+Moved files into `config/`, `session/`, `lifecycle/`, `observation/`, and `service/` subdirectories.
+All `src/` internal imports now use `#src/` path aliases (same style as `test/` files), eliminating relative depth arithmetic for future moves.
 
-This is a mechanical change (file moves + import path updates) that:
-
-- Makes the domain model visible in the filesystem.
-- Reduces cognitive load when navigating the codebase (5 root files + 8 directories vs. 31 root files + 3 directories).
-- Co-locates related files, making subsequent refactoring easier.
+- Domain model is now visible in the filesystem.
+- Root reduced to 5 files + 8 directories (was 31 files + 3 directories).
+- All subsequent steps can move or extract files without `../` import churn.
 
 ### Step 2: Decompose ResolvedSpawnConfig ([#165][165])
 
