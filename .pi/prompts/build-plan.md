@@ -70,7 +70,7 @@ For **each** numbered step in the plan's "TDD Order" (or equivalent execution se
 2. **Verify.**
    Run the linters to confirm the change is clean:
    - `pnpm run lint`.
-     If it fails, run `pnpm run lint:fix` and re-check.
+     If it fails, run `pnpm exec biome check --write .` to auto-fix, then re-check.
      Fix all failures — including pre-existing ones unrelated to the current change.
 3. **Commit.**
    Use the commit message the plan suggests, or a Conventional Commits message that matches:

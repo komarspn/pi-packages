@@ -46,3 +46,43 @@ All 2737 tests pass across all five packages post-migration.
   `pnpm exec biome check --write .` handled these cleanly.
 - The `#test/*` alias was added to all packages but only used in `pi-subagents` (for `test/tools/*.test.ts` → `#test/helpers/*` imports from nested dirs).
   Other packages either don't have nested test dirs or don't cross-reference them.
+
+## Stage: Final Retrospective (2026-05-23T15:00:00Z)
+
+### Session summary
+
+Reviewed the full issue #157 lifecycle across three sessions (planning, build, ship).
+All five packages migrated cleanly with zero test regressions.
+Identified one prompt bug (`lint:fix` reference) and fixed it.
+
+### Observations
+
+#### What went well
+
+- The mechanical sed-based approach for `.js` stripping and import rewriting was safe and efficient across ~400 import lines.
+  The regex scoping (`from "..."` context) avoided all false positives on string literals containing `.js`.
+- Per-package commits with `pnpm run check && pnpm run test` verification after each phase kept CI green throughout.
+  The plan's sequencing rationale paid off — no cross-package breakage.
+- The planning session's research into Vite/Vitest `resolve.alias` vs `tsconfig.json` `paths` prevented a build-time failure.
+  The dual-site config pattern (`tsconfig.json` for tsc + `vitest.config.ts` for runtime) was correct on first use.
+
+#### What caused friction (agent side)
+
+- `rabbit-hole` — The planning session spent ~15 tool calls spelunking through `node_modules/` files trying to determine whether Vite 8 auto-reads `tsconfig.json` `paths`, when checking the Vitest docs directly would have resolved the question in one call.
+  Impact: added friction but no rework — the user intervened with the docs URLs.
+- `missing-context` — The plan only accounted for two levels of relative import depth (`../src/`, `../../src/`) but `pi-permission-system` had `../../../src/` paths in `test/handlers/gates/`.
+  Impact: one additional sed pattern during build; no rework.
+- `rabbit-hole` — Spent ~5 minutes trying a ref-object wrapper to defeat TS6 narrowing in `pi-colgrep` before falling back to a type assertion cast.
+  The ref-object approach failed because TS6 narrows object properties through assignments too.
+  Impact: minor time cost, no rework — fixed in the same commit.
+
+#### What caused friction (user side)
+
+- The issue body claimed "Vitest resolves `paths` from `tsconfig.json` via its Vite/esbuild pipeline, so no extra config should be needed."
+  This turned out to be incorrect.
+  Sharing the Vitest docs URLs earlier (or noting the uncertainty in the issue) would have avoided the `node_modules` spelunking.
+
+### Changes made
+
+1. `.pi/prompts/build-plan.md`: replaced nonexistent `pnpm run lint:fix` reference with `pnpm exec biome check --write .`.
+2. `.pi/prompts/tdd-plan.md`: same fix — replaced `pnpm run lint:fix` with `pnpm exec biome check --write .`.

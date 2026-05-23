@@ -93,7 +93,7 @@ If the deviation is large, stop and ask.
 2. Run the type check: `pnpm run check` (`tsc --noEmit`).
    Must succeed — Vitest does not typecheck.
 3. Run the linter: `pnpm run lint`.
-   If it fails, run `pnpm run lint:fix` and re-check.
+   If it fails, run `pnpm exec biome check --write .` to auto-fix, then re-check.
    Fix all failures — including pre-existing ones unrelated to the current change.
    Commit any fixup as part of the most recent feat commit (amend) only if you haven't pushed; otherwise as a `style:` commit.
    The fixup must NOT land in a `docs:` commit.
