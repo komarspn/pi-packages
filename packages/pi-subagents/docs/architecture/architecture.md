@@ -69,7 +69,8 @@ renderer.ts               - notification TUI component
 record-observer.ts        - session-event observer for record statistics
 
 ui/display.ts             - pure formatters, display helpers, and shared types (Theme, AgentDetails)
-ui/agent-widget.ts        - above-editor live status widget
+ui/agent-widget.ts        - above-editor live status widget (thin lifecycle wrapper)
+ui/widget-renderer.ts     - pure rendering functions for agent widget
 ui/agent-menu.ts          - /agents slash command menu
 ui/conversation-viewer.ts - scrollable session overlay
 ui/ui-observer.ts         - session-event observer for UI streaming
@@ -615,13 +616,13 @@ Phase 9 targets the next layer: observation model consolidation, `ExtensionConte
 
 ### Current smells
 
-| Smell                                            | Location                                                              | Evidence                                                                                                                                                       | Severity |
-| ------------------------------------------------ | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| `execute` does config resolution for its callees | `agent-tool.ts` (145-line `execute`)                                  | ~60 lines unpack config, resolve model, compute metadata, repack into 16-field bags for spawners; `ctx` threaded 4 layers deep                                 | Medium   |
-| Wide `ctx` in menu handlers                      | `agent-menu.ts`, `agent-config-editor.ts`, `agent-creation-wizard.ts` | Functions declare `ctx: ExtensionContext` but only call `ctx.ui.select/confirm/input/notify/editor`; 43 `ctx as any` casts across 3 test files                 | Medium   |
-| Direct SDK import in `conversation-viewer.ts`    | `conversation-viewer.test.ts`                                         | Hoisted `vi.mock("@earendil-works/pi-tui")` to intercept `wrapTextWithAnsi`                                                                                    | Low      |
-| Widget mixes rendering, lifecycle, and state     | `agent-widget.ts` (370 lines)                                         | `renderWidget` is ~109 lines mixing data collection, formatting, and overflow layout; constructor takes 3 concrete collaborators                               | Low      |
-| `deps.` prefix noise in function bodies          | remaining modules across tools, UI, service-adapter                   | Functions accept a `deps` bag and access every field as `deps.foo`; hides real dependencies and lengthens every call line                                      | Low      |
+| Smell                                            | Location                                                              | Evidence                                                                                                                                       | Severity |
+| ------------------------------------------------ | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| `execute` does config resolution for its callees | `agent-tool.ts` (145-line `execute`)                                  | ~60 lines unpack config, resolve model, compute metadata, repack into 16-field bags for spawners; `ctx` threaded 4 layers deep                 | Medium   |
+| Wide `ctx` in menu handlers                      | `agent-menu.ts`, `agent-config-editor.ts`, `agent-creation-wizard.ts` | Functions declare `ctx: ExtensionContext` but only call `ctx.ui.select/confirm/input/notify/editor`; 43 `ctx as any` casts across 3 test files | Medium   |
+| Direct SDK import in `conversation-viewer.ts`    | `conversation-viewer.test.ts`                                         | Hoisted `vi.mock("@earendil-works/pi-tui")` to intercept `wrapTextWithAnsi`                                                                    | Low      |
+| ~~Widget mixes rendering, lifecycle, and state~~ | ~~`agent-widget.ts` (370 lines)~~                                     | Resolved by #148: rendering extracted to `widget-renderer.ts`; widget is now 198 lines                                                         | Done     |
+| `deps.` prefix noise in function bodies          | remaining modules across tools, UI, service-adapter                   | Functions accept a `deps` bag and access every field as `deps.foo`; hides real dependencies and lengthens every call line                      | Low      |
 
 ### Dependency bag convention
 
@@ -688,13 +689,11 @@ Apply the dependency bag convention: `ConversationViewerOptions` is destructured
 
 Impact: eliminates the hoisted `vi.mock("@earendil-works/pi-tui")` in `conversation-viewer.test.ts`.
 
-### Step P: Split AgentWidget rendering (#148)
+### Step P: Split AgentWidget rendering (#148) ✓
 
-Extract pure rendering functions from `AgentWidget` into `ui/widget-renderer.ts`.
-The widget becomes a thin lifecycle/polling wrapper that calls pure render functions.
-Rendering functions receive data (agent list, activity map, registry) and return formatted strings - testable without widget lifecycle.
-
-Depends on Step L: once the tracker drops stats fields, the renderer reads from `AgentRecord` for tool uses and usage, and from `AgentActivityTracker` only for live UI state (active tools, response text, turn count).
+Extracted pure rendering functions (`renderWidgetLines`, `renderFinishedLine`, `renderRunningLines`) from `AgentWidget` into `ui/widget-renderer.ts`.
+The widget is now a thin lifecycle/polling wrapper (198 lines, down from 374) that delegates to pure render functions.
+Rendering functions receive data (agent list, activity map, registry) and return formatted strings — testable without widget lifecycle. 23 new unit tests cover all status variants, overflow, tree connectors, and empty states.
 
 ### Step dependencies
 
