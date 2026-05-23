@@ -1,5 +1,5 @@
 import type { Mock } from "vitest";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Exec } from "../../src/lib/exec.js";
 import { createReindexer } from "../../src/lib/reindex.js";
 
@@ -72,5 +72,65 @@ describe("createReindexer — runNow()", () => {
     exec.mockResolvedValue({ stdout: "", stderr: "", code: 0 });
     const reindexer = createReindexer({ exec, cwd: "/project", onStatus });
     await expect(reindexer.runNow()).resolves.toBeUndefined();
+  });
+});
+
+// ---- Cycle 2: error handling ----
+
+describe("createReindexer — runNow() error handling", () => {
+  let exec: Mock<Exec>;
+  let onStatus: Mock<(status: string | undefined) => void>;
+
+  beforeEach(() => {
+    exec = makeExec();
+    onStatus = makeOnStatus();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("shows indexing-failed status when exec exits non-zero", async () => {
+    exec.mockResolvedValue({ stdout: "", stderr: "disk full", code: 1 });
+    const reindexer = createReindexer({ exec, cwd: "/project", onStatus });
+    await reindexer.runNow();
+    const statusCalls = onStatus.mock.calls.map((c) => c[0]);
+    expect(statusCalls).toContain("colgrep: indexing failed");
+  });
+
+  it("clears failed status after a brief delay (undefined follows failed)", async () => {
+    exec.mockResolvedValue({ stdout: "", stderr: "disk full", code: 1 });
+    const reindexer = createReindexer({ exec, cwd: "/project", onStatus });
+    await reindexer.runNow();
+    // The last call must clear the status
+    expect(onStatus).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it("shows indexing-failed status when exec throws", async () => {
+    exec.mockRejectedValue(new Error("EPERM"));
+    const reindexer = createReindexer({ exec, cwd: "/project", onStatus });
+    await reindexer.runNow();
+    const statusCalls = onStatus.mock.calls.map((c) => c[0]);
+    expect(statusCalls).toContain("colgrep: indexing failed");
+  });
+
+  it("resolves without throwing when exec exits non-zero", async () => {
+    exec.mockResolvedValue({ stdout: "", stderr: "oops", code: 1 });
+    const reindexer = createReindexer({ exec, cwd: "/project", onStatus });
+    await expect(reindexer.runNow()).resolves.toBeUndefined();
+  });
+
+  it("resolves without throwing when exec throws", async () => {
+    exec.mockRejectedValue(new Error("EPERM"));
+    const reindexer = createReindexer({ exec, cwd: "/project", onStatus });
+    await expect(reindexer.runNow()).resolves.toBeUndefined();
+  });
+
+  it("logs the error to console.error", async () => {
+    exec.mockRejectedValue(new Error("EPERM"));
+    const reindexer = createReindexer({ exec, cwd: "/project", onStatus });
+    await reindexer.runNow();
+    expect(console.error).toHaveBeenCalled();
   });
 });

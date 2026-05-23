@@ -24,6 +24,7 @@ export interface Reindexer {
 const DEFAULT_DEBOUNCE_MS = 4_000;
 const DEFAULT_TIMEOUT_MS = 300_000;
 const INDEXING_STATUS = "colgrep: indexing\u2026";
+const INDEXING_FAILED_STATUS = "colgrep: indexing failed";
 
 export function createReindexer(deps: ReindexerDeps): Reindexer {
   const { exec, cwd, onStatus } = deps;
@@ -31,19 +32,25 @@ export function createReindexer(deps: ReindexerDeps): Reindexer {
 
   async function runReindex(): Promise<void> {
     onStatus(INDEXING_STATUS);
+    let failed = false;
     try {
       const result = await exec("colgrep", ["init", "-y", "."], {
         cwd,
         timeout: timeoutMs,
       });
       if (result.code !== 0) {
+        failed = true;
         const detail = result.stderr.trim();
         console.error(
           `colgrep reindex failed: ${detail || `exit code ${result.code}`}`,
         );
       }
     } catch (err) {
+      failed = true;
       console.error("colgrep reindex failed:", err);
+    }
+    if (failed) {
+      onStatus(INDEXING_FAILED_STATUS);
     }
     onStatus(undefined);
   }
