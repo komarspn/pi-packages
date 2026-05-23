@@ -104,7 +104,7 @@ export function registerColGrep(
     promptGuidelines: [
       "Prefer colgrep for intent-based searches and exploration (e.g. 'error handling for database connections').",
       "Use grep for exact pattern or symbol matching; use colgrep when keywords may not match exactly.",
-      "Increase limit (default 15) when exploring a large codebase — try limit=30 for broader coverage.",
+      "colgrep: increase limit (default 15) when exploring a large codebase — try limit=30 for broader coverage.",
     ],
     parameters: Type.Object({
       query: Type.Optional(
