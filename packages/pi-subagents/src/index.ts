@@ -249,7 +249,7 @@ export default function (pi: ExtensionAPI) {
     manager: {
       listAgents: () => manager.listAgents(),
       getRecord: (id) => manager.getRecord(id),
-      spawnAndWait: (ctx, type, prompt, opts) => manager.spawnAndWait(buildParentSnapshot(ctx), type, prompt, opts),
+      spawnAndWait: (snapshot, type, prompt, opts) => manager.spawnAndWait(snapshot, type, prompt, opts),
     },
     registry,
     agentActivity: runtime.agentActivity,

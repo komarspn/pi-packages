@@ -1,9 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentTypeRegistry } from "../../src/agent-types.js";
+import type { ParentSnapshot } from "../../src/parent-snapshot.js";
 import { createAgentCreationWizard } from "../../src/ui/agent-creation-wizard.js";
 import { createTestRecord } from "../helpers/make-record.js";
 
 const testRegistry = new AgentTypeRegistry(() => new Map());
+
+/** Minimal stub satisfying the ParentSnapshot interface. */
+const stubParentSnapshot: ParentSnapshot = {
+  cwd: "/test",
+  systemPrompt: "",
+  model: {},
+  modelRegistry: { find: () => undefined },
+};
 
 function makeFileOps() {
   return {
@@ -34,16 +43,15 @@ function makeDeps() {
   };
 }
 
-function makeCtx(selectResults: (string | undefined)[] = []) {
+function makeUI(selectResults: (string | undefined)[] = []) {
   let selectIdx = 0;
   return {
-    ui: {
-      select: vi.fn().mockImplementation(() => selectResults[selectIdx++]),
-      input: vi.fn(),
-      confirm: vi.fn(),
-      editor: vi.fn(),
-      notify: vi.fn(),
-    },
+    select: vi.fn().mockImplementation(() => selectResults[selectIdx++]),
+    input: vi.fn(),
+    confirm: vi.fn(),
+    editor: vi.fn(),
+    notify: vi.fn(),
+    custom: vi.fn(),
   };
 }
 
@@ -56,22 +64,22 @@ describe("createAgentCreationWizard", () => {
   describe("showCreateWizard", () => {
     it("returns when user cancels location selection", async () => {
       const deps = makeDeps();
-      const ctx = makeCtx([undefined]);
+      const ui = makeUI([undefined]);
       const wizard = createAgentCreationWizard(deps);
 
-      await wizard.showCreateWizard(ctx as any);
+      await wizard.showCreateWizard(ui, stubParentSnapshot);
 
-      expect(ctx.ui.select).toHaveBeenCalledTimes(1);
+      expect(ui.select).toHaveBeenCalledTimes(1);
     });
 
     it("returns when user cancels method selection", async () => {
       const deps = makeDeps();
-      const ctx = makeCtx(["Project (.pi/agents/)", undefined]);
+      const ui = makeUI(["Project (.pi/agents/)", undefined]);
       const wizard = createAgentCreationWizard(deps);
 
-      await wizard.showCreateWizard(ctx as any);
+      await wizard.showCreateWizard(ui, stubParentSnapshot);
 
-      expect(ctx.ui.select).toHaveBeenCalledTimes(2);
+      expect(ui.select).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -88,25 +96,25 @@ describe("createAgentCreationWizard", () => {
         .mockReturnValueOnce(false) // overwrite check before spawn
         .mockReturnValueOnce(true); // success check after spawn
 
-      const ctx = makeCtx([
+      const ui = makeUI([
         "Project (.pi/agents/)",
         "Generate with Claude (recommended)",
       ]);
-      ctx.ui.input = vi.fn()
+      ui.input = vi.fn()
         .mockResolvedValueOnce("A code reviewer agent") // description
         .mockResolvedValueOnce("code-reviewer"); // name
 
       const wizard = createAgentCreationWizard(deps);
-      await wizard.showCreateWizard(ctx as any);
+      await wizard.showCreateWizard(ui, stubParentSnapshot);
 
       expect(deps.manager.spawnAndWait).toHaveBeenCalledWith(
-        ctx,
+        stubParentSnapshot,
         "general-purpose",
         expect.stringContaining("code-reviewer"),
         expect.objectContaining({ maxTurns: 5 }),
       );
       expect(deps.fileOps.ensureDir).toHaveBeenCalledWith("/project/.pi/agents");
-      expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect(ui.notify).toHaveBeenCalledWith(
         "Created /project/.pi/agents/code-reviewer.md",
         "info",
       );
@@ -118,18 +126,18 @@ describe("createAgentCreationWizard", () => {
         createTestRecord({ status: "error", error: "spawn failed" }),
       );
 
-      const ctx = makeCtx([
+      const ui = makeUI([
         "Project (.pi/agents/)",
         "Generate with Claude (recommended)",
       ]);
-      ctx.ui.input = vi.fn()
+      ui.input = vi.fn()
         .mockResolvedValueOnce("description")
         .mockResolvedValueOnce("test-agent");
 
       const wizard = createAgentCreationWizard(deps);
-      await wizard.showCreateWizard(ctx as any);
+      await wizard.showCreateWizard(ui, stubParentSnapshot);
 
-      expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect(ui.notify).toHaveBeenCalledWith(
         "Generation failed: spawn failed",
         "warning",
       );
@@ -143,18 +151,18 @@ describe("createAgentCreationWizard", () => {
       // File does not exist after spawn
       deps.fileOps.exists.mockReturnValue(false);
 
-      const ctx = makeCtx([
+      const ui = makeUI([
         "Project (.pi/agents/)",
         "Generate with Claude (recommended)",
       ]);
-      ctx.ui.input = vi.fn()
+      ui.input = vi.fn()
         .mockResolvedValueOnce("description")
         .mockResolvedValueOnce("test-agent");
 
       const wizard = createAgentCreationWizard(deps);
-      await wizard.showCreateWizard(ctx as any);
+      await wizard.showCreateWizard(ui, stubParentSnapshot);
 
-      expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect(ui.notify).toHaveBeenCalledWith(
         "Agent generation completed but file was not created. Check the agent output.",
         "warning",
       );
@@ -164,19 +172,19 @@ describe("createAgentCreationWizard", () => {
       const deps = makeDeps();
       deps.fileOps.exists.mockReturnValue(true);
 
-      const ctx = makeCtx([
+      const ui = makeUI([
         "Project (.pi/agents/)",
         "Generate with Claude (recommended)",
       ]);
-      ctx.ui.input = vi.fn()
+      ui.input = vi.fn()
         .mockResolvedValueOnce("description")
         .mockResolvedValueOnce("existing-agent");
-      ctx.ui.confirm.mockResolvedValue(false);
+      ui.confirm = vi.fn().mockResolvedValue(false);
 
       const wizard = createAgentCreationWizard(deps);
-      await wizard.showCreateWizard(ctx as any);
+      await wizard.showCreateWizard(ui, stubParentSnapshot);
 
-      expect(ctx.ui.confirm).toHaveBeenCalledWith(
+      expect(ui.confirm).toHaveBeenCalledWith(
         "Overwrite",
         expect.stringContaining("already exists"),
       );
@@ -185,14 +193,14 @@ describe("createAgentCreationWizard", () => {
 
     it("returns when user cancels description input", async () => {
       const deps = makeDeps();
-      const ctx = makeCtx([
+      const ui = makeUI([
         "Project (.pi/agents/)",
         "Generate with Claude (recommended)",
       ]);
-      ctx.ui.input = vi.fn().mockResolvedValueOnce(undefined);
+      ui.input = vi.fn().mockResolvedValueOnce(undefined);
 
       const wizard = createAgentCreationWizard(deps);
-      await wizard.showCreateWizard(ctx as any);
+      await wizard.showCreateWizard(ui, stubParentSnapshot);
 
       expect(deps.manager.spawnAndWait).not.toHaveBeenCalled();
     });
@@ -201,20 +209,20 @@ describe("createAgentCreationWizard", () => {
   describe("manual wizard", () => {
     it("writes agent file with all form inputs", async () => {
       const deps = makeDeps();
-      const ctx = makeCtx([
+      const ui = makeUI([
         "Project (.pi/agents/)",
         "Manual configuration",
         "all", // tools
         "inherit (parent model)", // model
         "inherit", // thinking
       ]);
-      ctx.ui.input = vi.fn()
+      ui.input = vi.fn()
         .mockResolvedValueOnce("my-agent") // name
         .mockResolvedValueOnce("A test agent"); // description
-      ctx.ui.editor = vi.fn().mockResolvedValue("You are a test agent.");
+      ui.editor = vi.fn().mockResolvedValue("You are a test agent.");
 
       const wizard = createAgentCreationWizard(deps);
-      await wizard.showCreateWizard(ctx as any);
+      await wizard.showCreateWizard(ui, stubParentSnapshot);
 
       expect(deps.fileOps.write).toHaveBeenCalledWith(
         "/project/.pi/agents/my-agent.md",
@@ -229,20 +237,20 @@ describe("createAgentCreationWizard", () => {
 
     it("includes model line when a specific model is selected", async () => {
       const deps = makeDeps();
-      const ctx = makeCtx([
+      const ui = makeUI([
         "Project (.pi/agents/)",
         "Manual configuration",
         "all",
         "haiku",
         "inherit",
       ]);
-      ctx.ui.input = vi.fn()
+      ui.input = vi.fn()
         .mockResolvedValueOnce("fast-agent")
         .mockResolvedValueOnce("Fast agent");
-      ctx.ui.editor = vi.fn().mockResolvedValue("prompt");
+      ui.editor = vi.fn().mockResolvedValue("prompt");
 
       const wizard = createAgentCreationWizard(deps);
-      await wizard.showCreateWizard(ctx as any);
+      await wizard.showCreateWizard(ui, stubParentSnapshot);
 
       expect(deps.fileOps.write).toHaveBeenCalledWith(
         "/project/.pi/agents/fast-agent.md",
@@ -252,20 +260,20 @@ describe("createAgentCreationWizard", () => {
 
     it("includes thinking line when a non-inherit level is selected", async () => {
       const deps = makeDeps();
-      const ctx = makeCtx([
+      const ui = makeUI([
         "Project (.pi/agents/)",
         "Manual configuration",
         "all",
         "inherit (parent model)",
         "high",
       ]);
-      ctx.ui.input = vi.fn()
+      ui.input = vi.fn()
         .mockResolvedValueOnce("thinker")
         .mockResolvedValueOnce("Deep thinker");
-      ctx.ui.editor = vi.fn().mockResolvedValue("prompt");
+      ui.editor = vi.fn().mockResolvedValue("prompt");
 
       const wizard = createAgentCreationWizard(deps);
-      await wizard.showCreateWizard(ctx as any);
+      await wizard.showCreateWizard(ui, stubParentSnapshot);
 
       expect(deps.fileOps.write).toHaveBeenCalledWith(
         "/project/.pi/agents/thinker.md",
@@ -275,20 +283,20 @@ describe("createAgentCreationWizard", () => {
 
     it("uses read-only tools when read-only is selected", async () => {
       const deps = makeDeps();
-      const ctx = makeCtx([
+      const ui = makeUI([
         "Project (.pi/agents/)",
         "Manual configuration",
         "read-only (read, bash, grep, find, ls)",
         "inherit (parent model)",
         "inherit",
       ]);
-      ctx.ui.input = vi.fn()
+      ui.input = vi.fn()
         .mockResolvedValueOnce("reader")
         .mockResolvedValueOnce("Read-only agent");
-      ctx.ui.editor = vi.fn().mockResolvedValue("prompt");
+      ui.editor = vi.fn().mockResolvedValue("prompt");
 
       const wizard = createAgentCreationWizard(deps);
-      await wizard.showCreateWizard(ctx as any);
+      await wizard.showCreateWizard(ui, stubParentSnapshot);
 
       expect(deps.fileOps.write).toHaveBeenCalledWith(
         "/project/.pi/agents/reader.md",
@@ -299,23 +307,23 @@ describe("createAgentCreationWizard", () => {
     it("prompts for overwrite when target file already exists", async () => {
       const deps = makeDeps();
       deps.fileOps.exists.mockReturnValue(true);
-      const ctx = makeCtx([
+      const ui = makeUI([
         "Project (.pi/agents/)",
         "Manual configuration",
         "all",
         "inherit (parent model)",
         "inherit",
       ]);
-      ctx.ui.input = vi.fn()
+      ui.input = vi.fn()
         .mockResolvedValueOnce("existing")
         .mockResolvedValueOnce("desc");
-      ctx.ui.editor = vi.fn().mockResolvedValue("prompt");
-      ctx.ui.confirm.mockResolvedValue(false);
+      ui.editor = vi.fn().mockResolvedValue("prompt");
+      ui.confirm = vi.fn().mockResolvedValue(false);
 
       const wizard = createAgentCreationWizard(deps);
-      await wizard.showCreateWizard(ctx as any);
+      await wizard.showCreateWizard(ui, stubParentSnapshot);
 
-      expect(ctx.ui.confirm).toHaveBeenCalledWith(
+      expect(ui.confirm).toHaveBeenCalledWith(
         "Overwrite",
         expect.stringContaining("already exists"),
       );
@@ -324,34 +332,34 @@ describe("createAgentCreationWizard", () => {
 
     it("returns when user cancels name input", async () => {
       const deps = makeDeps();
-      const ctx = makeCtx([
+      const ui = makeUI([
         "Project (.pi/agents/)",
         "Manual configuration",
       ]);
-      ctx.ui.input = vi.fn().mockResolvedValueOnce(undefined);
+      ui.input = vi.fn().mockResolvedValueOnce(undefined);
 
       const wizard = createAgentCreationWizard(deps);
-      await wizard.showCreateWizard(ctx as any);
+      await wizard.showCreateWizard(ui, stubParentSnapshot);
 
       expect(deps.fileOps.write).not.toHaveBeenCalled();
     });
 
     it("writes to personal directory when personal is selected", async () => {
       const deps = makeDeps();
-      const ctx = makeCtx([
+      const ui = makeUI([
         "Personal (/home/.pi/agents)",
         "Manual configuration",
         "all",
         "inherit (parent model)",
         "inherit",
       ]);
-      ctx.ui.input = vi.fn()
+      ui.input = vi.fn()
         .mockResolvedValueOnce("personal-agent")
         .mockResolvedValueOnce("Personal agent");
-      ctx.ui.editor = vi.fn().mockResolvedValue("prompt");
+      ui.editor = vi.fn().mockResolvedValue("prompt");
 
       const wizard = createAgentCreationWizard(deps);
-      await wizard.showCreateWizard(ctx as any);
+      await wizard.showCreateWizard(ui, stubParentSnapshot);
 
       expect(deps.fileOps.write).toHaveBeenCalledWith(
         "/home/.pi/agents/personal-agent.md",

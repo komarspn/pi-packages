@@ -7,17 +7,18 @@
 
 import { join } from "node:path";
 
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { BUILTIN_TOOL_NAMES } from "../agent-types.js";
+import type { ParentSnapshot } from "../parent-snapshot.js";
 import type { AgentRecord } from "../types.js";
 import type { AgentFileOps } from "./agent-file-ops.js";
+import type { MenuUI } from "./agent-menu.js";
 
 // ---- Deps interface ----
 
 /** Narrow manager interface for agent spawning (generate wizard). */
 export interface WizardManager {
   spawnAndWait: (
-    ctx: ExtensionContext,
+    parentSnapshot: ParentSnapshot,
     type: string,
     prompt: string,
     opts: { description: string; maxTurns: number },
@@ -39,50 +40,60 @@ export interface AgentCreationWizardDeps {
 
 // ---- Factory ----
 
-export function createAgentCreationWizard(deps: AgentCreationWizardDeps) {
-  async function showCreateWizard(ctx: ExtensionContext) {
-    const location = await ctx.ui.select("Choose location", [
+export function createAgentCreationWizard({
+  fileOps,
+  manager,
+  registry,
+  personalAgentsDir,
+  projectAgentsDir,
+}: AgentCreationWizardDeps) {
+  async function showCreateWizard(ui: MenuUI, parentSnapshot: ParentSnapshot) {
+    const location = await ui.select("Choose location", [
       "Project (.pi/agents/)",
-      `Personal (${deps.personalAgentsDir})`,
+      `Personal (${personalAgentsDir})`,
     ]);
     if (!location) return;
 
     const targetDir = location.startsWith("Project")
-      ? deps.projectAgentsDir
-      : deps.personalAgentsDir;
+      ? projectAgentsDir
+      : personalAgentsDir;
 
-    const method = await ctx.ui.select("Creation method", [
+    const method = await ui.select("Creation method", [
       "Generate with Claude (recommended)",
       "Manual configuration",
     ]);
     if (!method) return;
 
     if (method.startsWith("Generate")) {
-      await showGenerateWizard(ctx, targetDir);
+      await showGenerateWizard(ui, parentSnapshot, targetDir);
     } else {
-      await showManualWizard(ctx, targetDir);
+      await showManualWizard(ui, targetDir);
     }
   }
 
-  async function showGenerateWizard(ctx: ExtensionContext, targetDir: string) {
-    const description = await ctx.ui.input("Describe what this agent should do");
+  async function showGenerateWizard(
+    ui: MenuUI,
+    parentSnapshot: ParentSnapshot,
+    targetDir: string,
+  ) {
+    const description = await ui.input("Describe what this agent should do");
     if (!description) return;
 
-    const name = await ctx.ui.input("Agent name (filename, no spaces)");
+    const name = await ui.input("Agent name (filename, no spaces)");
     if (!name) return;
 
-    deps.fileOps.ensureDir(targetDir);
+    fileOps.ensureDir(targetDir);
 
     const targetPath = join(targetDir, `${name}.md`);
-    if (deps.fileOps.exists(targetPath)) {
-      const overwrite = await ctx.ui.confirm(
+    if (fileOps.exists(targetPath)) {
+      const overwrite = await ui.confirm(
         "Overwrite",
         `${targetPath} already exists. Overwrite?`,
       );
       if (!overwrite) return;
     }
 
-    ctx.ui.notify("Generating agent definition...", "info");
+    ui.notify("Generating agent definition...", "info");
 
     const generatePrompt = `Create a custom pi sub-agent definition file based on this description: "${description}"
 
@@ -122,8 +133,8 @@ Guidelines for choosing settings:
 
 Write the file using the write tool. Only write the file, nothing else.`;
 
-    const record = await deps.manager.spawnAndWait(
-      ctx,
+    const record = await manager.spawnAndWait(
+      parentSnapshot,
       "general-purpose",
       generatePrompt,
       {
@@ -133,30 +144,30 @@ Write the file using the write tool. Only write the file, nothing else.`;
     );
 
     if (record.status === "error") {
-      ctx.ui.notify(`Generation failed: ${record.error}`, "warning");
+      ui.notify(`Generation failed: ${record.error}`, "warning");
       return;
     }
 
-    deps.registry.reload();
+    registry.reload();
 
-    if (deps.fileOps.exists(targetPath)) {
-      ctx.ui.notify(`Created ${targetPath}`, "info");
+    if (fileOps.exists(targetPath)) {
+      ui.notify(`Created ${targetPath}`, "info");
     } else {
-      ctx.ui.notify(
+      ui.notify(
         "Agent generation completed but file was not created. Check the agent output.",
         "warning",
       );
     }
   }
 
-  async function showManualWizard(ctx: ExtensionContext, targetDir: string) {
-    const name = await ctx.ui.input("Agent name (filename, no spaces)");
+  async function showManualWizard(ui: MenuUI, targetDir: string) {
+    const name = await ui.input("Agent name (filename, no spaces)");
     if (!name) return;
 
-    const description = await ctx.ui.input("Description (one line)");
+    const description = await ui.input("Description (one line)");
     if (!description) return;
 
-    const toolChoice = await ctx.ui.select("Tools", [
+    const toolChoice = await ui.select("Tools", [
       "all",
       "none",
       "read-only (read, bash, grep, find, ls)",
@@ -172,7 +183,7 @@ Write the file using the write tool. Only write the file, nothing else.`;
     } else if (toolChoice.startsWith("read-only")) {
       tools = "read, bash, grep, find, ls";
     } else {
-      const customTools = await ctx.ui.input(
+      const customTools = await ui.input(
         "Tools (comma-separated)",
         BUILTIN_TOOL_NAMES.join(", "),
       );
@@ -180,7 +191,7 @@ Write the file using the write tool. Only write the file, nothing else.`;
       tools = customTools;
     }
 
-    const modelChoice = await ctx.ui.select("Model", [
+    const modelChoice = await ui.select("Model", [
       "inherit (parent model)",
       "haiku",
       "sonnet",
@@ -197,11 +208,11 @@ Write the file using the write tool. Only write the file, nothing else.`;
     else if (modelChoice === "opus")
       modelLine = "\nmodel: anthropic/claude-opus-4-6";
     else if (modelChoice === "custom...") {
-      const customModel = await ctx.ui.input("Model (provider/modelId)");
+      const customModel = await ui.input("Model (provider/modelId)");
       if (customModel) modelLine = `\nmodel: ${customModel}`;
     }
 
-    const thinkingChoice = await ctx.ui.select("Thinking level", [
+    const thinkingChoice = await ui.select("Thinking level", [
       "inherit",
       "off",
       "minimal",
@@ -215,7 +226,7 @@ Write the file using the write tool. Only write the file, nothing else.`;
     let thinkingLine = "";
     if (thinkingChoice !== "inherit") thinkingLine = `\nthinking: ${thinkingChoice}`;
 
-    const systemPrompt = await ctx.ui.editor("System prompt", "");
+    const systemPrompt = await ui.editor("System prompt", "");
     if (systemPrompt === undefined) return;
 
     const content = `---
@@ -229,17 +240,17 @@ ${systemPrompt}
 
     const targetPath = join(targetDir, `${name}.md`);
 
-    if (deps.fileOps.exists(targetPath)) {
-      const overwrite = await ctx.ui.confirm(
+    if (fileOps.exists(targetPath)) {
+      const overwrite = await ui.confirm(
         "Overwrite",
         `${targetPath} already exists. Overwrite?`,
       );
       if (!overwrite) return;
     }
 
-    deps.fileOps.write(targetPath, content);
-    deps.registry.reload();
-    ctx.ui.notify(`Created ${targetPath}`, "info");
+    fileOps.write(targetPath, content);
+    registry.reload();
+    ui.notify(`Created ${targetPath}`, "info");
   }
 
   return { showCreateWizard };

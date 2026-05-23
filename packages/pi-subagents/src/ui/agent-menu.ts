@@ -2,6 +2,8 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AgentSpawnConfig } from "../agent-manager.js";
 import { AgentTypeRegistry } from "../agent-types.js";
 import type { ModelRegistry } from "../model-resolver.js";
+import type { ParentSnapshot } from "../parent-snapshot.js";
+import { buildParentSnapshot } from "../parent-snapshot.js";
 import type { AgentConfig, AgentRecord } from "../types.js";
 import type { AgentActivityTracker } from "./agent-activity-tracker.js";
 import { createAgentConfigEditor } from "./agent-config-editor.js";
@@ -16,7 +18,7 @@ export interface AgentMenuManager {
   listAgents: () => AgentRecord[];
   getRecord: (id: string) => AgentRecord | undefined;
   /** Used by generate wizard to spawn an agent that writes the .md file. */
-  spawnAndWait: (ctx: ExtensionContext, type: string, prompt: string, opts: Omit<AgentSpawnConfig, "isBackground">) => Promise<AgentRecord>;
+  spawnAndWait: (parentSnapshot: ParentSnapshot, type: string, prompt: string, opts: { description: string; maxTurns: number }) => Promise<AgentRecord>;
 }
 
 /** Narrow settings interface required by the agent menu. */
@@ -131,7 +133,7 @@ export function createAgentsMenuHandler(deps: AgentMenuDeps) {
       await showAllAgentsList(ctx);
       await showAgentsMenu(ctx);
     } else if (choice === "Create new agent") {
-      await wizard.showCreateWizard(ctx);
+      await wizard.showCreateWizard(ctx.ui, buildParentSnapshot(ctx));
     } else if (choice === "Settings") {
       await showSettings(ctx);
       await showAgentsMenu(ctx);
