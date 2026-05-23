@@ -134,3 +134,101 @@ describe("createReindexer — runNow() error handling", () => {
     expect(console.error).toHaveBeenCalled();
   });
 });
+
+// ---- Cycle 3: debounced scheduling ----
+
+describe("createReindexer — schedule()", () => {
+  let exec: Mock<Exec>;
+  let onStatus: Mock<(status: string | undefined) => void>;
+
+  beforeEach(() => {
+    exec = makeExec();
+    onStatus = makeOnStatus();
+    exec.mockResolvedValue({ stdout: "", stderr: "", code: 0 });
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("does not run exec immediately after schedule()", () => {
+    const reindexer = createReindexer({
+      exec,
+      cwd: "/project",
+      onStatus,
+      debounceMs: 100,
+    });
+    reindexer.schedule();
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("runs exec once after the debounce period elapses", async () => {
+    const reindexer = createReindexer({
+      exec,
+      cwd: "/project",
+      onStatus,
+      debounceMs: 100,
+    });
+    reindexer.schedule();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(exec).toHaveBeenCalledWith("colgrep", ["init", "-y", "."], {
+      cwd: "/project",
+      timeout: 300_000,
+    });
+  });
+
+  it("resets the timer when schedule() is called again before debounce fires", async () => {
+    const reindexer = createReindexer({
+      exec,
+      cwd: "/project",
+      onStatus,
+      debounceMs: 100,
+    });
+    reindexer.schedule();
+    await vi.advanceTimersByTimeAsync(80);
+    reindexer.schedule(); // reset
+    await vi.advanceTimersByTimeAsync(80);
+    // still within second debounce window
+    expect(exec).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs exec only once for rapid repeated schedule() calls", async () => {
+    const reindexer = createReindexer({
+      exec,
+      cwd: "/project",
+      onStatus,
+      debounceMs: 100,
+    });
+    reindexer.schedule();
+    reindexer.schedule();
+    reindexer.schedule();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onStatus with indexing text when scheduled reindex fires", async () => {
+    const reindexer = createReindexer({
+      exec,
+      cwd: "/project",
+      onStatus,
+      debounceMs: 100,
+    });
+    reindexer.schedule();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(onStatus).toHaveBeenCalledWith("colgrep: indexing\u2026");
+    expect(onStatus).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it("uses the default 4 000 ms debounce when debounceMs is not specified", async () => {
+    const reindexer = createReindexer({ exec, cwd: "/project", onStatus });
+    reindexer.schedule();
+    await vi.advanceTimersByTimeAsync(3_999);
+    expect(exec).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
+});

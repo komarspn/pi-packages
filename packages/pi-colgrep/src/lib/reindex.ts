@@ -29,6 +29,9 @@ const INDEXING_FAILED_STATUS = "colgrep: indexing failed";
 export function createReindexer(deps: ReindexerDeps): Reindexer {
   const { exec, cwd, onStatus } = deps;
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const debounceMs = deps.debounceMs ?? DEFAULT_DEBOUNCE_MS;
+
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   async function runReindex(): Promise<void> {
     onStatus(INDEXING_STATUS);
@@ -60,7 +63,13 @@ export function createReindexer(deps: ReindexerDeps): Reindexer {
       await runReindex();
     },
     schedule(): void {
-      // Implemented in Cycle 3
+      if (debounceTimer !== undefined) {
+        clearTimeout(debounceTimer);
+      }
+      debounceTimer = setTimeout(() => {
+        debounceTimer = undefined;
+        void runReindex();
+      }, debounceMs);
     },
     async shutdown(): Promise<void> {
       // Implemented in Cycle 5
