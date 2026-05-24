@@ -1,15 +1,20 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return -- Pi SDK types are not fully exported; see upstream Pi SDK for type improvements */
 /**
  * context.ts — Extract parent conversation context for subagent inheritance.
  */
 
+import type { TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+
+/** Type predicate: narrow an unknown content block to TextContent. */
+function isTextContent(c: unknown): c is TextContent {
+  return typeof c === "object" && c !== null && (c as { type: string }).type === "text";
+}
 
 /** Extract text from a message content block array. */
 export function extractText(content: unknown[]): string {
   return content
-    .filter((c: any) => c.type === "text")
-    .map((c: any) => c.text ?? "")
+    .filter(isTextContent)
+    .map((c) => c.text)
     .join("\n");
 }
 
