@@ -314,16 +314,16 @@ The widget reads agent state by polling a shared `Map<string, AgentActivityTrack
 
 ```mermaid
 flowchart TD
-    subgraph core["@gotgenes/pi-subagents (this package)"]
+    subgraph core["@gotgenes/pi-subagents"]
         direction TB
-        exports["SubagentsService interface\npublish / getSubagentsService()\nSubagentRecord, SubagentStatus, LifetimeUsage\nSUBAGENT_EVENTS constants"]
-        engine["Agent + get_subagent_result + steer_subagent tools\nAgentManager, agent-runner, agent-types\npublishSubagentsService() called at init"]
-        ui_int["Internal UI: widget, viewer, /agents menu\n(candidate for extraction to pi-subagents-ui)"]
+        exports["SubagentsService API<br/>publish / getSubagentsService<br/>SubagentRecord, SubagentStatus"]
+        engine["Tools: Agent, get_subagent_result,<br/>steer_subagent<br/>AgentManager, agent-runner"]
+        ui_int["Internal UI: widget, viewer,<br/>/agents menu"]
     end
 
-    core -- "Symbol.for() on globalThis" --> sched["scheduling extension\n(hypothetical)"]
-    core -- "Symbol.for() on globalThis" --> subui["pi-subagents-ui\n(deferred)"]
-    core -- "Symbol.for() on globalThis" --> future["any future extension"]
+    core -- "Symbol.for on globalThis" --> sched["scheduling extension<br/>(hypothetical)"]
+    core -- "Symbol.for on globalThis" --> subui["pi-subagents-ui<br/>(deferred)"]
+    core -- "Symbol.for on globalThis" --> future["any future extension"]
 ```
 
 Consumers call `getSubagentsService()?.spawn(...)` at runtime.
@@ -601,8 +601,10 @@ All existing consumers satisfy both sub-interfaces via structural typing with no
 
 ## Improvement roadmap (Phase 11)
 
-Phase 11 addresses the composition root hotspot and remaining UI complexity.
-The approach is outside-in: start at `index.ts` (the package's #1 churn hotspot, score 100, accelerating) and push wiring into domain modules, then address the remaining fallow refactoring targets.
+Phase 11 converts closure factories to classes, eliminating the adapter closure density in `index.ts` (the package's #1 churn hotspot: 128 commits, accelerating, fan-out 25).
+The approach is layered: each step makes the next step trivial.
+
+> "Make the change that makes the change easy." —Kent Beck
 
 ### Findings
 
@@ -613,126 +615,169 @@ The approach is outside-in: start at `index.ts` (the package's #1 churn hotspot,
 | Dead exports              | 1 (`getToolCallName` re-export)         |
 | Production duplication    | 0                                       |
 | Test duplication          | 1,396 lines (69 clone groups, 22 files) |
-| Refactoring targets       | 3 (all in `ui/`)                        |
 | `as any` casts in index   | 5                                       |
 | Adapter closures in index | 44                                      |
 | Index fan-out             | 25 imports                              |
 
-### Step 1: Define `ParentSessionContext` narrow interface
+### Root cause
 
-The 4 `as any` casts at lines 218–223 of `index.ts` all access the same shape: `{ model, modelRegistry, sessionManager }` from the Pi SDK context.
-Define a narrow `ParentSessionContext` interface in `types.ts`, cast once at the boundary (`tool_execution_start` handler), and pass the typed value into tool deps.
+The 44 adapter closures in `index.ts` exist because the tool factories accept narrow interfaces that don't structurally match the real objects.
+The real objects can't satisfy the interfaces because:
 
-- Target: `src/types.ts`, `src/handlers/tool-start.ts`, `src/index.ts`
-- Smell: Category C (coupling — platform type threading)
-- Outcome: 4 `as any` casts → 0 in index.ts; 1 cast at the handler boundary
+1. `SubagentRuntime.currentCtx` is typed `{ pi: unknown; ctx: unknown }` — so every consumer must `as any` cast to read fields.
+2. Context queries (`buildSnapshot`, `getModelInfo`, `getSessionInfo`) live as closures in index.ts instead of methods on the state holder.
+3. `AgentToolManager` mixes fields from `AgentManager` and `SettingsManager` (source mismatch).
+4. `AgentToolWidget` uses different method names than `SubagentRuntime` (name mismatch).
 
-### Step 2: Extract observer wiring into `observation/agent-observer.ts`
+Fix these structural misalignments and the class conversions become mechanical.
 
-The inline `observer: AgentManagerObserver` object (lines 86–136 of `index.ts`, ~50 lines) performs event emission, entry persistence, and notification dispatch.
-Extract into a factory `createAgentObserver(pi, notifications)` that returns the wired observer.
+### Layer 0: Define `SessionContext` narrow interface ([#192][192])
 
-- Target: new `src/observation/agent-observer.ts`, `src/index.ts`
-- Smell: Category B (god file — index.ts mixes wiring with domain logic)
-- Outcome: index.ts shrinks by ~50 lines; observer logic is unit-testable
+`SubagentRuntime` currently types its context as `unknown` to avoid SDK coupling.
+But `ExtensionContext` is exported by the SDK — the `unknown` is a historical choice, not a constraint.
+Define a narrow `SessionContext` interface capturing the 5 fields runtime actually needs:
 
-### Step 3: Extract `runnerIO` construction into `lifecycle/runner-io-factory.ts`
+```typescript
+export interface SessionContext {
+  readonly cwd: string;
+  readonly model: unknown;
+  readonly modelRegistry: ModelRegistry | undefined;
+  getSystemPrompt(): string;
+  readonly sessionManager: {
+    getSessionFile(): string | undefined;
+    getSessionId(): string;
+    getBranch(): unknown[];
+  };
+}
+```
 
-The `runnerIO` object (lines 139–150 of `index.ts`) wraps SDK constructors.
-Extract into `createRunnerIO(pi)` factory.
+- Target: `src/types.ts`
+- Smell: Category C (platform type threading)
+- Outcome: typed foundation for Layers 1–4; no `as any` needed by consumers of `SubagentRuntime`
 
-- Target: new `src/lifecycle/runner-io-factory.ts`, `src/index.ts`
-- Smell: Category B (god file) + Category C (SDK coupling)
-- Outcome: index.ts shrinks by ~12 lines; SDK constructor wrapping is co-located with other lifecycle concerns
+### Layer 1: `SubagentRuntime` stores typed context, owns its queries ([#193][193])
 
-### Step 4: Consolidate tool registration wiring
+Change `currentCtx` from `{ pi: unknown; ctx: unknown }` to `SessionContext | undefined`.
+The single `as SessionContext` cast moves into `handleSessionStart` — the boundary where the SDK hands us the value.
+Add typed methods: `buildSnapshot(inheritContext)`, `getModelInfo()`, `getSessionInfo()`.
 
-The three tool registrations (Agent, get_subagent_result, steer_subagent) at lines 194–245 use repeated patterns: narrow interface objects built from the same underlying `manager`, `runtime`, `notifications`.
-Extract a `createToolWiring(manager, runtime, notifications, registry, settings)` factory in `tools/tool-wiring.ts` that produces all three tool definitions.
+- Target: `src/runtime.ts`, `src/handlers/lifecycle.ts`
+- Smell: Category C (closure queries on mutable field → methods on state owner)
+- Outcome: 3 closure queries in index.ts → 0; `SubagentRuntime` is self-sufficient for tool deps
+- Enables: Layer 3 (tools accept `SubagentRuntime` directly)
 
-- Target: new `src/tools/tool-wiring.ts`, `src/index.ts`
-- Smell: Category B (god file) + Category C (adapter closure density: 16+ thin closures)
-- Outcome: index.ts shrinks by ~80 lines; tool registration is 3 lines (`registerTools(pi, createToolWiring(...))`)
+### Layer 2: Align interfaces so real objects satisfy tool deps structurally ([#194][194])
 
-### Step 5: Remove dead `getToolCallName` re-export
+Three alignment changes:
 
-Fallow reports `getToolCallName` in `ui/message-formatters.ts:24` as an unused re-export.
-Remove the re-export (the canonical export in `session/content-items.ts` remains).
+1. **Move `getMaxConcurrent` off `AgentToolManager`** — it reads from `SettingsManager`, not `AgentManager`.
+   The tool already receives `settings`; read it from there.
+2. **Rename widget methods** — align `SubagentRuntime` method names with `AgentToolWidget` (either rename `updateWidget()` → `update()` on runtime, or rename the interface to match).
+3. **Remove dead re-export** — `getToolCallName` in `ui/message-formatters.ts` (fallow finding).
 
-- Target: `src/ui/message-formatters.ts`
-- Smell: Category A (dead code)
-- Outcome: 0 dead exports
+After this step, `AgentManager` structurally satisfies `AgentToolManager` and `SubagentRuntime` structurally satisfies `AgentToolWidget`.
 
-### Step 6: Decompose `renderWidgetLines` (cognitive 44)
+- Target: `src/tools/agent-tool.ts` (interface), `src/runtime.ts` (method names), `src/ui/message-formatters.ts`
+- Smell: Category C (source mismatch, name mismatch) + Category A (dead export)
+- Outcome: structural typing connects real objects to tool interfaces without adapters
+- Enables: Layer 3 (class constructors accept real objects directly)
 
-Fallow's #3 refactoring target.
-`renderWidgetLines` in `ui/widget-renderer.ts` handles agent-status formatting, tree connectors, overflow, and empty states in a single function.
-Extract per-status renderers (`renderQueuedAgent`, `renderRunningAgent`, `renderCompletedAgent`) and a tree-connector utility.
+### Layer 3: Convert closure factories to classes ([#195][195], [#196][196])
 
-- Target: `src/ui/widget-renderer.ts`
-- Smell: Category B (god function)
-- Outcome: `renderWidgetLines` reduced to dispatch loop; cognitive complexity < 10
+With Layers 0–2 complete, each factory is a mechanical conversion:
 
-### Step 7: Decompose `showAgentDetail` (cognitive 33)
+| Factory                          | Class                          | Constructor params                                  |
+| -------------------------------- | ------------------------------ | --------------------------------------------------- |
+| `createAgentTool({...})`         | `AgentTool`                    | `manager`, `runtime`, `settings`, `registry`        |
+| `createGetResultTool(...)`       | `GetResultTool`                | `manager`, `notifications`, `registry`              |
+| `createSteerTool(...)`           | `SteerTool`                    | `manager`, `events`                                 |
+| `createAgentRunner(runnerIO)`    | `AgentRunner` (concrete class) | `io: RunnerIO`                                      |
+| `createAgentsMenuHandler({...})` | `AgentsMenuHandler`            | `manager`, `registry`, `settings`, `fileOps`, paths |
 
-Fallow's #2 refactoring target.
-`showAgentDetail` in `ui/agent-config-editor.ts` handles display, edit, eject, and delete flows in one function.
-Extract `renderAgentDetail`, `handleAgentEdit`, `handleAgentEject` sub-functions.
+Each class satisfies the existing interface via structural typing.
+The `defineTool()` wrapper moves into a `toToolDefinition()` method on each tool class.
 
-- Target: `src/ui/agent-config-editor.ts`
-- Smell: Category B (god function)
-- Outcome: `showAgentDetail` reduced to menu dispatch; cognitive complexity < 10
+- Target: `src/tools/*.ts`, `src/lifecycle/agent-runner.ts`, `src/ui/agent-menu.ts`
+- Smell: Category C (closure factories masquerading as classes)
+- Outcome: deps are constructor params (inspectable, testable); no captured closures
+- Enables: Layer 4 (index.ts simplification)
 
-### Step 8: Decompose `update` in `agent-widget.ts` (cognitive 31)
+### Layer 4: Simplify index.ts (included in [#196][196])
 
-Fallow's #1 refactoring target.
-`update` mixes timer lifecycle, agent list assembly, render delegation, and visibility state.
-Extract `assembleWidgetState` (pure) and `manageWidgetTimer` (lifecycle).
+With real objects satisfying tool interfaces and queries living on `SubagentRuntime`, the composition root becomes pure construction:
 
-- Target: `src/ui/agent-widget.ts`
-- Smell: Category B (god function)
-- Outcome: `update` reduced to 3-step orchestration; cognitive complexity < 10
+```typescript
+const runtime = new SubagentRuntime();
+const settings = new SettingsManager(...);
+const manager = new AgentManager(...);
+const agentTool = new AgentTool(manager, runtime, settings, registry);
+pi.registerTool(agentTool.toToolDefinition());
+```
 
-### Step 9: Extract shared test fixtures for largest clone families
+No adapter closures.
+No `as any`.
+Fan-out drops from 25 to ~15 (internal factories eliminated).
 
-The test duplication analysis shows 3 heavy clone families:
-
-- `agent-runner.test.ts` + `agent-runner-extension-tools.test.ts` (60-line shared setup)
-- `agent-menu.test.ts` + `agent-creation-wizard.test.ts` + `agent-config-editor.test.ts` (54+51+24 lines shared)
-- `agent-manager.test.ts` (18 internal clone groups, 210 duplicated lines)
-
-Extract shared factories into `test/fixtures/` modules.
-
-- Target: new `test/fixtures/runner-setup.ts`, `test/fixtures/menu-setup.ts`, `test/fixtures/manager-setup.ts`
-- Smell: Category D (test duplication)
-- Outcome: test duplication reduced by ~400 lines; shared setup has single source of truth
+- Target: `src/index.ts`
+- Smell: Category B (god file) + Category C (adapter closure density)
+- Outcome: index.ts shrinks from 280 to ~150 lines; churn hotspot stabilizes
 
 ### Step dependencies
 
 ```mermaid
 flowchart LR
-    subgraph index["Index.ts hotspot reduction"]
-        S1["1: ParentSessionContext type"]
-        S2["2: Extract observer wiring"]
-        S3["3: Extract runnerIO factory"]
-        S4["4: Consolidate tool registration"]
-    end
-    subgraph cleanup["Dead code"]
-        S5["5: Remove dead re-export"]
-    end
-    subgraph complexity["UI complexity reduction"]
-        S6["6: renderWidgetLines"]
-        S7["7: showAgentDetail"]
-        S8["8: agent-widget update"]
-    end
-    subgraph tests["Test quality"]
-        S9["9: Shared test fixtures"]
-    end
-    S1 --> S4
+    L0["Layer 0: SessionContext interface"] --> L1["Layer 1: Runtime owns queries"]
+    L1 --> L3["Layer 3: Classes replace factories"]
+    L2["Layer 2: Align interfaces"] --> L3
+    L3 --> L4["Layer 4: Simplify index.ts"]
 ```
 
-Step 1 enables Step 4 (tool wiring uses the narrow context type instead of `as any` casts).
-All other steps are independent — the four tracks can proceed in parallel.
+Layers 0 and 2 are independent of each other.
+Layer 1 depends on Layer 0.
+Layer 3 depends on both Layer 1 and Layer 2.
+Layer 4 depends on Layer 3.
+
+## Improvement roadmap (Phase 12)
+
+Phase 12 addresses the remaining fallow refactoring targets and test duplication.
+These are independent of Phase 11 and can proceed in parallel if desired.
+
+### Step 1: Decompose `renderWidgetLines` (cognitive 44)
+
+`renderWidgetLines` in `ui/widget-renderer.ts` handles agent-status formatting, tree connectors, overflow, and empty states.
+Extract per-status renderers and a tree-connector utility.
+
+- Target: `src/ui/widget-renderer.ts`
+- Outcome: cognitive complexity < 10
+
+### Step 2: Decompose `showAgentDetail` (cognitive 33)
+
+`showAgentDetail` in `ui/agent-config-editor.ts` handles display, edit, eject, and delete flows.
+Extract sub-functions per menu action.
+
+- Target: `src/ui/agent-config-editor.ts`
+- Outcome: cognitive complexity < 10
+
+### Step 3: Decompose `update` in `agent-widget.ts` (cognitive 31)
+
+`update` mixes timer lifecycle, agent list assembly, render delegation, and visibility state.
+Extract `assembleWidgetState` (pure) and timer management.
+
+- Target: `src/ui/agent-widget.ts`
+- Outcome: cognitive complexity < 10
+
+### Step 4: Extract shared test fixtures
+
+The 3 heaviest clone families:
+
+- `agent-runner.test.ts` + `agent-runner-extension-tools.test.ts` (60-line shared setup)
+- `agent-menu.test.ts` + `agent-creation-wizard.test.ts` + `agent-config-editor.test.ts` (54+51+24 lines)
+- `agent-manager.test.ts` (18 internal clone groups, 210 duplicated lines)
+
+Extract shared factories into `test/fixtures/` modules.
+
+- Target: new `test/fixtures/` modules
+- Outcome: test duplication reduced by ~400 lines
 
 ## Refactoring history
 
@@ -794,3 +839,8 @@ The upstream test suite is run periodically as a regression canary for the agent
 [170]: https://github.com/gotgenes/pi-packages/issues/170
 [171]: https://github.com/gotgenes/pi-packages/issues/171
 [172]: https://github.com/gotgenes/pi-packages/issues/172
+[192]: https://github.com/gotgenes/pi-packages/issues/192
+[193]: https://github.com/gotgenes/pi-packages/issues/193
+[194]: https://github.com/gotgenes/pi-packages/issues/194
+[195]: https://github.com/gotgenes/pi-packages/issues/195
+[196]: https://github.com/gotgenes/pi-packages/issues/196
