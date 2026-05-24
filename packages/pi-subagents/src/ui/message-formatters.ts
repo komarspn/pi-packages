@@ -6,6 +6,7 @@
  */
 
 import { truncateToWidth } from "@earendil-works/pi-tui";
+import { extractAssistantContent, getToolCallName } from "#src/session/content-items";
 import { extractText } from "#src/session/context";
 import type { Theme } from "#src/ui/display";
 import { describeActivity } from "#src/ui/display";
@@ -20,6 +21,8 @@ export interface FormatterContext {
 
 // ── File-local types and guards ─────────────────────────────────────────────
 
+export { getToolCallName } from "#src/session/content-items";
+
 /** Bash execution message — 'bashExecution' role is not in the SDK's AgentSession message role union. */
 export interface BashExecutionMessage {
   role: "bashExecution";
@@ -30,20 +33,6 @@ export interface BashExecutionMessage {
 /** Type guard for bash execution messages. */
 export function isBashExecution(msg: { role: string }): msg is BashExecutionMessage {
   return msg.role === "bashExecution";
-}
-
-/** Tool-call content item — SDK exposes this variant at runtime but doesn't export the narrow type. */
-interface ToolCallContent {
-  type: "toolCall";
-  name?: string;
-  toolName?: string;
-}
-
-/** Extracts the tool name from a toolCall content item, falling back to 'unknown'. */
-export function getToolCallName(c: { type: string }): string {
-  if (c.type !== "toolCall") return "unknown";
-  const tc = c as ToolCallContent;
-  return tc.name ?? tc.toolName ?? "unknown";
 }
 
 // ── formatUserMessage ─────────────────────────────────────────────────────────
@@ -141,17 +130,12 @@ export function formatAssistantMessage(
   ctx: FormatterContext,
 ): string[] {
   const { theme, wrapText } = ctx;
-  const textParts: string[] = [];
-  const toolCalls: string[] = [];
-  for (const c of content) {
-    if (c.type === "text" && c.text) textParts.push(c.text as string);
-    else if (c.type === "toolCall") toolCalls.push(getToolCallName(c));
-  }
+  const { textParts, toolNames } = extractAssistantContent(content);
   const lines: string[] = [theme.bold("[Assistant]")];
   if (textParts.length > 0) {
     lines.push(...wrapText(textParts.join("\n").trim(), width));
   }
-  for (const name of toolCalls) {
+  for (const name of toolNames) {
     lines.push(truncateToWidth(theme.fg("muted", `  [Tool: ${name}]`), width));
   }
   return lines;
