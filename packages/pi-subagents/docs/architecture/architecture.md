@@ -599,121 +599,173 @@ export type RunnerIO = EnvironmentIO & SessionFactoryIO;
 `RunnerIO` is kept as a type alias for the intersection.
 All existing consumers satisfy both sub-interfaces via structural typing with no call-site changes.
 
-## Improvement roadmap (Phase 10)
+## Improvement roadmap (Phase 11)
 
-Phase 10 addresses the structural gaps identified in this analysis: flat code organization, oversized dependency bags, and complexity hotspots.
+Phase 11 addresses the composition root hotspot and remaining UI complexity.
+The approach is outside-in: start at `index.ts` (the package's #1 churn hotspot, score 100, accelerating) and push wiring into domain modules, then address the remaining fallow refactoring targets.
 
-### Step 1: Reorganize source into domain directories ([#164][164]) ✓ Done
+### Findings
 
-Moved files into `config/`, `session/`, `lifecycle/`, `observation/`, and `service/` subdirectories.
-All `src/` internal imports now use `#src/` path aliases (same style as `test/` files), eliminating relative depth arithmetic for future moves.
+| Metric                    | Value                                   |
+| ------------------------- | --------------------------------------- |
+| Health score              | 75/100 (B)                              |
+| #1 hotspot                | `index.ts` (128 commits, accelerating)  |
+| Dead exports              | 1 (`getToolCallName` re-export)         |
+| Production duplication    | 0                                       |
+| Test duplication          | 1,396 lines (69 clone groups, 22 files) |
+| Refactoring targets       | 3 (all in `ui/`)                        |
+| `as any` casts in index   | 5                                       |
+| Adapter closures in index | 44                                      |
+| Index fan-out             | 25 imports                              |
 
-- Domain model is now visible in the filesystem.
-- Root reduced to 5 files + 8 directories (was 31 files + 3 directories).
-- All subsequent steps can move or extract files without `../` import churn.
+### Step 1: Define `ParentSessionContext` narrow interface
 
-### Step 2: Decompose ResolvedSpawnConfig ([#165][165])
+The 4 `as any` casts at lines 218–223 of `index.ts` all access the same shape: `{ model, modelRegistry, sessionManager }` from the Pi SDK context.
+Define a narrow `ParentSessionContext` interface in `types.ts`, cast once at the boundary (`tool_execution_start` handler), and pass the typed value into tool deps.
 
-Split the 15-field bag into `SpawnIdentity`, `SpawnExecution`, and `SpawnPresentation`.
-Each consumer declares its real dependencies.
-Enables Step 3 (narrowing AgentSpawnConfig, [#166][166]).
+- Target: `src/types.ts`, `src/handlers/tool-start.ts`, `src/index.ts`
+- Smell: Category C (coupling — platform type threading)
+- Outcome: 4 `as any` casts → 0 in index.ts; 1 cast at the handler boundary
 
-### Step 3: Extract ParentSessionInfo from AgentSpawnConfig ([#166][166]) — Complete
+### Step 2: Extract observer wiring into `observation/agent-observer.ts`
 
-Extracted `parentSessionFile`, `parentSessionId`, `toolCallId` into `ParentSessionInfo`.
-`AgentSpawnConfig`, `BackgroundParams`, `ForegroundParams`, and `RunOptions` all carry the nested group.
+The inline `observer: AgentManagerObserver` object (lines 86–136 of `index.ts`, ~50 lines) performs event emission, entry persistence, and notification dispatch.
+Extract into a factory `createAgentObserver(pi, notifications)` that returns the wired observer.
 
-### Step 4: Narrow RunnerIO ([#167][167]) ✓ Done
+- Target: new `src/observation/agent-observer.ts`, `src/index.ts`
+- Smell: Category B (god file — index.ts mixes wiring with domain logic)
+- Outcome: index.ts shrinks by ~50 lines; observer logic is unit-testable
 
-`RunnerIO` split into `EnvironmentIO` (3 methods: environment discovery) and `SessionFactoryIO` (5 methods + `assemblerIO`: SDK object creation).
-`RunnerIO` kept as a backward-compatible type alias for the intersection.
-All existing consumers satisfy both sub-interfaces via structural typing with no call-site changes.
+### Step 3: Extract `runnerIO` construction into `lifecycle/runner-io-factory.ts`
 
-### Step 5: Extract ToolFilterConfig from SessionConfig ([#168][168]) ✓ Done
+The `runnerIO` object (lines 139–150 of `index.ts`) wraps SDK constructors.
+Extract into `createRunnerIO(pi)` factory.
 
-`ToolFilterConfig` extracted from `SessionConfig`, grouping `toolNames`, `disallowedSet`, and `extensions`.
-`filterActiveTools` now accepts a single `ToolFilterConfig` argument.
-`SessionConfig` reduced from 10 to 8 top-level fields.
+- Target: new `src/lifecycle/runner-io-factory.ts`, `src/index.ts`
+- Smell: Category B (god file) + Category C (SDK coupling)
+- Outcome: index.ts shrinks by ~12 lines; SDK constructor wrapping is co-located with other lifecycle concerns
 
-### Step 6: Extract RunContext from RunOptions ([#169][169]) ✓ Done
+### Step 4: Consolidate tool registration wiring
 
-Extracted `exec`, `registry`, `cwd`, and `parentSession` into `RunContext`, nested as `RunOptions.context`.
-`RunOptions` reduced from 12 to 9 fields (1 nested `context` + 8 flat execution fields).
+The three tool registrations (Agent, get_subagent_result, steer_subagent) at lines 194–245 use repeated patterns: narrow interface objects built from the same underlying `manager`, `runtime`, `notifications`.
+Extract a `createToolWiring(manager, runtime, notifications, registry, settings)` factory in `tools/tool-wiring.ts` that produces all three tool definitions.
 
-### Step 7: Reduce buildContentLines complexity ([#170][170]) ✓ Done
+- Target: new `src/tools/tool-wiring.ts`, `src/index.ts`
+- Smell: Category B (god file) + Category C (adapter closure density: 16+ thin closures)
+- Outcome: index.ts shrinks by ~80 lines; tool registration is 3 lines (`registerTools(pi, createToolWiring(...))`)
 
-Extracted formatting sub-functions for each content type (user, assistant, tool result, bash execution, streaming indicator) into `ui/message-formatters.ts`.
-`buildContentLines` in `conversation-viewer.ts` is now a ~30-line dispatch loop delegating to `formatMessage` and `formatStreamingIndicator`.
+### Step 5: Remove dead `getToolCallName` re-export
 
-### Step 8: Reduce renderResult complexity ([#171][171]) ✓ Done
+Fallow reports `getToolCallName` in `ui/message-formatters.ts:24` as an unused re-export.
+Remove the re-export (the canonical export in `session/content-items.ts` remains).
 
-Extracted per-status result formatting from `renderResult` in `agent-tool.ts` into `tools/result-renderer.ts`.
-`renderResult` reduced from ~80 lines (cognitive complexity 43) to a 10-line guard + `renderAgentResult` dispatcher.
-The inline `stats()` closure became the exported `renderStats` helper, shared by all status renderers.
+- Target: `src/ui/message-formatters.ts`
+- Smell: Category A (dead code)
+- Outcome: 0 dead exports
 
-### Step 9: Extract shared turn-formatting logic ([#172][172]) ✓ Done
+### Step 6: Decompose `renderWidgetLines` (cognitive 44)
 
-Extracted `ToolCallContent`, `getToolCallName`, and `extractAssistantContent` into `session/content-items.ts`.
-Both `lifecycle/agent-runner.ts` (`getAgentConversation`) and `ui/message-formatters.ts` (`formatAssistantMessage`) now import from the shared module.
-Eliminates the 18-line production-duplication finding.
+Fallow's #3 refactoring target.
+`renderWidgetLines` in `ui/widget-renderer.ts` handles agent-status formatting, tree connectors, overflow, and empty states in a single function.
+Extract per-status renderers (`renderQueuedAgent`, `renderRunningAgent`, `renderCompletedAgent`) and a tree-connector utility.
+
+- Target: `src/ui/widget-renderer.ts`
+- Smell: Category B (god function)
+- Outcome: `renderWidgetLines` reduced to dispatch loop; cognitive complexity < 10
+
+### Step 7: Decompose `showAgentDetail` (cognitive 33)
+
+Fallow's #2 refactoring target.
+`showAgentDetail` in `ui/agent-config-editor.ts` handles display, edit, eject, and delete flows in one function.
+Extract `renderAgentDetail`, `handleAgentEdit`, `handleAgentEject` sub-functions.
+
+- Target: `src/ui/agent-config-editor.ts`
+- Smell: Category B (god function)
+- Outcome: `showAgentDetail` reduced to menu dispatch; cognitive complexity < 10
+
+### Step 8: Decompose `update` in `agent-widget.ts` (cognitive 31)
+
+Fallow's #1 refactoring target.
+`update` mixes timer lifecycle, agent list assembly, render delegation, and visibility state.
+Extract `assembleWidgetState` (pure) and `manageWidgetTimer` (lifecycle).
+
+- Target: `src/ui/agent-widget.ts`
+- Smell: Category B (god function)
+- Outcome: `update` reduced to 3-step orchestration; cognitive complexity < 10
+
+### Step 9: Extract shared test fixtures for largest clone families
+
+The test duplication analysis shows 3 heavy clone families:
+
+- `agent-runner.test.ts` + `agent-runner-extension-tools.test.ts` (60-line shared setup)
+- `agent-menu.test.ts` + `agent-creation-wizard.test.ts` + `agent-config-editor.test.ts` (54+51+24 lines shared)
+- `agent-manager.test.ts` (18 internal clone groups, 210 duplicated lines)
+
+Extract shared factories into `test/fixtures/` modules.
+
+- Target: new `test/fixtures/runner-setup.ts`, `test/fixtures/menu-setup.ts`, `test/fixtures/manager-setup.ts`
+- Smell: Category D (test duplication)
+- Outcome: test duplication reduced by ~400 lines; shared setup has single source of truth
 
 ### Step dependencies
 
 ```mermaid
 flowchart LR
-    subgraph organization["Code organization"]
-        S1["#164: Domain directories"]
+    subgraph index["Index.ts hotspot reduction"]
+        S1["1: ParentSessionContext type"]
+        S2["2: Extract observer wiring"]
+        S3["3: Extract runnerIO factory"]
+        S4["4: Consolidate tool registration"]
     end
-    subgraph bags["Dependency bags"]
-        S2["#165: ResolvedSpawnConfig"] --> S3["#166: AgentSpawnConfig"]
-        S4["#167: RunnerIO"]
-        S5["#168: SessionConfig"]
-        S6["#169: RunOptions"]
+    subgraph cleanup["Dead code"]
+        S5["5: Remove dead re-export"]
     end
-    subgraph complexity["Complexity reduction"]
-        S7["#170: buildContentLines"]
-        S8["#171: renderResult"]
-        S9["#172: Shared turn-formatting"]
+    subgraph complexity["UI complexity reduction"]
+        S6["6: renderWidgetLines"]
+        S7["7: showAgentDetail"]
+        S8["8: agent-widget update"]
     end
-    S1 --> S2 & S4 & S5 & S6
-    S1 --> S7 & S8 & S9
+    subgraph tests["Test quality"]
+        S9["9: Shared test fixtures"]
+    end
+    S1 --> S4
 ```
 
-Step 1 ([#164][164], directory restructuring) unblocks all other steps by co-locating related files.
-Steps 2–6 (bag decomposition) and Steps 7–9 (complexity reduction) are independent tracks that can proceed in parallel.
-Within the bag track, Step 2 ([#165][165], ResolvedSpawnConfig) enables Step 3 ([#166][166], AgentSpawnConfig).
+Step 1 enables Step 4 (tool wiring uses the narrow context type instead of `as any` casts).
+All other steps are independent — the four tracks can proceed in parallel.
 
 ## Refactoring history
 
-Phases 1–5 and 7–9 are complete.
+Phases 1–5 and 7–10 are complete.
 Phase 6 (UI extraction to a separate package) is deferred.
 Detailed records are preserved in per-phase history files:
 
-| Phase | Title                                               | Status   | History                                                                    |
-| ----- | --------------------------------------------------- | -------- | -------------------------------------------------------------------------- |
-| 1     | Export SubagentsService API boundary                | Complete | [phase-1-api-boundary.md](history/phase-1-api-boundary.md)                 |
-| 2     | Remove scheduling subsystem                         | Complete | [phase-2-remove-scheduling.md](history/phase-2-remove-scheduling.md)       |
-| 3     | Remove group-join, RPC; replace output-file         | Complete | [phase-3-remove-rpc-groupjoin.md](history/phase-3-remove-rpc-groupjoin.md) |
-| 4     | Implement and publish SubagentsService              | Complete | [phase-4-implement-service.md](history/phase-4-implement-service.md)       |
-| 5     | Decompose index.ts                                  | Complete | [phase-5-decompose-index.md](history/phase-5-decompose-index.md)           |
-| 6     | Extract UI to separate package                      | Deferred | —                                                                          |
-| 7     | Encapsulation and dependency narrowing              | Complete | [phase-7-encapsulation.md](history/phase-7-encapsulation.md)               |
-| 8     | Testability, display extraction, menu decomposition | Complete | [phase-8-testability.md](history/phase-8-testability.md)                   |
-| 9     | Observation consolidation, ctx elimination          | Complete | [phase-9-observation-ctx.md](history/phase-9-observation-ctx.md)           |
+| Phase | Title                                               | Status   | History                                                                              |
+| ----- | --------------------------------------------------- | -------- | ------------------------------------------------------------------------------------ |
+| 1     | Export SubagentsService API boundary                | Complete | [phase-1-api-boundary.md](history/phase-1-api-boundary.md)                           |
+| 2     | Remove scheduling subsystem                         | Complete | [phase-2-remove-scheduling.md](history/phase-2-remove-scheduling.md)                 |
+| 3     | Remove group-join, RPC; replace output-file         | Complete | [phase-3-remove-rpc-groupjoin.md](history/phase-3-remove-rpc-groupjoin.md)           |
+| 4     | Implement and publish SubagentsService              | Complete | [phase-4-implement-service.md](history/phase-4-implement-service.md)                 |
+| 5     | Decompose index.ts                                  | Complete | [phase-5-decompose-index.md](history/phase-5-decompose-index.md)                     |
+| 6     | Extract UI to separate package                      | Deferred | —                                                                                    |
+| 7     | Encapsulation and dependency narrowing              | Complete | [phase-7-encapsulation.md](history/phase-7-encapsulation.md)                         |
+| 8     | Testability, display extraction, menu decomposition | Complete | [phase-8-testability.md](history/phase-8-testability.md)                             |
+| 9     | Observation consolidation, ctx elimination          | Complete | [phase-9-observation-ctx.md](history/phase-9-observation-ctx.md)                     |
+| 10    | Domain organization, bag decomposition, complexity  | Complete | [phase-10-structural-decomposition.md](history/phase-10-structural-decomposition.md) |
 
 ### Structural refactoring issues
 
-| Phase              | Issue                                                      | Summary                                                                                                                        |
-| ------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Foundation         | #69, #71, #76, #80                                         | SubagentRuntime, pure assembler, cwd injection, config consolidation                                                           |
-| Core decomposition | #84, #72, #87, #70                                         | WorktreeManager, AgentManager DI, runtime methods, handler extraction                                                          |
-| Interface polish   | #66, #77                                                   | SDK types, projectAgentsDir                                                                                                    |
-| Features           | #61                                                        | JSONL session transcripts                                                                                                      |
-| AgentManager       | #98, #99, #100, #102                                       | Record state machine, ParentSnapshot, session-event observation, test factory                                                  |
-| Encapsulation      | #108, #109, #110, #111, #112, #113, #114, #115, #116, #118 | Registry, settings, activity tracker, record lifecycle, observer, spawn options, deps narrowing, tool split, type housekeeping |
-| Testability        | #131, #132, #133, #134, #135, #136                         | Shared fixtures, session-config IO, runner SDK boundary, as-any reduction, display extraction, menu decomposition              |
-| Observation/ctx    | #144, #145, #146, #147, #148                               | Observation consolidation, execute decomposition, UI context, text wrapping injection, widget rendering split                  |
-| Phase 10           | #164, #166, #167, #168, #169, #170, #171                   | Domain directories, ParentSessionInfo, RunnerIO split, ToolFilterConfig, RunContext, buildContentLines, renderResult           |
+| Phase              | Issue                                                      | Summary                                                                                                                                                  |
+| ------------------ | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Foundation         | #69, #71, #76, #80                                         | SubagentRuntime, pure assembler, cwd injection, config consolidation                                                                                     |
+| Core decomposition | #84, #72, #87, #70                                         | WorktreeManager, AgentManager DI, runtime methods, handler extraction                                                                                    |
+| Interface polish   | #66, #77                                                   | SDK types, projectAgentsDir                                                                                                                              |
+| Features           | #61                                                        | JSONL session transcripts                                                                                                                                |
+| AgentManager       | #98, #99, #100, #102                                       | Record state machine, ParentSnapshot, session-event observation, test factory                                                                            |
+| Encapsulation      | #108, #109, #110, #111, #112, #113, #114, #115, #116, #118 | Registry, settings, activity tracker, record lifecycle, observer, spawn options, deps narrowing, tool split, type housekeeping                           |
+| Testability        | #131, #132, #133, #134, #135, #136                         | Shared fixtures, session-config IO, runner SDK boundary, as-any reduction, display extraction, menu decomposition                                        |
+| Observation/ctx    | #144, #145, #146, #147, #148                               | Observation consolidation, execute decomposition, UI context, text wrapping injection, widget rendering split                                            |
+| Phase 10           | #164, #165, #166, #167, #168, #169, #170, #171, #172       | Domain directories, ResolvedSpawnConfig, ParentSessionInfo, RunnerIO split, ToolFilterConfig, RunContext, buildContentLines, renderResult, content-items |
 
 The remaining open issue is #22 (parent-session resolution), a cross-extension track that does not gate the structural work.
 

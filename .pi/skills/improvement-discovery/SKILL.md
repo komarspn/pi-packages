@@ -1,0 +1,160 @@
+---
+name: improvement-discovery
+description: |
+  Heuristics and process for discovering structural improvements in a package.
+  Load when planning a new improvement round — contains the smell taxonomy,
+  analysis workflow, and prioritization framework distilled from 10 phases of
+  pi-subagents refactoring.
+---
+
+# Improvement Discovery
+
+Use this skill when planning the next round of structural improvements for a package.
+It codifies the patterns, smell categories, and analysis workflow that have proven effective across 10 phases of refactoring.
+
+## Analysis workflow
+
+Follow this order — each step builds context for the next.
+
+### 1. Run fallow
+
+```bash
+cd packages/<PKG>
+pnpm fallow:health 2>&1 || true
+pnpm fallow:dead-code 2>&1 || true
+pnpm fallow:dupes 2>&1 || true
+pnpm fallow health --hotspots --targets --score 2>&1 || true
+```
+
+Capture: health score, dead exports, duplication (production vs. test), hotspots, refactoring targets.
+
+### 2. Read the architecture document
+
+Load `docs/architecture/architecture.md` for the current domain model, health metrics table, and dependency bag inventory.
+Check which bags/hotspots have already been addressed vs. remain open.
+
+### 3. Start from the entry point and work inward
+
+Begin at `src/index.ts` (or the package's composition root) and trace the dependency graph outward.
+This "outside-in" traversal reveals:
+
+- **Wiring overhead** — how much boilerplate sits between the extension API and domain logic
+- **Coupling at the boundary** — what domain objects does the entry point directly touch
+- **Forward references / initialization ordering** — fragile temporal coupling
+- **Adapter closure density** — narrow interfaces are good, but 40+ adapter closures signal over-abstraction or missing intermediate objects
+
+For each imported module, note:
+
+- Size (lines)
+- Number and width of exports
+- How deep it goes (fan-out)
+- Whether it's a pure function, stateful class, or adapter
+
+### 4. Identify smells using the taxonomy below
+
+### 5. Prioritize using the severity framework
+
+### 6. Group into issue-sized steps with a dependency graph
+
+## Smell taxonomy
+
+These are the recurring patterns that have driven 10 phases of improvements.
+They are ordered from most impactful (structural) to least (cosmetic).
+
+### Category A: Dead or redundant code
+
+| Signal                 | Evidence                                 | Typical fix                       |
+| ---------------------- | ---------------------------------------- | --------------------------------- |
+| Unused exports         | fallow dead-code reports                 | Remove or suppress with `@public` |
+| Unused files           | No import chain reaches them             | Delete                            |
+| Dead subsystems        | Feature with zero runtime consumers      | Remove entirely (Phase 2, 3)      |
+| Dual counting          | Same metric tracked in two places        | Single source of truth (Phase 9)  |
+| Production duplication | Shared logic copy-pasted between modules | Extract shared module (Phase 10)  |
+
+### Category B: Oversized structures
+
+| Signal                         | Evidence                           | Typical fix                                            |
+| ------------------------------ | ---------------------------------- | ------------------------------------------------------ |
+| God file (300+ lines)          | wc -l + mixed responsibilities     | Extract domains into focused modules                   |
+| God function (cyclomatic ≥ 15) | fallow targets                     | Extract sub-functions per branch                       |
+| God interface (10+ fields)     | Dependency bag mixing concerns     | Split by cohesion; nest related groups                 |
+| Churn hotspot                  | High commit frequency × complexity | Refactor the file structure to reduce change frequency |
+
+### Category C: Coupling and boundaries
+
+| Signal                        | Evidence                                              | Typical fix                                            |
+| ----------------------------- | ----------------------------------------------------- | ------------------------------------------------------ |
+| Platform type threading       | `ExtensionContext` or SDK types deep in domain        | Push to boundary, capture snapshot/value object        |
+| Wide parameter lists          | Functions with 5+ params, some always travel together | Group into value objects or extract into class         |
+| Forward references            | Closure captures a variable before it's assigned      | Reorder initialization or use post-construction wiring |
+| Adapter closure density (40+) | Entry point full of `(x) => obj.method(x)`            | Create intermediate factory objects or use `.bind()`   |
+| Cross-layer imports           | UI importing from lifecycle internals                 | Add a public interface layer                           |
+
+### Category D: Testability
+
+| Signal                      | Evidence                                 | Typical fix                               |
+| --------------------------- | ---------------------------------------- | ----------------------------------------- |
+| `vi.mock()` at module level | Module-level mocking in test files       | Inject dependency via IO interface        |
+| `as any` casts in tests     | Constructing wide mocks for narrow usage | Narrow the interface the code depends on  |
+| Test duplication (high)     | fallow dupes in test/                    | Extract shared fixtures or test factories |
+| Untestable pure logic       | Logic embedded in stateful class         | Extract as pure function                  |
+
+### Category E: Naming and organization
+
+| Signal                     | Evidence                                    | Typical fix                                                 |
+| -------------------------- | ------------------------------------------- | ----------------------------------------------------------- |
+| Flat directory (20+ files) | `ls src/` shows undifferentiated list       | Group into domain subdirectories                            |
+| `deps.` prefix noise       | Every access in function body is `deps.foo` | Destructure in signature or dissolve small bags (≤4 fields) |
+| Barrel re-export sprawl    | `index.ts` re-exports everything            | Remove barrel; use direct imports                           |
+| Unclear module boundaries  | Same concept lives in 3 files               | Co-locate; single responsibility                            |
+
+## Prioritization framework
+
+Score each finding on two axes:
+
+1. **Impact** (1–5): How much does fixing this reduce coupling, improve testability, or reduce future churn?
+2. **Risk** (1–5): How likely is the fix to introduce regressions?
+   (Higher = riskier)
+
+Priority = Impact × (6 − Risk)
+
+| Priority | Action                     |
+| -------- | -------------------------- |
+| ≥ 20     | Must-fix this phase        |
+| 12–19    | Should-fix this phase      |
+| 6–11     | Nice-to-have or next phase |
+| ≤ 5      | Defer indefinitely         |
+
+## Grouping heuristics
+
+- **One issue per extraction** — each "extract X from Y" is a single issue.
+- **Dependency order** — if Step B depends on Step A's output, order them.
+- **Independent tracks** — identify parallel tracks (e.g., "bag decomposition" vs. "complexity reduction") that can proceed without blocking each other.
+- **Max 9 steps per phase** — beyond 9, split into two phases.
+- **Test duplication gets its own step** — shared fixture extraction is a distinct concern from production code refactoring.
+
+## Output format
+
+The plan should produce:
+
+1. **Updated health metrics** — table comparing before/after for the phase.
+2. **Step list** — numbered steps, each with:
+   - Title and issue reference
+   - What smell it addresses
+   - Specific files/functions targeted
+   - Expected measurable outcome (LOC reduction, complexity drop, bag field reduction)
+3. **Step dependency diagram** — Mermaid flowchart showing which steps unblock others.
+4. **Tracks** — group steps into named parallel tracks.
+
+## Lessons from prior phases
+
+These are failure modes and corrections discovered empirically:
+
+- **Don't plan a single step that rewrites an entire large test file** — use lift-and-shift (introduce new alongside old, migrate incrementally, remove old last).
+- **Dissolve bags ≤ 4 fields into plain parameters** — the interface adds ceremony without clarity at that size.
+- **Keep bags ≥ 5 fields but destructure in the signature** — eliminates `deps.` noise while keeping the grouped contract.
+- **Push platform types (ExtensionContext, SDK types) to boundaries** — domain code should depend on domain interfaces, not SDK imports.
+- **Observer > callback threading** — when 3+ layers pass callbacks, replace with subscribe-at-the-boundary.
+- **Snapshot > live reference** — when mutable parent state is read at spawn time and never updated, freeze it into a data object.
+- **Pure function > method on wide class** — if the logic doesn't need instance state, extract it.
+- **Start from index.ts outward** — the composition root reveals wiring overhead, coupling, and initialization hazards that file-by-file analysis misses.
