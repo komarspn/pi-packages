@@ -53,6 +53,12 @@ Run `pnpm run check` (`tsc --noEmit`) for type-only changes.
 - Run the full suite: `pnpm vitest run`
 - When a fix changes shared helper functions, run the full suite before committing — not just the directly affected test file.
 
+## Operator semantics
+
+- When `prefer-nullish-coalescing` flags `||`, check whether the left side could be a falsy non-null value (`""`, `0`, `false`) that the code intentionally converts to the fallback.
+  If so, keep `||` and add `// eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- || intentional: converts falsy values to fallback`.
+  Do not mechanically replace `||` with `??` without verifying test expectations.
+
 ## TDD planning rules
 
 - When a TDD step changes behavior, account for existing tests that will break.

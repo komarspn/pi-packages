@@ -27,6 +27,14 @@ The standard flow is:
 Each prompt template writes a stage entry to `docs/retro/NNNN-<slug>.md` (or `packages/<PKG>/docs/retro/`) before finishing.
 These entries accumulate across sessions and serve as the cross-session context bridge — when a later stage starts, it reads the retro file to pick up decisions, observations, and warnings from prior sessions.
 
+### Background agent guardrails
+
+When delegating lint-fix or refactoring work to a background agent:
+
+- Do not change function semantics (removing comparisons, altering control flow, removing defensive checks).
+- Only add `eslint-disable` comments or make type-safe transformations (removing unused imports, adding type annotations).
+- Include `pnpm -r run test` as a verification step before reporting completion.
+
 ### Session naming convention
 
 Each prompt template calls `set_session_name` (from `pi-session-tools`) to label the session automatically:
