@@ -19,6 +19,18 @@ export interface FormatterContext {
 
 // ── File-local types and guards ─────────────────────────────────────────────
 
+/** Bash execution message — 'bashExecution' role is not in the SDK's AgentSession message role union. */
+export interface BashExecutionMessage {
+  role: "bashExecution";
+  command: string;
+  output?: string;
+}
+
+/** Type guard for bash execution messages. */
+export function isBashExecution(msg: { role: string }): msg is BashExecutionMessage {
+  return msg.role === "bashExecution";
+}
+
 /** Tool-call content item — SDK exposes this variant at runtime but doesn't export the narrow type. */
 interface ToolCallContent {
   type: "toolCall";
@@ -51,6 +63,29 @@ export function formatUserMessage(
     theme.fg("accent", "[User]"),
     ...wrapText(text.trim(), width),
   ];
+}
+
+// ── formatBashExecution ───────────────────────────────────────────────────────
+
+/**
+ * Format a bash execution message into display lines.
+ * Always returns at least the command line.
+ */
+export function formatBashExecution(
+  msg: BashExecutionMessage,
+  width: number,
+  ctx: FormatterContext,
+): string[] {
+  const { theme, wrapText } = ctx;
+  const lines: string[] = [
+    truncateToWidth(theme.fg("muted", `  $ ${msg.command}`), width),
+  ];
+  const output = msg.output ?? "";
+  if (output.trim()) {
+    const out = output.length > 500 ? output.slice(0, 500) + "... (truncated)" : output;
+    lines.push(...wrapText(out.trim(), width).map(l => theme.fg("dim", l)));
+  }
+  return lines;
 }
 
 // ── formatToolResult ────────────────────────────────────────────────────────────

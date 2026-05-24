@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Theme } from "#src/ui/display";
-import type { FormatterContext } from "#src/ui/message-formatters";
-import { formatAssistantMessage, formatToolResult, formatUserMessage } from "#src/ui/message-formatters";
+import type { BashExecutionMessage, FormatterContext } from "#src/ui/message-formatters";
+import { formatAssistantMessage, formatBashExecution, formatToolResult, formatUserMessage } from "#src/ui/message-formatters";
 
 // ── Theme helpers ────────────────────────────────────────────────────────────
 
@@ -201,6 +201,76 @@ describe("message-formatters", () => {
       const content = [{ type: "text", text: "  trimmed  " }];
       formatToolResult(content, 80, { theme: plainTheme, wrapText: capturingWrap });
       expect(capturedTexts).toEqual(["trimmed"]);
+    });
+  });
+
+  describe("formatBashExecution", () => {
+    const ctx: FormatterContext = { theme: labelTheme, wrapText: noWrap };
+
+    function makeMsg(overrides: Partial<BashExecutionMessage> = {}): BashExecutionMessage {
+      return { role: "bashExecution", command: "ls", output: "", ...overrides };
+    }
+
+    it("renders command as first line with $ prefix", () => {
+      const result = formatBashExecution(makeMsg({ command: "echo hi" }), 80, ctx);
+      expect(result[0]).toBe("[muted:  $ echo hi]");
+    });
+
+    it("returns only the command line for empty output", () => {
+      const result = formatBashExecution(makeMsg({ output: "" }), 80, ctx);
+      expect(result).toHaveLength(1);
+    });
+
+    it("returns only the command line for whitespace-only output", () => {
+      const result = formatBashExecution(makeMsg({ output: "   " }), 80, ctx);
+      expect(result).toHaveLength(1);
+    });
+
+    it("wraps non-empty output in dim styling", () => {
+      const result = formatBashExecution(makeMsg({ output: "hello" }), 80, ctx);
+      expect(result).toHaveLength(2);
+      expect(result[1]).toBe("[dim:hello]");
+    });
+
+    it("handles missing output field (undefined)", () => {
+      const msg = { role: "bashExecution" as const, command: "ls" };
+      const result = formatBashExecution(msg, 80, ctx);
+      expect(result).toHaveLength(1);
+    });
+
+    it("truncates output exceeding 500 chars", () => {
+      const longOutput = "X".repeat(600);
+      const result = formatBashExecution(makeMsg({ output: longOutput }), 80, ctx);
+      expect(result).toHaveLength(2);
+      expect(result[1]).toContain("X".repeat(500));
+      expect(result[1]).toContain("... (truncated)");
+    });
+
+    it("does not truncate output at exactly 500 chars", () => {
+      const exactOutput = "Y".repeat(500);
+      const result = formatBashExecution(makeMsg({ output: exactOutput }), 80, ctx);
+      expect(result).toHaveLength(2);
+      expect(result[1]).toBe(`[dim:${exactOutput}]`);
+    });
+
+    it("trims output before passing to wrapText", () => {
+      const capturedTexts: string[] = [];
+      const capturingWrap = (text: string, _width: number): string[] => {
+        capturedTexts.push(text);
+        return [text];
+      };
+      formatBashExecution(makeMsg({ output: "  trimmed  " }), 80, { theme: plainTheme, wrapText: capturingWrap });
+      expect(capturedTexts).toEqual(["trimmed"]);
+    });
+
+    it("applies dim styling to each output line", () => {
+      const splitWrap = (text: string, _width: number): string[] => text.split("\n");
+      const result = formatBashExecution(
+        makeMsg({ output: "line1\nline2" }),
+        80,
+        { theme: labelTheme, wrapText: splitWrap },
+      );
+      expect(result).toEqual(["[muted:  $ ls]", "[dim:line1]", "[dim:line2]"]);
     });
   });
 });
