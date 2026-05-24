@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Theme } from "#src/ui/display";
 import type { BashExecutionMessage, FormatterContext } from "#src/ui/message-formatters";
-import { formatAssistantMessage, formatBashExecution, formatToolResult, formatUserMessage } from "#src/ui/message-formatters";
+import {
+  formatAssistantMessage,
+  formatBashExecution,
+  formatStreamingIndicator,
+  formatToolResult,
+  formatUserMessage,
+} from "#src/ui/message-formatters";
 
 // ── Theme helpers ────────────────────────────────────────────────────────────
 
@@ -271,6 +277,39 @@ describe("message-formatters", () => {
         { theme: labelTheme, wrapText: splitWrap },
       );
       expect(result).toEqual(["[muted:  $ ls]", "[dim:line1]", "[dim:line2]"]);
+    });
+  });
+
+  describe("formatStreamingIndicator", () => {
+    it("returns exactly two lines", () => {
+      const result = formatStreamingIndicator(new Map(), undefined, 80, plainTheme);
+      expect(result).toHaveLength(2);
+    });
+
+    it("first line is an empty string", () => {
+      const result = formatStreamingIndicator(new Map(), undefined, 80, plainTheme);
+      expect(result[0]).toBe("");
+    });
+
+    it("falls back to 'thinking\u2026' when no tools active and no response text", () => {
+      const result = formatStreamingIndicator(new Map(), undefined, 80, plainTheme);
+      expect(result[1]).toContain("thinking\u2026");
+    });
+
+    it("shows response text when no tools are active", () => {
+      const result = formatStreamingIndicator(new Map(), "Working on it", 80, plainTheme);
+      expect(result[1]).toContain("Working on it");
+    });
+
+    it("shows tool activity description when tools are active", () => {
+      const activeTools = new Map([["t1", "read"]]);
+      const result = formatStreamingIndicator(activeTools, undefined, 80, plainTheme);
+      expect(result[1]).toContain("reading");
+    });
+
+    it("includes accent-colored cursor marker", () => {
+      const result = formatStreamingIndicator(new Map(), undefined, 80, labelTheme);
+      expect(result[1]).toContain("[accent:\u25cd ");
     });
   });
 });

@@ -8,6 +8,7 @@
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { extractText } from "#src/session/context";
 import type { Theme } from "#src/ui/display";
+import { describeActivity } from "#src/ui/display";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -86,6 +87,25 @@ export function formatBashExecution(
     lines.push(...wrapText(out.trim(), width).map(l => theme.fg("dim", l)));
   }
   return lines;
+}
+
+// ── formatStreamingIndicator ──────────────────────────────────────────────
+
+/**
+ * Format the streaming activity indicator for a running agent.
+ * Returns exactly two lines: an empty spacer and the indicator line.
+ */
+export function formatStreamingIndicator(
+  activeTools: ReadonlyMap<string, string>,
+  responseText: string | undefined,
+  width: number,
+  theme: Theme,
+): string[] {
+  const act = describeActivity(activeTools, responseText);
+  return [
+    "",
+    truncateToWidth(theme.fg("accent", "\u25cd ") + theme.fg("dim", act), width),
+  ];
 }
 
 // ── formatToolResult ────────────────────────────────────────────────────────────
