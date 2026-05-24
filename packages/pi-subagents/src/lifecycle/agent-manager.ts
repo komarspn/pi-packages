@@ -53,6 +53,15 @@ interface SpawnArgs {
   options: AgentSpawnConfig;
 }
 
+export interface ParentSessionInfo {
+  /** Path to the parent session's JSONL file (for deriving the subagent session directory). */
+  parentSessionFile?: string;
+  /** Session ID of the parent agent (stored in the child session's parentSession header). */
+  parentSessionId?: string;
+  /** Tool call ID for background notification wiring. When set, spawn attaches NotificationState. */
+  toolCallId?: string;
+}
+
 export interface AgentSpawnConfig {
   description: string;
   model?: Model<any>;
@@ -75,12 +84,8 @@ export interface AgentSpawnConfig {
   signal?: AbortSignal;
   /** Called when the agent session is created — receives the session and the agent's record. */
   onSessionCreated?: (session: AgentSession, record: AgentRecord) => void;
-  /** Path to the parent session's JSONL file (for deriving the subagent session directory). */
-  parentSessionFile?: string;
-  /** Session ID of the parent agent (stored in the child session's parentSession header). */
-  parentSessionId?: string;
-  /** Tool call ID for background notification wiring. When set, spawn attaches NotificationState. */
-  toolCallId?: string;
+  /** Parent session identity — grouped fields that travel together from the tool boundary. */
+  parentSession?: ParentSessionInfo;
 }
 
 export class AgentManager {
@@ -158,8 +163,8 @@ export class AgentManager {
     });
     this.agents.set(id, record);
 
-    if (options.toolCallId) {
-      record.notification = new NotificationState(options.toolCallId);
+    if (options.parentSession?.toolCallId) {
+      record.notification = new NotificationState(options.parentSession.toolCallId);
     }
 
     if (options.isBackground) {
@@ -228,8 +233,7 @@ export class AgentManager {
       isolated: options.isolated,
       thinkingLevel: options.thinkingLevel,
       cwd: worktreeCwd,
-      parentSessionFile: options.parentSessionFile,
-      parentSessionId: options.parentSessionId,
+      parentSession: options.parentSession,
       signal: record.abortController!.signal,
       registry: this.registry,
       onSessionCreated: (session) => {

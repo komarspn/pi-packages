@@ -448,22 +448,21 @@ describe("AgentManager — parent session threading", () => {
     manager.dispose();
   });
 
-  it("threads parentSessionFile and parentSessionId from AgentSpawnConfig to RunOptions", async () => {
+  it("threads parentSession from AgentSpawnConfig to RunOptions", async () => {
     let runner: AgentRunner;
     ({ manager, runner } = createManager());
 
     manager.spawn(mockSnapshot, "general-purpose", "test", {
       description: "test",
       isBackground: true,
-      parentSessionFile: "/sessions/parent.jsonl",
-      parentSessionId: "parent-session-123",
+      parentSession: { parentSessionFile: "/sessions/parent.jsonl", parentSessionId: "parent-session-123" },
     });
 
     await vi.waitFor(() => expect(runner.run).toHaveBeenCalled());
 
     const runOpts = vi.mocked(runner.run).mock.calls[0][3];
-    expect(runOpts.parentSessionFile).toBe("/sessions/parent.jsonl");
-    expect(runOpts.parentSessionId).toBe("parent-session-123");
+    expect(runOpts.parentSession?.parentSessionFile).toBe("/sessions/parent.jsonl");
+    expect(runOpts.parentSession?.parentSessionId).toBe("parent-session-123");
   });
 });
 
@@ -967,7 +966,7 @@ describe("AgentManager — toolCallId notification wiring", () => {
     const id = manager.spawn(mockSnapshot, "general-purpose", "test", {
       description: "bg",
       isBackground: true,
-      toolCallId: "tc-42",
+      parentSession: { toolCallId: "tc-42" },
     });
     const record = manager.getRecord(id)!;
 
