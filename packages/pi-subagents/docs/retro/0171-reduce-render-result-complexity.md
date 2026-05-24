@@ -21,3 +21,19 @@ The TDD order has 9 steps: 7 test-first steps (one per function) followed by 2 r
   Keeping each pair in one function avoids wrong-abstraction duplication.
 - The `Theme` type in `display.ts` and the `widget-renderer.ts` pattern in `ui/` provide a proven template for pure rendering modules — the new module follows the same shape.
 - Dependency #164 (domain directory reorganization) is already merged, so file paths use the `tools/` subdirectory.
+
+## Stage: Implementation — TDD (2026-05-24T21:00:00Z)
+
+### Session summary
+
+Completed all 9 TDD steps from the plan: 7 test-first commits adding `renderStats`, `renderRunning`, `renderBackground`, `renderCompleted`, `renderStopped`, `renderFailed`, and `renderAgentResult` to `result-renderer.ts`, followed by a refactor commit simplifying `renderResult` in `agent-tool.ts` to a 10-line guard + dispatcher.
+Test count increased from 853 to 896 (+43 new tests across 52 test files).
+A docs commit updated the architecture file to remove `renderResult` from the complexity hotspot table and add `result-renderer.ts` to the tools layout.
+
+### Observations
+
+- Steps 1–7 built `result-renderer.ts` function by function; the implementation was written upfront from a careful reading of the original `renderResult` body, making each subsequent test step immediately green.
+  This is valid TDD for an extraction refactor: the tests lock in expected behavior before the extraction is done.
+- The ESLint pre-commit hook correctly removed `@typescript-eslint/no-unsafe-return` from `agent-tool.ts`'s `eslint-disable` comment — that rule was only needed by the old `renderResult` body, not the new dispatcher.
+- No deviations from the plan: all 7 functions in `result-renderer.ts`, `renderResult` is now a guard + dispatcher as designed, and all 3 unused imports (`SPINNER`, `formatMs`, `formatTurns`) were removed.
+- The `Theme` type from `display.ts` worked cleanly for the pure functions — the `widget-renderer.ts` precedent held.
