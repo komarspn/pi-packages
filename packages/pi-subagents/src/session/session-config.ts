@@ -28,6 +28,21 @@ import type {
 // ── Public interfaces ────────────────────────────────────────────────────────
 
 /**
+ * Tool filtering configuration — consumed by `filterActiveTools` in `agent-runner.ts`.
+ *
+ * Groups the three fields that travel together through the assembly→runner boundary:
+ * the built-in tool allowlist, the optional denylist, and the extensions setting.
+ */
+export interface ToolFilterConfig {
+  /** Built-in tool name allowlist for this agent type. */
+  toolNames: string[];
+  /** Disallowed tool set from agentConfig. undefined when empty. */
+  disallowedSet: Set<string> | undefined;
+  /** Resolved extensions setting: false | true | string[] allowlist. */
+  extensions: boolean | string[];
+}
+
+/**
  * IO collaborators injected into `assembleSessionConfig`.
  *
  * Bundling the four IO-touching (or promptly testable) functions into a single
@@ -100,12 +115,8 @@ export interface SessionConfig {
   effectiveCwd: string;
   /** Fully-assembled system prompt string (ready for `systemPromptOverride`). */
   systemPrompt: string;
-  /** Built-in tool names for session creation, filtering, and memory augmentation. */
-  toolNames: string[];
-  /** Disallowed tool set from agentConfig (for `filterActiveTools`). undefined when empty. */
-  disallowedSet: Set<string> | undefined;
-  /** Resolved extensions setting for resource loader and tool filtering. */
-  extensions: boolean | string[];
+  /** Tool filtering cluster — tool allowlist, denylist, and extensions setting. */
+  toolFilter: ToolFilterConfig;
   /**
    * Resolved model instance (undefined → use parent model as passed to SDK).
    * Opaque handle — the assembler passes it through without inspection.
@@ -264,9 +275,7 @@ export function assembleSessionConfig(
   return {
     effectiveCwd,
     systemPrompt,
-    toolNames,
-    disallowedSet,
-    extensions,
+    toolFilter: { toolNames, disallowedSet, extensions },
     model,
     thinkingLevel,
     noSkills,

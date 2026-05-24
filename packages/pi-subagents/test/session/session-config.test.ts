@@ -67,10 +67,10 @@ describe("assembleSessionConfig — default agent shape", () => {
 
     expect(result.effectiveCwd).toBe("/tmp");
     expect(result.systemPrompt).toBe("assembled system prompt");
-    expect(result.toolNames).toEqual(["read"]);
-    expect(result.extensions).toBe(false);
+    expect(result.toolFilter.toolNames).toEqual(["read"]);
+    expect(result.toolFilter.extensions).toBe(false);
     expect(result.noSkills).toBe(true);
-    expect(result.disallowedSet).toBeUndefined();
+    expect(result.toolFilter.disallowedSet).toBeUndefined();
     expect(result.model).toBeUndefined();
     expect(result.thinkingLevel).toBeUndefined();
     expect(result.extras).toEqual({});
@@ -102,7 +102,7 @@ describe("assembleSessionConfig — default agent shape", () => {
 
     const result = assembleSessionConfig("Explore", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
-    expect(result.disallowedSet).toEqual(new Set(["write", "bash"]));
+    expect(result.toolFilter.disallowedSet).toEqual(new Set(["write", "bash"]));
   });
 
   it("systemPrompt reflects the parentSystemPrompt passed to buildAgentPrompt", () => {
@@ -431,7 +431,7 @@ describe("assembleSessionConfig — memory block selection", () => {
     const result = assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
     // Real getMemoryToolNames(["read","write"]) returns ["edit"] — missing from the set.
-    expect(result.toolNames).toContain("edit");
+    expect(result.toolFilter.toolNames).toContain("edit");
   });
 
   it("adds read tool name from getReadOnlyMemoryToolNames when not already present", () => {
@@ -440,7 +440,7 @@ describe("assembleSessionConfig — memory block selection", () => {
 
     const result = assembleSessionConfig("Writer", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
-    expect(result.toolNames).toContain("read");
+    expect(result.toolFilter.toolNames).toContain("read");
   });
 });
 
@@ -457,7 +457,7 @@ describe("assembleSessionConfig — isolated mode", () => {
 
     const result = assembleSessionConfig("general-purpose", ctx, { isolated: true }, mockEnv, mockAgentLookup, mockIO);
 
-    expect(result.extensions).toBe(false);
+    expect(result.toolFilter.extensions).toBe(false);
     expect(result.noSkills).toBe(true);
   });
 
@@ -473,7 +473,7 @@ describe("assembleSessionConfig — isolated mode", () => {
 
     const result = assembleSessionConfig("general-purpose", ctx, {}, mockEnv, mockAgentLookup, mockIO);
 
-    expect(result.extensions).toBe(true);
+    expect(result.toolFilter.extensions).toBe(true);
   });
 
   it("isolated:true forces extensions to false even for string[] extension list", () => {
@@ -489,7 +489,7 @@ describe("assembleSessionConfig — isolated mode", () => {
 
     const result = assembleSessionConfig("Explore", ctx, { isolated: true }, mockEnv, mockAgentLookup, mockIO);
 
-    expect(result.extensions).toBe(false);
+    expect(result.toolFilter.extensions).toBe(false);
   });
 });
 
