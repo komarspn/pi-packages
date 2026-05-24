@@ -42,7 +42,7 @@ flowchart TB
         SessionConfig["assembleSessionConfig\n(pure assembler)"]
         Prompts["prompts\n(system prompt)"]
         Context["context\n(parent history)"]
-        Memory["memory\n(MEMORY.md)"]
+        SafeFs["safe-fs\n(symlink/name guards)"]
         SkillLoader["skill-loader\n(preload skills)"]
         Env["env\n(git/platform)"]
         ModelResolver["model-resolver\n(fuzzy match)"]
@@ -86,7 +86,8 @@ flowchart TB
     AgentManager --> AgentRunner
     AgentRunner --> SessionConfig
     SessionConfig --> AgentTypeRegistry
-    SessionConfig --> Prompts & Memory & SkillLoader & Env
+    SessionConfig --> Prompts & SkillLoader & Env
+    SkillLoader --> SafeFs
     AgentTypeRegistry --> DefaultAgents & CustomAgents
     RecordObserver -.->|subscribes| AgentRunner
     UIObserver -.->|subscribes| AgentRunner
@@ -246,7 +247,7 @@ src/
 │   ├── prompts.ts                  system prompt building
 │   ├── content-items.ts            shared message content parsing (tool-call names, assistant content)
 │   ├── context.ts                  parent conversation extraction
-│   ├── memory.ts                   persistent MEMORY.md per agent
+│   ├── safe-fs.ts                  symlink rejection and safe file reads
 │   ├── skill-loader.ts             skill preloading
 │   ├── env.ts                      git/platform detection
 │   ├── model-resolver.ts           fuzzy model name resolution
@@ -338,7 +339,7 @@ They declare this package as an optional peer dependency and use dynamic import 
 - `ParentSnapshot` — immutable snapshot of parent session state, captured once at spawn time.
 - `record-observer` — session-event observer that updates record statistics without callback threading.
 - Agent type registry — default agents, custom `.md` file loading.
-- Prompt assembly, context extraction, memory, skills, environment.
+- Prompt assembly, context extraction, skills, environment.
 - Worktree isolation.
 - Token usage tracking.
 - Session directory derivation and persisted `SessionManager` for subagent transcripts.
