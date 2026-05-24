@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderBackground, renderRunning, renderStats } from "#src/tools/result-renderer";
+import { renderBackground, renderCompleted, renderRunning, renderStats } from "#src/tools/result-renderer";
 import type { AgentDetails, Theme } from "#src/ui/display";
 
 function makeTheme(): Theme {
@@ -136,5 +136,60 @@ describe("renderBackground", () => {
 		expect(renderBackground(details, theme)).toBe(
 			"[dim:  \u23BF  Running in background (ID: agent-42)]",
 		);
+	});
+});
+
+describe("renderCompleted", () => {
+	const theme = makeTheme();
+
+	it("uses success icon for completed status", () => {
+		const details = makeDetails({ status: "completed", durationMs: 2000 });
+		expect(renderCompleted(details, "", false, theme)).toContain("[success:\u2713]");
+	});
+
+	it("uses warning icon for steered status", () => {
+		const details = makeDetails({ status: "steered", durationMs: 2000 });
+		expect(renderCompleted(details, "", false, theme)).toContain("[warning:\u2713]");
+	});
+
+	it("includes formatted duration", () => {
+		const details = makeDetails({ status: "completed", durationMs: 3500 });
+		expect(renderCompleted(details, "", false, theme)).toContain("[dim:3.5s]");
+	});
+
+	it("collapsed view shows 'Done' for completed", () => {
+		const details = makeDetails({ status: "completed", durationMs: 2000 });
+		expect(renderCompleted(details, "", false, theme)).toContain("[dim:  \u23BF  Done]");
+	});
+
+	it("collapsed view shows 'Wrapped up (turn limit)' for steered", () => {
+		const details = makeDetails({ status: "steered", durationMs: 2000 });
+		expect(renderCompleted(details, "", false, theme)).toContain(
+			"[dim:  \u23BF  Wrapped up (turn limit)]",
+		);
+	});
+
+	it("expanded view shows result text lines with dim styling", () => {
+		const details = makeDetails({ status: "completed", durationMs: 2000 });
+		const result = renderCompleted(details, "line one\nline two", true, theme);
+		expect(result).toContain("\n[dim:  line one]");
+		expect(result).toContain("\n[dim:  line two]");
+	});
+
+	it("expanded view truncates to 50 lines and adds overflow message", () => {
+		const details = makeDetails({ status: "completed", durationMs: 2000 });
+		const manyLines = Array.from({ length: 55 }, (_, i) => `line ${i + 1}`).join("\n");
+		const result = renderCompleted(details, manyLines, true, theme);
+		expect(result).toContain("[dim:  line 50]");
+		expect(result).not.toContain("[dim:  line 51]");
+		expect(result).toContain(
+			"[muted:  ... (use get_subagent_result with verbose for full output)]",
+		);
+	});
+
+	it("expanded view with empty result text shows no content lines", () => {
+		const details = makeDetails({ status: "completed", durationMs: 2000 });
+		const result = renderCompleted(details, "", true, theme);
+		expect(result).not.toContain("\u23BF");
 	});
 });
