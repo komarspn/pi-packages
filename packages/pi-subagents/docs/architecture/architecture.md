@@ -686,45 +686,46 @@ After this step, `AgentManager` structurally satisfies `AgentToolManager` and `S
 - Outcome: structural typing connects real objects to tool interfaces without adapters; 0 dead exports (fallow clean)
 - Enables: Layer 3 (class constructors accept real objects directly)
 
-### Layer 3: Convert closure factories to classes ([#195][195], [#196][196])
+### Layer 3: Convert closure factories to classes ([#195][195], [#196][196]) ✓ done
 
-With Layers 0–2 complete, each factory is a mechanical conversion. ✓ Tool factories converted in [#195][195]:
+All closure factories converted to classes. ✓ Tool factories in [#195][195]; runner and menu in [#196][196]:
 
-| Factory                          | Class                          | Constructor params                                  |
-| -------------------------------- | ------------------------------ | --------------------------------------------------- |
-| `createAgentTool({...})`         | `AgentTool` ✓                  | `manager`, `runtime`, `settings`, `registry`        |
-| `createGetResultTool(...)`       | `GetResultTool` ✓              | `manager`, `notifications`, `registry`              |
-| `createSteerTool(...)`           | `SteerTool` ✓                  | `manager`, `events`                                 |
-| `createAgentRunner(runnerIO)`    | `AgentRunner` (concrete class) | `io: RunnerIO`                                      |
-| `createAgentsMenuHandler({...})` | `AgentsMenuHandler`            | `manager`, `registry`, `settings`, `fileOps`, paths |
+| Factory                          | Class                   | Constructor params                                                   |
+| -------------------------------- | ----------------------- | -------------------------------------------------------------------- |
+| `createAgentTool({...})`         | `AgentTool` ✓           | `manager`, `runtime`, `settings`, `registry`                         |
+| `createGetResultTool(...)`       | `GetResultTool` ✓       | `manager`, `notifications`, `registry`                               |
+| `createSteerTool(...)`           | `SteerTool` ✓           | `manager`, `events`                                                  |
+| `createAgentRunner(runnerIO)`    | `ConcreteAgentRunner` ✓ | `io: RunnerIO`                                                       |
+| `createAgentsMenuHandler({...})` | `AgentsMenuHandler` ✓   | `manager`, `registry`, `agentActivity`, `settings`, `fileOps`, paths |
 
 Each class satisfies the existing interface via structural typing.
 The `defineTool()` wrapper moves into a `toToolDefinition()` method on each tool class.
+`getModelLabel` internalized into `AgentsMenuHandler` (was a 7-line closure in `index.ts`).
 
 - Target: `src/tools/*.ts`, `src/lifecycle/agent-runner.ts`, `src/ui/agent-menu.ts`
 - Smell: Category C (closure factories masquerading as classes)
 - Outcome: deps are constructor params (inspectable, testable); no captured closures
 - Enables: Layer 4 (index.ts simplification)
 
-### Layer 4: Simplify index.ts (included in [#196][196])
+### Layer 4: Simplify index.ts (included in [#196][196]) ✓ done
 
-With real objects satisfying tool interfaces and queries living on `SubagentRuntime`, the composition root becomes pure construction:
+With all factories converted to classes and `AgentManager` satisfying `AgentMenuManager` structurally:
 
 ```typescript
-const runtime = new SubagentRuntime();
-const settings = new SettingsManager(...);
-const manager = new AgentManager(...);
-const agentTool = new AgentTool(manager, runtime, settings, registry);
-pi.registerTool(agentTool.toToolDefinition());
+const agentsMenu = new AgentsMenuHandler(
+  manager, registry, runtime.agentActivity,
+  settings, new FsAgentFileOps(),
+  join(getAgentDir(), "agents"),
+  join(process.cwd(), ".pi", "agents"),
+);
 ```
 
-No adapter closures.
-No `as any`.
-Fan-out drops from 25 to ~15 (internal factories eliminated).
+Eliminated: 4 adapter closures (3 manager method adapters + `getModelLabel`), 4 unused imports.
+Remaining ~15 closures are structural (event registrations, SDK factory callbacks).
 
 - Target: `src/index.ts`
 - Smell: Category B (god file) + Category C (adapter closure density)
-- Outcome: index.ts shrinks from 280 to ~150 lines; churn hotspot stabilizes
+- Outcome: adapter closure count reduced; `AgentManager` passed directly without wrappers; churn hotspot stabilized
 
 ### Step dependencies
 
