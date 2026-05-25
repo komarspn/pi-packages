@@ -6,6 +6,9 @@
  * Follows the same pattern as pi-permission-system's ExtensionRuntime.
  */
 
+import { buildParentSnapshot, type ParentSnapshot } from "#src/lifecycle/parent-snapshot";
+import type { ModelInfo } from "#src/tools/spawn-config";
+import type { SessionContext } from "#src/types";
 import type { AgentActivityTracker } from "#src/ui/agent-activity-tracker";
 import type { UICtx } from "#src/ui/agent-widget";
 
@@ -39,7 +42,7 @@ export interface RunConfig {
 export class SubagentRuntime {
   // ── Session state (was closure-scoped in index.ts) ───────────────────────
   /** Active Pi session context — set on session_start, cleared on session_shutdown. */
-  currentCtx: { pi: unknown; ctx: unknown } | undefined = undefined;
+  currentCtx: SessionContext | undefined = undefined;
   /**
    * Per-agent live activity state shared across the notification system,
    * widget, and tool handlers. The Map itself is never replaced.
@@ -54,13 +57,38 @@ export class SubagentRuntime {
   // ── Session-context methods ──────────────────────────────────────────────
 
   /** Store the active Pi session context (called from session_start). */
-  setSessionContext(pi: unknown, ctx: unknown): void {
-    this.currentCtx = { pi, ctx };
+  setSessionContext(ctx: SessionContext): void {
+    this.currentCtx = ctx;
   }
 
   /** Clear the session context (called from session_shutdown). */
   clearSessionContext(): void {
     this.currentCtx = undefined;
+  }
+
+  /**
+   * Build a parent snapshot from the current session context.
+   * Only valid during an active session (currentCtx is defined).
+   */
+  buildSnapshot(inheritContext: boolean): ParentSnapshot {
+
+    return buildParentSnapshot(this.currentCtx!, inheritContext);
+  }
+
+  /** Extract model info from the current session context. */
+  getModelInfo(): ModelInfo {
+    return {
+      parentModel: this.currentCtx?.model as ModelInfo["parentModel"],
+      modelRegistry: this.currentCtx?.modelRegistry,
+    };
+  }
+
+  /** Extract session identity from the current session context. */
+  getSessionInfo(): { parentSessionFile: string; parentSessionId: string } {
+    return {
+      parentSessionFile: this.currentCtx?.sessionManager.getSessionFile() ?? "",
+      parentSessionId: this.currentCtx?.sessionManager.getSessionId() ?? "",
+    };
   }
 
   // ── Widget delegation methods ─────────────────────────────────────────────
