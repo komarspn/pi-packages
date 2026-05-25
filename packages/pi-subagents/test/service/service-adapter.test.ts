@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
+import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import { WorktreeState } from "#src/lifecycle/worktree-state";
 import { NotificationState } from "#src/observation/notification-state";
 import type { SubagentsService } from "#src/service/service";
-import type { AgentManagerLike } from "#src/service/service-adapter";
+import type { AgentManagerLike, ServiceRuntimeLike } from "#src/service/service-adapter";
 import { createSubagentsService, toSubagentRecord } from "#src/service/service-adapter";
-import type { AgentRecord } from "#src/types";
+import type { AgentRecord, SessionContext } from "#src/types";
 import { createTestRecord } from "#test/helpers/make-record";
 import { createMockSession, toAgentSession } from "#test/helpers/mock-session";
+import { STUB_SNAPSHOT } from "#test/helpers/stub-ctx";
 
 describe("toSubagentRecord", () => {
   const baseRecord = (() => {
@@ -109,13 +111,30 @@ describe("toSubagentRecord", () => {
   });
 });
 
-/** Minimal ctx stub that satisfies buildParentSnapshot. */
-function makeStubCtx() {
+/** Minimal SessionContext stub for service-adapter tests. */
+function makeStubCtx(): SessionContext {
   return {
     cwd: "/tmp",
-    getSystemPrompt: () => "test prompt",
     model: undefined,
-    modelRegistry: { find: () => null },
+    modelRegistry: { find: () => null, getAll: () => [] },
+    getSystemPrompt: () => "test prompt",
+    sessionManager: {
+      getSessionFile: () => undefined,
+      getSessionId: () => "stub-session",
+      getBranch: () => [],
+    },
+  };
+}
+
+/**
+ * Minimal ServiceRuntimeLike stub for tests.
+ * Override `currentCtx` to simulate no active session.
+ */
+function makeRuntimeStub(override: Partial<ServiceRuntimeLike> = {}): ServiceRuntimeLike {
+  return {
+    currentCtx: makeStubCtx(),
+    buildSnapshot: vi.fn((_: boolean): ParentSnapshot => STUB_SNAPSHOT),
+    ...override,
   };
 }
 
@@ -157,8 +176,7 @@ describe("createSubagentsService — getRecord and listAgents", () => {
     return createSubagentsService(
       manager,
       () => ({ id: "test" }),
-      () => ({ pi: {}, ctx: makeStubCtx() }),
-      () => ({ find: () => null, getAll: () => [] }),
+      makeRuntimeStub(),
     );
   }
 
@@ -201,12 +219,11 @@ describe("createSubagentsService — spawn", () => {
     };
   }
 
-  it("throws when getCtx returns undefined (no active session)", () => {
+  it("throws when currentCtx is undefined (no active session)", () => {
     const svc = createSubagentsService(
       defaultManager(),
       vi.fn(),
-      () => undefined,
-      () => ({ find: () => null, getAll: () => [] }),
+      makeRuntimeStub({ currentCtx: undefined }),
     );
     expect(() => svc.spawn("Explore", "do something")).toThrow(
       /no active session/i,
@@ -215,22 +232,21 @@ describe("createSubagentsService — spawn", () => {
 
   it("resolves string model names via resolveModel", () => {
     const resolveModel = vi.fn(() => ({ id: "claude-sonnet", provider: "anthropic" }));
+    const registry = { find: () => null, getAll: () => [] };
     const svc = createSubagentsService(
       defaultManager(),
       resolveModel,
-      () => ({ pi: { fake: true }, ctx: makeStubCtx() }),
-      () => ({ find: () => null, getAll: () => [] }),
+      makeRuntimeStub({ currentCtx: { ...makeStubCtx(), modelRegistry: registry } }),
     );
     svc.spawn("Explore", "check TODOs", { model: "haiku" });
-    expect(resolveModel).toHaveBeenCalledWith("haiku", expect.anything());
+    expect(resolveModel).toHaveBeenCalledWith("haiku", registry);
   });
 
   it("throws on model resolution failure", () => {
     const svc = createSubagentsService(
       defaultManager(),
       () => 'Model not found: "bad-model".\n\nAvailable models:\n  anthropic/claude-sonnet',
-      () => ({ pi: {}, ctx: makeStubCtx() }),
-      () => ({ find: () => null, getAll: () => [] }),
+      makeRuntimeStub(),
     );
     expect(() => svc.spawn("Explore", "task", { model: "bad-model" })).toThrow(
       /Model not found/,
@@ -243,8 +259,7 @@ describe("createSubagentsService — spawn", () => {
     const svc = createSubagentsService(
       mgr,
       () => resolvedModel,
-      () => ({ pi: {}, ctx: makeStubCtx() }),
-      () => ({ find: () => null, getAll: () => [] }),
+      makeRuntimeStub(),
     );
     const id = svc.spawn("Explore", "check TODOs", { model: "sonnet", maxTurns: 5 });
     expect(id).toBe("spawned-id");
@@ -265,8 +280,7 @@ describe("createSubagentsService — spawn", () => {
     const svc = createSubagentsService(
       mgr,
       vi.fn(),
-      () => ({ pi: {}, ctx: makeStubCtx() }),
-      () => ({ find: () => null, getAll: () => [] }),
+      makeRuntimeStub(),
     );
     svc.spawn("Plan", "plan work", { foreground: true });
     expect(mgr.spawn).toHaveBeenCalledWith(
@@ -279,12 +293,7 @@ describe("createSubagentsService — spawn", () => {
 
   it("uses truncated prompt as default description", () => {
     const mgr = defaultManager();
-    const svc = createSubagentsService(
-      mgr,
-      vi.fn(),
-      () => ({ pi: {}, ctx: makeStubCtx() }),
-      () => ({ find: () => null, getAll: () => [] }),
-    );
+    const svc = createSubagentsService(mgr, vi.fn(), makeRuntimeStub());
     const longPrompt = "x".repeat(200);
     svc.spawn("Explore", longPrompt);
     expect(mgr.spawn).toHaveBeenCalledWith(
@@ -297,12 +306,7 @@ describe("createSubagentsService — spawn", () => {
 
   it("uses provided description over default", () => {
     const mgr = defaultManager();
-    const svc = createSubagentsService(
-      mgr,
-      vi.fn(),
-      () => ({ pi: {}, ctx: makeStubCtx() }),
-      () => ({ find: () => null, getAll: () => [] }),
-    );
+    const svc = createSubagentsService(mgr, vi.fn(), makeRuntimeStub());
     svc.spawn("Explore", "long prompt here", { description: "short desc" });
     expect(mgr.spawn).toHaveBeenCalledWith(
       expect.anything(), // snapshot
@@ -314,12 +318,7 @@ describe("createSubagentsService — spawn", () => {
 
   it("does not call resolveModel when no model option is provided", () => {
     const resolveModel = vi.fn();
-    const svc = createSubagentsService(
-      defaultManager(),
-      resolveModel,
-      () => ({ pi: {}, ctx: makeStubCtx() }),
-      () => ({ find: () => null, getAll: () => [] }),
-    );
+    const svc = createSubagentsService(defaultManager(), resolveModel, makeRuntimeStub());
     svc.spawn("Explore", "quick check");
     expect(resolveModel).not.toHaveBeenCalled();
   });
@@ -339,12 +338,7 @@ describe("createSubagentsService — steer, abort, waitForAll, hasRunning", () =
   }
 
   function createSvc(mgr: ReturnType<typeof createTestManager>) {
-    return createSubagentsService(
-      mgr,
-      vi.fn(),
-      () => ({ pi: {}, ctx: makeStubCtx() }),
-      () => ({ find: () => null, getAll: () => [] }),
-    );
+    return createSubagentsService(mgr, vi.fn(), makeRuntimeStub());
   }
 
   describe("abort", () => {

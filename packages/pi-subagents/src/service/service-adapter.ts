@@ -5,12 +5,10 @@
  * (stripping non-serializable fields), and session gating.
  */
 
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
-import { buildParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import type { SubagentRecord, SubagentsService } from "#src/service/service";
 import type { ModelRegistry } from "#src/session/model-resolver";
-import type { AgentRecord } from "#src/types";
+import type { AgentRecord, SessionContext } from "#src/types";
 
 /** Narrow interface for the AgentManager — avoids coupling to the concrete class. */
 export interface AgentManagerLike {
@@ -23,23 +21,30 @@ export interface AgentManagerLike {
   queueSteer(id: string, message: string): boolean;
 }
 
+/**
+ * Narrow runtime interface consumed by the service adapter.
+ * `SubagentRuntime` satisfies this structurally; tests use plain stubs.
+ */
+export interface ServiceRuntimeLike {
+  readonly currentCtx: SessionContext | undefined;
+  buildSnapshot(inheritContext: boolean): ParentSnapshot;
+}
+
 /** Create a SubagentsService backed by the given dependencies. */
 export function createSubagentsService(
   manager: AgentManagerLike,
   resolveModel: (input: string, registry: ModelRegistry) => unknown,
-  getCtx: () => { pi: unknown; ctx: unknown } | undefined,
-  getModelRegistry: () => ModelRegistry | undefined,
+  runtime: ServiceRuntimeLike,
 ): SubagentsService {
   return {
     spawn(type: string, prompt: string, options?) {
-      const session = getCtx();
-      if (!session) {
+      if (!runtime.currentCtx) {
         throw new Error("No active session — cannot spawn agents outside a session.");
       }
 
       let model: unknown;
       if (options?.model) {
-        const registry = getModelRegistry();
+        const registry = runtime.currentCtx.modelRegistry;
         if (!registry) {
           throw new Error("No model registry available.");
         }
@@ -53,10 +58,7 @@ export function createSubagentsService(
       const description = options?.description ?? prompt.slice(0, 80);
       const isBackground = !(options?.foreground ?? false);
 
-      const snapshot = buildParentSnapshot(
-        session.ctx as ExtensionContext,
-        options?.inheritContext,
-      );
+      const snapshot = runtime.buildSnapshot(options?.inheritContext ?? false);
       return manager.spawn(snapshot, type, prompt, {
         description,
         model,
