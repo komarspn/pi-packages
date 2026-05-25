@@ -21,3 +21,20 @@ Each conversion is one commit covering source, test, and consumer updates togeth
 - The `agent-creation-wizard.test.ts` has ~18 inline `createAgentCreationWizard(deps)` calls; the plan suggests adding a `makeWizard(deps)` helper to centralize construction and reduce the diff size.
 - `SubagentsServiceAdapter` uses `implements SubagentsService` for compile-time verification, unlike the factory which relied on structural typing of the returned object literal.
 - Pure helper functions (`buildMenuOptions`, `buildEjectContent`, `toSubagentRecord`) and narrow interfaces (`AgentManagerLike`, `ServiceRuntimeLike`, `WizardManager`, `WizardRegistry`) remain unchanged.
+
+## Stage: Implementation — TDD (2026-05-25T21:00:00Z)
+
+### Session summary
+
+All 4 TDD steps completed in 4 commits.
+Three closure factories converted to classes (`AgentConfigEditor`, `AgentCreationWizard`, `SubagentsServiceAdapter`) with tests and consumers updated in the same commit as each production change.
+Test count held at 913 (57 files) — no new tests needed, no tests removed.
+
+### Observations
+
+- All three conversions were mechanical find-and-replace with no behavioral surprises.
+- The `makeWizard(deps)` helper in `agent-creation-wizard.test.ts` centralized 14 inline `createAgentCreationWizard(deps)` calls, keeping the diff readable.
+- `SubagentsServiceAdapter` uses `implements SubagentsService` — the TypeScript compiler confirmed the contract at compile time with no gaps.
+- Adding the `SpawnOptions` import to `service-adapter.ts` was required for the `spawn` method signature; the plan anticipated this correctly.
+- The `sed -i` command required the macOS `-i ''` form (no in-place backup extension) rather than the GNU `sed -i` form.
+- Dead-code gate (`pnpm fallow dead-code`) passed cleanly from the repo root — no suppression needed.
