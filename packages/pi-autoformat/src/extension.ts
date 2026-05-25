@@ -61,7 +61,7 @@ type AutoformatExtensionContext = Pick<
  */
 export type ExtensionApiLike = ExtensionAPI;
 
-const AUTOFORMAT_STATUS_KEY = "autoformat";
+const AUTOFORMAT_STATUS_KEY = AUTOFORMAT_EXTENSION_ID;
 
 function setAutoformatStatus(
   ctx: AutoformatExtensionContext,
@@ -439,7 +439,7 @@ function formatStatusLine(
     summary.formatterLabels.length > 0
       ? ` (${summary.formatterLabels.join(", ")})`
       : "";
-  const label = themed(ctx, "dim", "autoformat:");
+  const label = themed(ctx, "dim", `${AUTOFORMAT_EXTENSION_ID}:`);
 
   if (summary.failureBatchCount > 0) {
     const batchWord = summary.failureBatchCount === 1 ? "batch" : "batches";
