@@ -116,20 +116,31 @@ export function formatToolResult(
   ];
 }
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+/** Model/provider attribution for assistant messages. */
+export interface MessageAttribution {
+  provider?: string;
+  model?: string;
+}
+
 // ── formatAssistantMessage ───────────────────────────────────────────────────
 
 /**
  * Format an assistant message into display lines.
  * Always returns at least the [Assistant] header line.
+ * When attribution is provided, renders as `[Assistant (provider/model)]`.
  */
 export function formatAssistantMessage(
   content: { type: string; [key: string]: unknown }[],
   width: number,
   ctx: FormatterContext,
+  attribution?: MessageAttribution,
 ): string[] {
   const { theme, wrapText } = ctx;
   const { textParts, toolNames } = extractAssistantContent(content);
-  const lines: string[] = [theme.bold("[Assistant]")];
+  const label = formatAttributionLabel(attribution);
+  const lines: string[] = [theme.bold(`[Assistant${label}]`)];
   if (textParts.length > 0) {
     lines.push(...wrapText(textParts.join("\n").trim(), width));
   }
@@ -154,10 +165,15 @@ export function formatMessage(
     return formatUserMessage(msg.content as string | unknown[], width, ctx);
   }
   if (msg.role === "assistant") {
+    const attribution: MessageAttribution = {
+      provider: msg.provider as string | undefined,
+      model: msg.model as string | undefined,
+    };
     return formatAssistantMessage(
       msg.content as { type: string; [key: string]: unknown }[],
       width,
       ctx,
+      attribution,
     );
   }
   if (msg.role === "toolResult") {
@@ -167,4 +183,13 @@ export function formatMessage(
     return formatBashExecution(msg, width, ctx);
   }
   return null;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Build a `(provider/model)` attribution suffix, or empty string when absent. */
+function formatAttributionLabel(attr?: MessageAttribution): string {
+  if (!attr?.provider && !attr?.model) return "";
+  if (attr.provider && attr.model) return ` (${attr.provider}/${attr.model})`;
+  return ` (${attr.provider ?? attr.model})`;
 }
