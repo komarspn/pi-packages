@@ -1,51 +1,11 @@
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resumeAgent, runAgent } from "#src/lifecycle/agent-runner";
+import { createAgentLookup, createRunnerIO } from "#test/helpers/runner-io";
+import { STUB_SNAPSHOT } from "#test/helpers/stub-ctx";
 
 /** Mock AgentConfigLookup injected via RunOptions.registry. */
-const mockAgentLookup = {
-  resolveAgentConfig: vi.fn((): import("#src/types").AgentConfig => ({
-    name: "Explore",
-    description: "Explore",
-    builtinToolNames: ["read"],
-    extensions: false as const,
-    skills: false as const,
-    systemPrompt: "You are Explore.",
-    promptMode: "replace" as const,
-    inheritContext: false,
-    runInBackground: false,
-    isolated: false,
-  })),
-  getToolNamesForType: vi.fn((): string[] => ["read"]),
-};
-
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
-import { resumeAgent, runAgent } from "#src/lifecycle/agent-runner";
-
-// ── RunnerIO stub factory ──────────────────────────────────────────────────────
-
-// Return type deliberately unannotated so vi.fn() stubs keep their Mock<...> methods
-// (mockResolvedValue, mockReturnValue, mock.calls, etc.). The inferred type is
-// still structurally compatible with RunnerIO (= EnvironmentIO & SessionFactoryIO)
-// for the runAgent() call site.
-function createRunnerIO() {
-  return {
-    detectEnv: vi.fn().mockResolvedValue({ isGitRepo: false, branch: "", platform: "linux" }),
-    getAgentDir: vi.fn().mockReturnValue("/mock/agent-dir"),
-    createResourceLoader: vi.fn().mockReturnValue({ reload: vi.fn().mockResolvedValue(undefined) }),
-    deriveSessionDir: vi.fn().mockReturnValue("/mock/session-dir/tasks"),
-    createSessionManager: vi.fn().mockReturnValue({
-      newSession: vi.fn(),
-      getSessionFile: vi.fn().mockReturnValue("/sessions/child.jsonl"),
-    }),
-    createSettingsManager: vi.fn().mockReturnValue({}),
-    createSession: vi.fn(),
-    assemblerIO: {
-      preloadSkills: vi.fn().mockReturnValue([]),
-      buildMemoryBlock: vi.fn().mockReturnValue(""),
-      buildReadOnlyMemoryBlock: vi.fn().mockReturnValue(""),
-      buildAgentPrompt: vi.fn().mockReturnValue("system prompt"),
-    },
-  };
-}
+const mockAgentLookup = createAgentLookup();
 
 let io: ReturnType<typeof createRunnerIO>;
 
@@ -74,15 +34,6 @@ function createSession(finalText: string) {
   return { session, listeners };
 }
 
-import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
-
-const snapshot: ParentSnapshot = {
-  cwd: "/tmp",
-  model: undefined,
-  modelRegistry: { find: vi.fn(), getAvailable: vi.fn(() => []) },
-  systemPrompt: "parent prompt",
-};
-
 const exec = vi.fn();
 
 beforeEach(() => {
@@ -94,7 +45,7 @@ describe("agent-runner final output capture", () => {
     const { session } = createSession("LOCKED");
     io.createSession.mockResolvedValue({ session });
 
-    const result = await runAgent(snapshot, "Explore", "Say LOCKED", { context: { exec, registry: mockAgentLookup } }, io);
+    const result = await runAgent(STUB_SNAPSHOT, "Explore", "Say LOCKED", { context: { exec, registry: mockAgentLookup } }, io);
 
     expect(result.responseText).toBe("LOCKED");
   });
@@ -103,7 +54,7 @@ describe("agent-runner final output capture", () => {
     const { session } = createSession("BOUND");
     io.createSession.mockResolvedValue({ session });
 
-    await runAgent(snapshot, "Explore", "Say BOUND", { context: { exec, registry: mockAgentLookup } }, io);
+    await runAgent(STUB_SNAPSHOT, "Explore", "Say BOUND", { context: { exec, registry: mockAgentLookup } }, io);
 
     expect(session.bindExtensions).toHaveBeenCalledTimes(1);
     expect(session.bindExtensions).toHaveBeenCalledWith({});
@@ -117,7 +68,7 @@ describe("agent-runner final output capture", () => {
     const { session } = createSession("CONFIGURED");
     io.createSession.mockResolvedValue({ session });
 
-    await runAgent(snapshot, "Explore", "Say CONFIGURED", { context: { exec, registry: mockAgentLookup, cwd: "/tmp/worktree" } }, io);
+    await runAgent(STUB_SNAPSHOT, "Explore", "Say CONFIGURED", { context: { exec, registry: mockAgentLookup, cwd: "/tmp/worktree" } }, io);
 
     expect(io.getAgentDir).toHaveBeenCalledTimes(1);
     expect(io.createResourceLoader).toHaveBeenCalledWith(expect.objectContaining({
@@ -136,7 +87,7 @@ describe("agent-runner final output capture", () => {
     const { session } = createSession("ISOLATED");
     io.createSession.mockResolvedValue({ session });
 
-    await runAgent(snapshot, "Explore", "Say ISOLATED", { context: { exec, registry: mockAgentLookup } }, io);
+    await runAgent(STUB_SNAPSHOT, "Explore", "Say ISOLATED", { context: { exec, registry: mockAgentLookup } }, io);
 
     // noContextFiles skips AGENTS.md/CLAUDE.md at the loader source;
     // appendSystemPromptOverride suppresses APPEND_SYSTEM.md (no flag equivalent).
@@ -155,7 +106,7 @@ describe("agent-runner final output capture", () => {
     const { session } = createSession("WITH_FILE");
     io.createSession.mockResolvedValue({ session });
 
-    const result = await runAgent(snapshot, "Explore", "go", { context: { exec, registry: mockAgentLookup } }, io);
+    const result = await runAgent(STUB_SNAPSHOT, "Explore", "go", { context: { exec, registry: mockAgentLookup } }, io);
 
     expect(result.sessionFile).toBe("/sessions/child.jsonl");
   });
@@ -164,7 +115,7 @@ describe("agent-runner final output capture", () => {
     const { session } = createSession("LINKED");
     io.createSession.mockResolvedValue({ session });
 
-    await runAgent(snapshot, "Explore", "go", {
+    await runAgent(STUB_SNAPSHOT, "Explore", "go", {
       context: {
         exec,
         registry: mockAgentLookup,
@@ -210,7 +161,7 @@ describe("agent-runner RunOptions — defaultMaxTurns and graceTurns", () => {
       session.messages.push({ role: "assistant", content: [{ type: "text", text: "done" }] });
     });
 
-    const result = await runAgent(snapshot, "Explore", "go", {
+    const result = await runAgent(STUB_SNAPSHOT, "Explore", "go", {
       context: { exec, registry: mockAgentLookup },
       defaultMaxTurns: 2,
       graceTurns: 1,
@@ -233,7 +184,7 @@ describe("agent-runner RunOptions — defaultMaxTurns and graceTurns", () => {
       session.messages.push({ role: "assistant", content: [{ type: "text", text: "done" }] });
     });
 
-    const result = await runAgent(snapshot, "Explore", "go", {
+    const result = await runAgent(STUB_SNAPSHOT, "Explore", "go", {
       context: { exec, registry: mockAgentLookup },
       defaultMaxTurns: 1,
       graceTurns: 3,
@@ -256,7 +207,7 @@ describe("agent-runner RunOptions — defaultMaxTurns and graceTurns", () => {
       session.messages.push({ role: "assistant", content: [{ type: "text", text: "done" }] });
     });
 
-    await runAgent(snapshot, "Explore", "go", {
+    await runAgent(STUB_SNAPSHOT, "Explore", "go", {
       context: { exec, registry: mockAgentLookup },
       maxTurns: 3, // explicit per-call limit
       defaultMaxTurns: 1, // should be overridden
