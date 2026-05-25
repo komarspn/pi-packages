@@ -457,7 +457,7 @@ Bags with 10+ fields are the highest priority for decomposition.
 | `ResourceLoaderOptions`     | 10                                                     | agent-runner (SDK bridge)                         | Medium   |
 | `RunnerIO`                  | split → `EnvironmentIO` (3) + `SessionFactoryIO` (5+1) | agent-runner                                      | ✓ done   |
 | `CreateSessionOptions`      | 9                                                      | agent-runner (SDK bridge)                         | Medium   |
-| `AgentToolDeps`             | 8                                                      | agent-tool                                        | Low      |
+| `AgentToolDeps`             | 8                                                      | agent-tool                                        | ✓ done   |
 | `AgentMenuDeps`             | 8                                                      | agent-menu                                        | Low      |
 | `ConversationViewerOptions` | 8                                                      | conversation-viewer                               | Low      |
 | `AgentRecordInit`           | 8                                                      | agent-record                                      | Low      |
@@ -688,13 +688,13 @@ After this step, `AgentManager` structurally satisfies `AgentToolManager` and `S
 
 ### Layer 3: Convert closure factories to classes ([#195][195], [#196][196])
 
-With Layers 0–2 complete, each factory is a mechanical conversion:
+With Layers 0–2 complete, each factory is a mechanical conversion. ✓ Tool factories converted in [#195][195]:
 
 | Factory                          | Class                          | Constructor params                                  |
 | -------------------------------- | ------------------------------ | --------------------------------------------------- |
-| `createAgentTool({...})`         | `AgentTool`                    | `manager`, `runtime`, `settings`, `registry`        |
-| `createGetResultTool(...)`       | `GetResultTool`                | `manager`, `notifications`, `registry`              |
-| `createSteerTool(...)`           | `SteerTool`                    | `manager`, `events`                                 |
+| `createAgentTool({...})`         | `AgentTool` ✓                  | `manager`, `runtime`, `settings`, `registry`        |
+| `createGetResultTool(...)`       | `GetResultTool` ✓              | `manager`, `notifications`, `registry`              |
+| `createSteerTool(...)`           | `SteerTool` ✓                  | `manager`, `events`                                 |
 | `createAgentRunner(runnerIO)`    | `AgentRunner` (concrete class) | `io: RunnerIO`                                      |
 | `createAgentsMenuHandler({...})` | `AgentsMenuHandler`            | `manager`, `registry`, `settings`, `fileOps`, paths |
 
