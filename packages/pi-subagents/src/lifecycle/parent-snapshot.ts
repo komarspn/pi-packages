@@ -2,8 +2,8 @@
  * parent-snapshot.ts — Capture parent session state as a plain data snapshot.
  */
 
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { buildParentContext } from "#src/session/context";
+import type { SessionContext } from "#src/types";
 
 /**
  * Plain data snapshot of the parent session state captured at spawn time.
@@ -32,7 +32,7 @@ export interface ParentSnapshot {
  * when the user requested the agent, not when a queue slot opens.
  */
 export function buildParentSnapshot(
-  ctx: ExtensionContext,
+  ctx: SessionContext,
   inheritContext?: boolean,
 ): ParentSnapshot {
   const parentContext = inheritContext ? buildParentContext(ctx) : undefined;
@@ -40,7 +40,8 @@ export function buildParentSnapshot(
     cwd: ctx.cwd,
     systemPrompt: ctx.getSystemPrompt(),
     model: ctx.model,
-    modelRegistry: ctx.modelRegistry,
+
+    modelRegistry: ctx.modelRegistry!,
     // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- || intentional: converts empty string to undefined as well as null/undefined
     parentContext: parentContext || undefined,
   };

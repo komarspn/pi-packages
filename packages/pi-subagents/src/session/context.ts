@@ -3,7 +3,19 @@
  */
 
 import type { TextContent } from "@earendil-works/pi-ai";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { SessionContext } from "#src/types";
+
+/**
+ * Minimal structural types for session branch entries consumed by buildParentContext.
+ * `getBranch()` returns `unknown[]` in SessionContext (ISP), so we cast to these
+ * local shapes instead of coupling to the SDK's SessionEntry type.
+ */
+type MessageEntry = {
+  type: "message";
+  message: { role: string; content: string | { type: string }[] };
+};
+type CompactionEntry = { type: "compaction"; summary?: string };
+type BranchEntry = MessageEntry | CompactionEntry | { type: string };
 
 /** Type predicate: narrow an unknown content block to TextContent. */
 function isTextContent(c: unknown): c is TextContent {
@@ -23,15 +35,16 @@ export function extractText(content: unknown[]): string {
  * Used when inherit_context is true to give the subagent visibility
  * into what has been discussed/done so far.
  */
-export function buildParentContext(ctx: ExtensionContext): string {
+export function buildParentContext(ctx: SessionContext): string {
   const entries = ctx.sessionManager.getBranch();
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- getBranch() may return undefined at runtime despite its type
   if (!entries || entries.length === 0) return "";
 
   const parts: string[] = [];
 
-  for (const entry of entries) {
-    if (entry.type === "message") {
+  for (const rawEntry of entries as BranchEntry[]) {
+    if (rawEntry.type === "message") {
+      const entry = rawEntry as MessageEntry;
       const msg = entry.message;
       if (msg.role === "user") {
         const text = typeof msg.content === "string"
@@ -39,12 +52,13 @@ export function buildParentContext(ctx: ExtensionContext): string {
           : extractText(msg.content);
         if (text.trim()) parts.push(`[User]: ${text.trim()}`);
       } else if (msg.role === "assistant") {
-        const text = extractText(msg.content);
+        const text = typeof msg.content === "string" ? msg.content : extractText(msg.content);
         if (text.trim()) parts.push(`[Assistant]: ${text.trim()}`);
       }
       // Skip toolResult messages — too verbose for context
-    } else if (entry.type === "compaction") {
+    } else if (rawEntry.type === "compaction") {
       // Include compaction summaries — they're already condensed
+      const entry = rawEntry as CompactionEntry;
       if (entry.summary) {
         parts.push(`[Summary]: ${entry.summary}`);
       }
