@@ -216,8 +216,8 @@ describe("createAutoformatExtension", () => {
     const warningCalls = notify.mock.calls.filter((c) => c[1] === "warning");
     expect(warningCalls).toEqual([]);
     expect(setStatus).toHaveBeenCalledWith(
-      "autoformat",
-      expect.stringContaining("autoformat:"),
+      "pi-autoformat",
+      expect.stringContaining("pi-autoformat:"),
     );
   });
 
@@ -245,7 +245,7 @@ describe("createAutoformatExtension", () => {
     setStatus.mockClear();
     await pi.emit("agent_end", {}, ctx);
 
-    expect(setStatus).toHaveBeenCalledWith("autoformat", undefined);
+    expect(setStatus).toHaveBeenCalledWith("pi-autoformat", undefined);
     expect(notify).not.toHaveBeenCalled();
   });
 
@@ -291,8 +291,8 @@ describe("createAutoformatExtension", () => {
 
     expect(setStatus).toHaveBeenCalledTimes(1);
     const [statusKey, statusText] = setStatus.mock.calls[0];
-    expect(statusKey).toBe("autoformat");
-    expect(statusText).toContain("autoformat:");
+    expect(statusKey).toBe("pi-autoformat");
+    expect(statusText).toContain("pi-autoformat:");
     expect(statusText).toContain("2 files");
     expect(statusText).toContain("prettier");
     expect(notify).not.toHaveBeenCalled();
@@ -417,7 +417,7 @@ describe("createAutoformatExtension", () => {
     );
     expect(failureStatusCalls).toHaveLength(1);
     const [statusKey, statusText] = failureStatusCalls[0];
-    expect(statusKey).toBe("autoformat");
+    expect(statusKey).toBe("pi-autoformat");
     expect(statusText).toContain("1 batch failed");
     expect(statusText).toContain("prettier");
     expect(fg).toHaveBeenCalledWith("error", expect.any(String));
@@ -857,7 +857,7 @@ describe("createAutoformatExtension", () => {
     await pi.emit("agent_end", {}, ctx);
 
     expect(notify).not.toHaveBeenCalled();
-    expect(setStatus).toHaveBeenCalledWith("autoformat", undefined);
+    expect(setStatus).toHaveBeenCalledWith("pi-autoformat", undefined);
   });
 
   it("still surfaces failures when hideSummariesInTui is true", async () => {
@@ -1066,11 +1066,11 @@ describe("createAutoformatExtension", () => {
     });
 
     await pi.emit("session_start", {}, ctx);
-    expect(setStatus).toHaveBeenCalledWith("autoformat", undefined);
+    expect(setStatus).toHaveBeenCalledWith("pi-autoformat", undefined);
 
     setStatus.mockClear();
     await pi.emit("session_shutdown", {}, ctx);
-    expect(setStatus).toHaveBeenCalledWith("autoformat", undefined);
+    expect(setStatus).toHaveBeenCalledWith("pi-autoformat", undefined);
   });
 
   it("records successful tool results and flushes at prompt end in prompt mode", async () => {
