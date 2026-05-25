@@ -36,6 +36,31 @@ export function buildMenuOptions(
   return ["Edit", "Disable", "Delete", "Back"];
 }
 
+/** Build the `.md` file content (frontmatter + system prompt) for an ejected agent. */
+export function buildEjectContent(cfg: AgentConfig): string {
+  const fmFields: string[] = [];
+  fmFields.push(`description: ${cfg.description}`);
+  if (cfg.displayName) fmFields.push(`display_name: ${cfg.displayName}`);
+  fmFields.push(`tools: ${cfg.builtinToolNames?.join(", ") ?? "all"}`);
+  if (cfg.model) fmFields.push(`model: ${cfg.model}`);
+  if (cfg.thinking) fmFields.push(`thinking: ${cfg.thinking}`);
+  if (cfg.maxTurns) fmFields.push(`max_turns: ${cfg.maxTurns}`);
+  fmFields.push(`prompt_mode: ${cfg.promptMode}`);
+  if (cfg.extensions === false) fmFields.push("extensions: false");
+  else if (Array.isArray(cfg.extensions))
+    fmFields.push(`extensions: ${cfg.extensions.join(", ")}`);
+  if (cfg.skills === false) fmFields.push("skills: false");
+  else if (Array.isArray(cfg.skills))
+    fmFields.push(`skills: ${cfg.skills.join(", ")}`);
+  if (cfg.disallowedTools?.length)
+    fmFields.push(`disallowed_tools: ${cfg.disallowedTools.join(", ")}`);
+  if (cfg.inheritContext) fmFields.push("inherit_context: true");
+  if (cfg.runInBackground) fmFields.push("run_in_background: true");
+  if (cfg.isolated) fmFields.push("isolated: true");
+  if (cfg.isolation) fmFields.push(`isolation: ${cfg.isolation}`);
+  return `---\n${fmFields.join("\n")}\n---\n\n${cfg.systemPrompt}\n`;
+}
+
 // ---- Factory ----
 
 export function createAgentConfigEditor(
@@ -123,30 +148,7 @@ export function createAgentConfigEditor(
       if (!overwrite) return;
     }
 
-    const fmFields: string[] = [];
-    fmFields.push(`description: ${cfg.description}`);
-    if (cfg.displayName) fmFields.push(`display_name: ${cfg.displayName}`);
-    fmFields.push(`tools: ${cfg.builtinToolNames?.join(", ") ?? "all"}`);
-    if (cfg.model) fmFields.push(`model: ${cfg.model}`);
-    if (cfg.thinking) fmFields.push(`thinking: ${cfg.thinking}`);
-    if (cfg.maxTurns) fmFields.push(`max_turns: ${cfg.maxTurns}`);
-    fmFields.push(`prompt_mode: ${cfg.promptMode}`);
-    if (cfg.extensions === false) fmFields.push("extensions: false");
-    else if (Array.isArray(cfg.extensions))
-      fmFields.push(`extensions: ${cfg.extensions.join(", ")}`);
-    if (cfg.skills === false) fmFields.push("skills: false");
-    else if (Array.isArray(cfg.skills))
-      fmFields.push(`skills: ${cfg.skills.join(", ")}`);
-    if (cfg.disallowedTools?.length)
-      fmFields.push(`disallowed_tools: ${cfg.disallowedTools.join(", ")}`);
-    if (cfg.inheritContext) fmFields.push("inherit_context: true");
-    if (cfg.runInBackground) fmFields.push("run_in_background: true");
-    if (cfg.isolated) fmFields.push("isolated: true");
-    if (cfg.isolation) fmFields.push(`isolation: ${cfg.isolation}`);
-
-    const content = `---\n${fmFields.join("\n")}\n---\n\n${cfg.systemPrompt}\n`;
-
-    fileOps.write(targetPath, content);
+    fileOps.write(targetPath, buildEjectContent(cfg));
     registry.reload();
     ui.notify(`Ejected ${name} to ${targetPath}`, "info");
   }

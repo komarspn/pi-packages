@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentTypeRegistry } from "#src/config/agent-types";
 import type { AgentConfig } from "#src/types";
-import { buildMenuOptions, createAgentConfigEditor } from "#src/ui/agent-config-editor";
+import {
+  buildEjectContent,
+  buildMenuOptions,
+  createAgentConfigEditor,
+} from "#src/ui/agent-config-editor";
 
 const testDefaultConfig: AgentConfig = {
   name: "test-agent",
@@ -415,5 +419,89 @@ describe("buildMenuOptions", () => {
         "/project/.pi/agents/test-agent.md",
       ),
     ).toEqual(["Enable", "Edit", "Delete", "Back"]);
+  });
+});
+
+describe("buildEjectContent", () => {
+  const minimalConfig: AgentConfig = {
+    name: "my-agent",
+    description: "Does something useful",
+    systemPrompt: "You are a useful agent.",
+    promptMode: "replace",
+    extensions: true,
+    skills: true,
+  };
+
+  it("produces minimal frontmatter for a config with no optional fields", () => {
+    expect(buildEjectContent(minimalConfig)).toBe(
+      [
+        "---",
+        "description: Does something useful",
+        "tools: all",
+        "prompt_mode: replace",
+        "---",
+        "",
+        "You are a useful agent.",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("includes all optional scalar fields when present", () => {
+    const cfg: AgentConfig = {
+      ...minimalConfig,
+      displayName: "My Agent",
+      builtinToolNames: ["read", "bash"],
+      model: "claude-sonnet",
+      thinking: "low",
+      maxTurns: 10,
+      inheritContext: true,
+      runInBackground: true,
+      isolated: true,
+      isolation: "worktree",
+      disallowedTools: ["web_search"],
+    };
+    const content = buildEjectContent(cfg);
+    expect(content).toContain("display_name: My Agent");
+    expect(content).toContain("tools: read, bash");
+    expect(content).toContain("model: claude-sonnet");
+    expect(content).toContain("thinking: low");
+    expect(content).toContain("max_turns: 10");
+    expect(content).toContain("disallowed_tools: web_search");
+    expect(content).toContain("inherit_context: true");
+    expect(content).toContain("run_in_background: true");
+    expect(content).toContain("isolated: true");
+    expect(content).toContain("isolation: worktree");
+  });
+
+  it("emits 'extensions: false' when extensions is false", () => {
+    const cfg: AgentConfig = { ...minimalConfig, extensions: false };
+    expect(buildEjectContent(cfg)).toContain("extensions: false");
+  });
+
+  it("emits 'extensions: <list>' when extensions is an array", () => {
+    const cfg: AgentConfig = {
+      ...minimalConfig,
+      extensions: ["pi-github-tools", "pi-colgrep"],
+    };
+    expect(buildEjectContent(cfg)).toContain(
+      "extensions: pi-github-tools, pi-colgrep",
+    );
+  });
+
+  it("emits 'skills: false' when skills is false", () => {
+    const cfg: AgentConfig = { ...minimalConfig, skills: false };
+    expect(buildEjectContent(cfg)).toContain("skills: false");
+  });
+
+  it("emits 'skills: <list>' when skills is an array", () => {
+    const cfg: AgentConfig = { ...minimalConfig, skills: ["code-design"] };
+    expect(buildEjectContent(cfg)).toContain("skills: code-design");
+  });
+
+  it("does not emit extension/skills fields when they are true", () => {
+    const content = buildEjectContent(minimalConfig);
+    expect(content).not.toContain("extensions:");
+    expect(content).not.toContain("skills:");
   });
 });
