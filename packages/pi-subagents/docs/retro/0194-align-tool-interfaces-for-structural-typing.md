@@ -15,6 +15,21 @@ The plan includes a 4-step TDD order with type-check gates after each refactorin
 ### Observations
 
 - Issue #193 (Layer 1) is already closed/implemented, confirming this layer can proceed immediately.
+
+## Stage: Implementation — TDD (2026-05-24T21:00:00Z)
+
+### Session summary
+
+Completed all 4 TDD steps: renamed `SubagentRuntime.updateWidget()` → `update()`, moved `getMaxConcurrent` from manager interfaces to the `settings` narrow type, removed the dead `getToolCallName` re-export, and updated the architecture doc.
+Test count stayed flat at 854 (53 files) — all green.
+The `pnpm run check` type-gate caught a previously-unnoticed `test/helpers/make-deps.test.ts` that also validated `getMaxConcurrent` and the old `settings` shape; this file was updated as part of step 2.
+
+### Observations
+
+- An unexpected file `test/helpers/make-deps.test.ts` had three type errors after removing `getMaxConcurrent` (one test asserting `manager.getMaxConcurrent()`, one structural compatibility check referencing it, and one settings override that only passed `defaultMaxTurns`).
+  All three were fixed in the same commit as step 2 — no deviation from the plan.
+- Adding `settings` to `BackgroundParams` (instead of as a 5th function parameter) was the right call: it keeps `spawnBackground` at 4 arguments and groups all spawn-context values together.
+- The health metric update: dead exports 1 → 0, adapter closures 41 → 40 (only `getMaxConcurrent` was removed in this layer; the remaining 8 widget/manager adapter closures need #195 class conversion to collapse).
 - The `background-spawner.ts` module is the only consumer of `getMaxConcurrent` — grep confirms no other call sites beyond `agent-tool.ts`'s interface definition.
 - The `NotificationManager` constructor takes `updateWidget` as a positional callback parameter name — this does NOT need renaming (it's not a structural interface member).
 - The rename from `updateWidget` → `update` is safe because the `WidgetLike` interface in `runtime.ts` already uses `update()` — no naming conflict within the class.
