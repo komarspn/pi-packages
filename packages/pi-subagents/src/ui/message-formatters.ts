@@ -21,8 +21,6 @@ export interface FormatterContext {
 
 // ── File-local types and guards ─────────────────────────────────────────────
 
-export { getToolCallName } from "#src/session/content-items";
-
 /** Bash execution message — 'bashExecution' role is not in the SDK's AgentSession message role union. */
 export interface BashExecutionMessage {
   role: "bashExecution";
