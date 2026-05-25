@@ -58,7 +58,7 @@ describe("buildAgentPrompt", () => {
     const prompt = buildAgentPrompt(config, "/workspace", env, parentPrompt);
     expect(prompt).toContain("parent coding agent with full powers");
     expect(prompt).toContain("<sub_agent_context>");
-    expect(prompt).toContain("<inherited_system_prompt>");
+    expect(prompt).not.toContain("<inherited_system_prompt>");
     expect(prompt).not.toContain("READ-ONLY");
     // Empty systemPrompt means no <agent_instructions> section
     expect(prompt).not.toContain("<agent_instructions>");
@@ -89,7 +89,7 @@ describe("buildAgentPrompt", () => {
     expect(prompt).toContain("/workspace");
     expect(prompt).toContain("parent coding agent with special powers");
     expect(prompt).toContain("<sub_agent_context>");
-    expect(prompt).toContain("<inherited_system_prompt>");
+    expect(prompt).not.toContain("<inherited_system_prompt>");
     expect(prompt).toContain("<agent_instructions>");
     expect(prompt).toContain("Extra custom instructions here.");
   });
@@ -130,7 +130,7 @@ describe("buildAgentPrompt", () => {
     const prompt = buildAgentPrompt(config, "/workspace", env, parentPrompt);
     expect(prompt).toContain("parent coding agent");
     expect(prompt).toContain("<sub_agent_context>");
-    expect(prompt).toContain("<inherited_system_prompt>");
+    expect(prompt).not.toContain("<inherited_system_prompt>");
     expect(prompt).not.toContain("<agent_instructions>");
   });
 
@@ -205,7 +205,7 @@ describe("buildAgentPrompt", () => {
     };
     const prompt = buildAgentPrompt(config, "/workspace", env);
     expect(prompt).toContain("<sub_agent_context>");
-    expect(prompt).toContain("<inherited_system_prompt>");
+    expect(prompt).not.toContain("<inherited_system_prompt>");
     expect(prompt).toContain("Use the read tool instead of cat");
     expect(prompt).toContain("general-purpose coding agent");
     expect(prompt).toContain("Extra stuff.");
@@ -284,7 +284,7 @@ describe("buildAgentPrompt", () => {
       );
     });
 
-    it("includes <active_agent name=...> tag in append mode after inherited prompt", () => {
+    it("includes <active_agent name=...> tag in append mode after sub_agent_context", () => {
       const config: AgentConfig = {
         name: "general-purpose",
         description: "Twin",
@@ -304,11 +304,11 @@ describe("buildAgentPrompt", () => {
         "Parent prompt content.",
       );
       const tagIdx = prompt.indexOf('<active_agent name="general-purpose"/>');
-      const inheritedIdx = prompt.indexOf("<inherited_system_prompt>");
+      const ctxIdx = prompt.indexOf("<sub_agent_context>");
       expect(tagIdx).toBeGreaterThan(-1);
-      expect(inheritedIdx).toBeGreaterThan(-1);
-      // Shared inherited content comes first; agent-specific tag follows
-      expect(inheritedIdx).toBeLessThan(tagIdx);
+      expect(ctxIdx).toBeGreaterThan(-1);
+      // Sub-agent context comes before the agent-specific active_agent tag
+      expect(ctxIdx).toBeLessThan(tagIdx);
     });
 
     it("uses agent name verbatim in the tag (no escaping or normalization)", () => {
@@ -368,7 +368,7 @@ describe("buildAgentPrompt", () => {
       );
       const tagIdxB = appendPrompt.indexOf('<active_agent name="agent-b"/>');
       const envIdxB = appendPrompt.indexOf("# Environment");
-      // Append mode: tag follows inherited content (not at index 0) but still precedes env block
+      // Append mode: tag follows parent content (not at index 0) but still precedes env block
       expect(tagIdxB).toBeGreaterThan(0);
       expect(envIdxB).toBeGreaterThan(tagIdxB);
     });

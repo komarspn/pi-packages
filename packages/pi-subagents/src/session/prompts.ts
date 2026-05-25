@@ -74,12 +74,13 @@ You are operating as a sub-agent invoked to handle a specific task.
       : "";
 
     // Place shared/stable content first so the LLM's KV cache can reuse the
-    // inherited prefix across all subagent invocations. The <active_agent> tag
-    // and env block vary per call and are placed after the cacheable prefix.
+    // inherited prefix across all subagent invocations. The parent prompt is
+    // placed verbatim (no wrapper tag) so it forms an identical byte prefix
+    // with the parent session, maximising KV cache hits. The <active_agent>
+    // tag and env block vary per call and are placed after the cached prefix.
     return (
-      "<inherited_system_prompt>\n" +
       identity +
-      "\n</inherited_system_prompt>\n\n" +
+      "\n\n" +
       bridge +
       "\n\n" +
       activeAgentTag +
