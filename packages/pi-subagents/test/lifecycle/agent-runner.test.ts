@@ -1,6 +1,17 @@
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resumeAgent, runAgent } from "#src/lifecycle/agent-runner";
+
+const mockRegisterChildSession = vi.hoisted(() =>
+  vi.fn<(key: string, info: { parentSessionId?: string; agentName: string }) => void>(),
+);
+const mockUnregisterChildSession = vi.hoisted(() => vi.fn<(key: string) => void>());
+
+vi.mock("#src/lifecycle/permission-bridge", () => ({
+  registerChildSession: mockRegisterChildSession,
+  unregisterChildSession: mockUnregisterChildSession,
+}));
+
 import { createAgentLookup, createRunnerIO } from "#test/helpers/runner-io";
 import { STUB_SNAPSHOT } from "#test/helpers/stub-ctx";
 
@@ -217,5 +228,90 @@ describe("agent-runner RunOptions — defaultMaxTurns and graceTurns", () => {
     // Only 2 turns fired, maxTurns=3, so steer should NOT be called
     expect(session.steer).not.toHaveBeenCalled();
     expect(session.abort).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Permission bridge integration (issue #101) ───────────────────────────────
+describe("agent-runner permission bridge", () => {
+  beforeEach(() => {
+    mockRegisterChildSession.mockReset();
+    mockUnregisterChildSession.mockReset();
+  });
+
+  it("registers the child session before bindExtensions()", async () => {
+    const { session } = createSession("PERM");
+    io.createSession.mockResolvedValue({ session });
+
+    await runAgent(STUB_SNAPSHOT, "Explore", "go", {
+      context: { exec, registry: mockAgentLookup },
+    }, io);
+
+    expect(mockRegisterChildSession).toHaveBeenCalledOnce();
+    const registerOrder = mockRegisterChildSession.mock.invocationCallOrder[0];
+    const bindOrder = session.bindExtensions.mock.invocationCallOrder[0];
+    expect(registerOrder).toBeLessThan(bindOrder);
+  });
+
+  it("passes agentName (the subagent type) and parentSessionId to registerChildSession", async () => {
+    const { session } = createSession("PERM");
+    io.createSession.mockResolvedValue({ session });
+
+    await runAgent(STUB_SNAPSHOT, "Explore", "go", {
+      context: {
+        exec,
+        registry: mockAgentLookup,
+        parentSession: {
+          parentSessionFile: "/sessions/parent.jsonl",
+          parentSessionId: "parent-session-42",
+        },
+      },
+    }, io);
+
+    expect(mockRegisterChildSession).toHaveBeenCalledWith(
+      expect.any(String),
+      { agentName: "Explore", parentSessionId: "parent-session-42" },
+    );
+  });
+
+  it("unregisters the child session after a successful run", async () => {
+    const { session } = createSession("PERM");
+    io.createSession.mockResolvedValue({ session });
+
+    await runAgent(STUB_SNAPSHOT, "Explore", "go", {
+      context: { exec, registry: mockAgentLookup },
+    }, io);
+
+    expect(mockUnregisterChildSession).toHaveBeenCalledOnce();
+    const sessionKey = mockRegisterChildSession.mock.calls[0][0];
+    expect(mockUnregisterChildSession).toHaveBeenCalledWith(sessionKey);
+  });
+
+  it("unregisters the child session even when session.prompt() throws", async () => {
+    const { session } = createSession("PERM");
+    io.createSession.mockResolvedValue({ session });
+    session.prompt = vi.fn().mockRejectedValue(new Error("prompt failed"));
+
+    await expect(
+      runAgent(STUB_SNAPSHOT, "Explore", "go", {
+        context: { exec, registry: mockAgentLookup },
+      }, io),
+    ).rejects.toThrow("prompt failed");
+
+    expect(mockUnregisterChildSession).toHaveBeenCalledOnce();
+  });
+
+  it("registers using the session directory as the session key", async () => {
+    const { session } = createSession("PERM");
+    io.createSession.mockResolvedValue({ session });
+    io.deriveSessionDir.mockReturnValue("/custom/session/dir");
+
+    await runAgent(STUB_SNAPSHOT, "Explore", "go", {
+      context: { exec, registry: mockAgentLookup },
+    }, io);
+
+    expect(mockRegisterChildSession).toHaveBeenCalledWith(
+      "/custom/session/dir",
+      expect.any(Object),
+    );
   });
 });
