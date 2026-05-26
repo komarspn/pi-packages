@@ -30,6 +30,28 @@ export function extractText(content: unknown[]): string {
     .join("\n");
 }
 
+/** Format a message entry (user/assistant); returns undefined for roles to skip. */
+function formatMessageEntry(entry: MessageEntry): string | undefined {
+  const msg = entry.message;
+  const text = typeof msg.content === "string" ? msg.content : extractText(msg.content);
+  if (!text.trim()) return undefined;
+  if (msg.role === "user") return `[User]: ${text.trim()}`;
+  if (msg.role === "assistant") return `[Assistant]: ${text.trim()}`;
+  return undefined; // skip toolResult and other roles
+}
+
+/** Format a compaction entry; returns undefined when no summary is present. */
+function formatCompactionEntry(entry: CompactionEntry): string | undefined {
+  return entry.summary ? `[Summary]: ${entry.summary}` : undefined;
+}
+
+/** Dispatch a branch entry to the appropriate formatter. */
+function formatBranchEntry(entry: BranchEntry): string | undefined {
+  if (entry.type === "message") return formatMessageEntry(entry as MessageEntry);
+  if (entry.type === "compaction") return formatCompactionEntry(entry as CompactionEntry);
+  return undefined;
+}
+
 /**
  * Build a text representation of the parent conversation context.
  * Used when inherit_context is true to give the subagent visibility
@@ -40,30 +62,9 @@ export function buildParentContext(ctx: SessionContext): string {
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- getBranch() may return undefined at runtime despite its type
   if (!entries || entries.length === 0) return "";
 
-  const parts: string[] = [];
-
-  for (const rawEntry of entries as BranchEntry[]) {
-    if (rawEntry.type === "message") {
-      const entry = rawEntry as MessageEntry;
-      const msg = entry.message;
-      if (msg.role === "user") {
-        const text = typeof msg.content === "string"
-          ? msg.content
-          : extractText(msg.content);
-        if (text.trim()) parts.push(`[User]: ${text.trim()}`);
-      } else if (msg.role === "assistant") {
-        const text = typeof msg.content === "string" ? msg.content : extractText(msg.content);
-        if (text.trim()) parts.push(`[Assistant]: ${text.trim()}`);
-      }
-      // Skip toolResult messages — too verbose for context
-    } else if (rawEntry.type === "compaction") {
-      // Include compaction summaries — they're already condensed
-      const entry = rawEntry as CompactionEntry;
-      if (entry.summary) {
-        parts.push(`[Summary]: ${entry.summary}`);
-      }
-    }
-  }
+  const parts = (entries as BranchEntry[])
+    .map(formatBranchEntry)
+    .filter((p): p is string => p !== undefined);
 
   if (parts.length === 0) return "";
 
