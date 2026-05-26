@@ -1,10 +1,9 @@
 // Persistence for pi-subagents operational settings.
-// - Global:  ~/.pi/agent/subagents.json (via getAgentDir()) — manual defaults, never written here
+// - Global:  ~/.pi/agent/subagents.json (agentDir injected at construction) — manual defaults, never written here
 // - Project: <cwd>/.pi/subagents.json — written by /agents → Settings; overrides global on load
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 export interface SubagentsSettings {
   maxConcurrent?: number;
   /**
@@ -34,11 +33,13 @@ export class SettingsManager {
 
   private readonly emit: SettingsEmit;
   private readonly cwd: string;
+  private readonly agentDir: string;
   private readonly onMaxConcurrentChanged: (() => void) | undefined;
 
-  constructor(deps: { emit: SettingsEmit; cwd: string; onMaxConcurrentChanged?: () => void }) {
+  constructor(deps: { emit: SettingsEmit; cwd: string; agentDir: string; onMaxConcurrentChanged?: () => void }) {
     this.emit = deps.emit;
     this.cwd = deps.cwd;
+    this.agentDir = deps.agentDir;
     this.onMaxConcurrentChanged = deps.onMaxConcurrentChanged;
   }
 
@@ -84,7 +85,7 @@ export class SettingsManager {
    * Returns the raw loaded settings object.
    */
   load(): SubagentsSettings {
-    const settings = loadSettings(this.cwd);
+    const settings = loadSettings(this.agentDir, this.cwd);
     if (typeof settings.maxConcurrent === "number") this.maxConcurrent = settings.maxConcurrent;
     if (typeof settings.defaultMaxTurns === "number") this.defaultMaxTurns = settings.defaultMaxTurns;
     if (typeof settings.graceTurns === "number") this.graceTurns = settings.graceTurns;
@@ -180,8 +181,8 @@ function sanitize(raw: unknown): SubagentsSettings {
   return out;
 }
 
-function globalPath(): string {
-  return join(getAgentDir(), "subagents.json");
+function globalPath(agentDir: string): string {
+  return join(agentDir, "subagents.json");
 }
 
 function projectPath(cwd: string): string {
@@ -205,8 +206,8 @@ function readSettingsFile(path: string): SubagentsSettings {
 }
 
 /** Load merged settings: global provides defaults, project overrides. */
-export function loadSettings(cwd: string = process.cwd()): SubagentsSettings {
-  return { ...readSettingsFile(globalPath()), ...readSettingsFile(projectPath(cwd)) };
+export function loadSettings(agentDir: string, cwd: string = process.cwd()): SubagentsSettings {
+  return { ...readSettingsFile(globalPath(agentDir)), ...readSettingsFile(projectPath(cwd)) };
 }
 
 /**
