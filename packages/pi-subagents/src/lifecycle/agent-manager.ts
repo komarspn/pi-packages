@@ -12,7 +12,7 @@ import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { AgentTypeRegistry } from "#src/config/agent-types";
 import { debugLog } from "#src/debug";
 import { AgentRecord } from "#src/lifecycle/agent-record";
-import type { AgentRunner } from "#src/lifecycle/agent-runner";
+import type { AgentRunner, RunResult } from "#src/lifecycle/agent-runner";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import type { WorktreeManager } from "#src/lifecycle/worktree";
 import { WorktreeState } from "#src/lifecycle/worktree-state";
@@ -20,6 +20,95 @@ import { NotificationState } from "#src/observation/notification-state";
 import { subscribeRecordObserver } from "#src/observation/record-observer";
 import type { RunConfig } from "#src/runtime";
 import type { AgentInvocation, IsolationMode, ShellExec, SubagentType, ThinkingLevel } from "#src/types";
+
+/**
+ * RunHandle — per-run lifecycle object that owns cleanup state.
+ *
+ * Owns the observer unsubscribe and parent-signal detach handles acquired during
+ * a run. Exposes `complete()` and `fail()` as the only way to finish a run,
+ * eliminating mutable closure variables from `startAgent`.
+ * `fireOnFinished` is idempotent — safe to call from both success and error paths.
+ */
+class RunHandle {
+  private unsub?: () => void;
+  private detachFn?: () => void;
+  private onFinished?: () => void;
+
+  constructor(
+    private readonly record: AgentRecord,
+    private readonly worktrees: WorktreeManager,
+    onFinished?: () => void,
+  ) {
+    this.onFinished = onFinished;
+  }
+
+  /** Wire a parent AbortSignal so it stops this agent when fired. */
+  wireSignal(signal: AbortSignal | undefined, onAbort: () => void): void {
+    if (!signal) return;
+    const listener = () => onAbort();
+    signal.addEventListener("abort", listener, { once: true });
+    this.detachFn = () => signal.removeEventListener("abort", listener);
+  }
+
+  /** Store the record-observer unsubscribe handle (called from onSessionCreated). */
+  attachObserver(unsub: () => void): void {
+    this.unsub = unsub;
+  }
+
+  /** Complete a run successfully — clean up, transition record, fire onFinished. */
+  complete(result: RunResult): string {
+    this.releaseListeners();
+
+    let finalResult = result.responseText;
+    if (this.record.worktreeState) {
+      const wtResult = this.record.worktreeState.performCleanup(this.worktrees, this.record.description);
+      if (wtResult.hasChanges && wtResult.branch) {
+        finalResult += `\n\n---\nChanges saved to branch \`${wtResult.branch}\`. Merge with: \`git merge ${wtResult.branch}\``;
+      }
+    }
+
+    if (result.aborted) this.record.markAborted(finalResult);
+    else if (result.steered) this.record.markSteered(finalResult);
+    else this.record.markCompleted(finalResult);
+
+    // Update execution with the final session/outputFile from the runner
+    this.record.execution = {
+      session: result.session,
+      outputFile: result.sessionFile ?? this.record.execution?.outputFile,
+    };
+
+    this.fireOnFinished();
+    return result.responseText;
+  }
+
+  /** Fail a run — mark error, best-effort worktree cleanup, fire onFinished. */
+  fail(err: unknown): void {
+    this.record.markError(err);
+    this.releaseListeners();
+
+    if (this.record.worktreeState) {
+      try {
+        this.record.worktreeState.performCleanup(this.worktrees, this.record.description);
+      } catch (cleanupErr) { debugLog("cleanupWorktree on agent error", cleanupErr); }
+    }
+
+    this.fireOnFinished();
+  }
+
+  private releaseListeners(): void {
+    this.unsub?.();
+    this.unsub = undefined;
+    this.detachFn?.();
+    this.detachFn = undefined;
+  }
+
+  /** Fire the onFinished callback at most once. */
+  private fireOnFinished(): void {
+    const fn = this.onFinished;
+    this.onFinished = undefined;
+    fn?.();
+  }
+}
 
 export type CompactionInfo = { reason: "manual" | "threshold" | "overflow"; tokensBefore: number };
 
@@ -192,39 +281,20 @@ export class AgentManager {
 
   /** Actually start an agent (called immediately or from queue drain). */
   private startAgent(id: string, record: AgentRecord, { snapshot, type, prompt, options }: SpawnArgs) {
-    // Worktree isolation: try to create a temporary git worktree. Strict —
-    // fail loud if not possible (no silent fallback to main tree). Done
-    // BEFORE state mutation so a throw doesn't leave the record half-running.
-    let worktreeCwd: string | undefined;
-    if (options.isolation === "worktree") {
-      const wt = this.worktrees.create(id);
-      if (!wt) {
-        throw new Error(
-          'Cannot run with isolation: "worktree" — not a git repo, no commits yet, or `git worktree add` failed. ' +
-          'Initialize git and commit at least once, or omit `isolation`.',
-        );
-      }
-      record.worktreeState = new WorktreeState(wt);
-      worktreeCwd = wt.path;
-    }
+    const worktreeCwd = this.setupWorktree(id, record, options.isolation);
 
     record.markRunning(Date.now());
     if (options.isBackground) this.runningBackground++;
     this.observer?.onAgentStarted(record);
 
-    // Wire parent abort signal to stop the subagent when the parent is interrupted
-    let detachParentSignal: (() => void) | undefined;
-    if (options.signal) {
-      const onParentAbort = () => this.abort(id);
-      options.signal.addEventListener("abort", onParentAbort, { once: true });
-      detachParentSignal = () => options.signal!.removeEventListener("abort", onParentAbort);
-    }
-    const detach = () => { detachParentSignal?.(); detachParentSignal = undefined; };
-
-    let unsubRecordObserver: (() => void) | undefined;
+    const handle = new RunHandle(
+      record, this.worktrees,
+      options.isBackground ? () => this.finalizeBackgroundRun(record) : undefined,
+    );
+    handle.wireSignal(options.signal, () => this.abort(id));
 
     const runConfig = this.getRunConfig?.();
-    const promise = this.runner.run(snapshot, type, prompt, {
+    record.promise = this.runner.run(snapshot, type, prompt, {
       context: {
         exec: this.exec,
         registry: this.registry,
@@ -243,65 +313,42 @@ export class AgentManager {
         // before the run completes (e.g. in background agent status messages).
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- sessionManager is typed as always present but Pi SDK may not provide it
         const outputFile = session.sessionManager?.getSessionFile?.() ?? undefined;
-        // Set the execution-state collaborator — born complete at session creation.
         record.execution = { session, outputFile };
-        // Flush any steers that arrived before the session was ready
-        const buffered = this.pendingSteers.get(id);
-        if (buffered?.length) {
-          for (const msg of buffered) {
-            session.steer(msg).catch(() => {});
-          }
-          this.pendingSteers.delete(id);
-        }
-        // Subscribe record observer for stats accumulation
-        unsubRecordObserver = subscribeRecordObserver(session, record, {
+        this.flushPendingSteers(id, session);
+        handle.attachObserver(subscribeRecordObserver(session, record, {
           onCompact: (r, info) => this.observer?.onAgentCompacted(r, info),
-        });
+        }));
         options.onSessionCreated?.(session, record);
       },
     })
-      .then(({ responseText, session, aborted, steered, sessionFile }) => {
-        unsubRecordObserver?.();
-        detach();
+      .then((result) => handle.complete(result))
+      .catch((err: unknown) => { handle.fail(err); return ""; });
+  }
 
-        // Clean up worktree before transition so the final result includes branch text
-        let finalResult = responseText;
-        if (record.worktreeState) {
-          const wtResult = record.worktreeState.performCleanup(this.worktrees, options.description);
-          if (wtResult.hasChanges && wtResult.branch) {
-            finalResult += `\n\n---\nChanges saved to branch \`${wtResult.branch}\`. Merge with: \`git merge ${wtResult.branch}\``;
-          }
-        }
+  /** Create a worktree for isolated agents. Throws (strict) if isolation is requested but impossible. */
+  private setupWorktree(
+    id: string, record: AgentRecord, isolation: IsolationMode | undefined,
+  ): string | undefined {
+    if (isolation !== "worktree") return undefined;
+    const wt = this.worktrees.create(id);
+    if (!wt) {
+      throw new Error(
+        'Cannot run with isolation: "worktree" — not a git repo, no commits yet, or `git worktree add` failed. ' +
+        'Initialize git and commit at least once, or omit `isolation`.',
+      );
+    }
+    record.worktreeState = new WorktreeState(wt);
+    return wt.path;
+  }
 
-        // Transition — guards against overwriting externally-stopped status
-        if (aborted) record.markAborted(finalResult);
-        else if (steered) record.markSteered(finalResult);
-        else record.markCompleted(finalResult);
-
-        // Update execution collaborator with final session/outputFile from runner
-        record.execution = { session, outputFile: sessionFile ?? record.execution?.outputFile };
-
-        if (options.isBackground) this.finalizeBackgroundRun(record);
-        return responseText;
-      })
-      .catch((err: unknown) => {
-        record.markError(err);
-
-        unsubRecordObserver?.();
-        detach();
-
-        // Best-effort worktree cleanup on error
-        if (record.worktreeState) {
-          try {
-            record.worktreeState.performCleanup(this.worktrees, options.description);
-          } catch (err) { debugLog("cleanupWorktree on agent error", err); }
-        }
-
-        if (options.isBackground) this.finalizeBackgroundRun(record);
-        return "";
-      });
-
-    record.promise = promise;
+  /** Flush any steers buffered before the session was ready. */
+  private flushPendingSteers(id: string, session: AgentSession): void {
+    const buffered = this.pendingSteers.get(id);
+    if (!buffered?.length) return;
+    for (const msg of buffered) {
+      session.steer(msg).catch(() => {});
+    }
+    this.pendingSteers.delete(id);
   }
 
   /** Decrement background counter, notify observer (crash-safe), and drain the queue. */

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { WorktreeManager } from "#src/lifecycle/worktree";
+import type { WorktreeCleanupResult, WorktreeManager } from "#src/lifecycle/worktree";
 import { WorktreeState } from "#src/lifecycle/worktree-state";
 
 describe("WorktreeState — constructor", () => {
@@ -37,7 +37,7 @@ describe("WorktreeState — recordCleanup", () => {
 });
 
 describe("WorktreeState — performCleanup", () => {
-	function makeWorktrees(result = { hasChanges: false }): WorktreeManager {
+	function makeWorktrees(result: WorktreeCleanupResult = { hasChanges: false }): WorktreeManager {
 		return {
 			create: vi.fn(),
 			cleanup: vi.fn(() => result),
