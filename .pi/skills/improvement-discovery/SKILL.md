@@ -82,13 +82,16 @@ They are ordered from most impactful (structural) to least (cosmetic).
 
 ### Category C: Coupling and boundaries
 
-| Signal                        | Evidence                                              | Typical fix                                            |
-| ----------------------------- | ----------------------------------------------------- | ------------------------------------------------------ |
-| Platform type threading       | `ExtensionContext` or SDK types deep in domain        | Push to boundary, capture snapshot/value object        |
-| Wide parameter lists          | Functions with 5+ params, some always travel together | Group into value objects or extract into class         |
-| Forward references            | Closure captures a variable before it's assigned      | Reorder initialization or use post-construction wiring |
-| Adapter closure density (40+) | Entry point full of `(x) => obj.method(x)`            | Create intermediate factory objects or use `.bind()`   |
-| Cross-layer imports           | UI importing from lifecycle internals                 | Add a public interface layer                           |
+| Signal                        | Evidence                                                                   | Typical fix                                            |
+| ----------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Anemic domain model           | Manager reaches into data objects 10+× to check state and call transitions | Move behavior onto the domain object (Tell-Don't-Ask)  |
+| Mutable closure state         | `let` variables shared across closures/callbacks                           | Introduce a lifecycle object that owns the state       |
+| Relay-only dependencies       | Class stores fields it only passes to another object                       | Move the fields to the consumer's construction         |
+| Platform type threading       | `ExtensionContext` or SDK types deep in domain                             | Push to boundary, capture snapshot/value object        |
+| Wide parameter lists          | Functions with 5+ params, some always travel together                      | Group into value objects or extract into class         |
+| Forward references            | Closure captures a variable before it's assigned                           | Reorder initialization or use post-construction wiring |
+| Adapter closure density (40+) | Entry point full of `(x) => obj.method(x)`                                 | Create intermediate factory objects or use `.bind()`   |
+| Cross-layer imports           | UI importing from lifecycle internals                                      | Add a public interface layer                           |
 
 ### Category D: Testability
 
@@ -159,3 +162,5 @@ These are failure modes and corrections discovered empirically:
 - **Snapshot > live reference** — when mutable parent state is read at spawn time and never updated, freeze it into a data object.
 - **Pure function > method on wide class** — if the logic doesn't need instance state, extract it.
 - **Start from index.ts outward** — the composition root reveals wiring overhead, coupling, and initialization hazards that file-by-file analysis misses.
+- **Lifecycle object > method extraction** — when mutable `let` variables are shared across closures, the fix is an object that owns that state, not extracting methods that still close over the variables.
+- **Behavior on domain object > orchestration in manager** — when a manager reaches into a data object 10+× to check status and perform transitions, the object is anemic; move the behavior to the object itself.

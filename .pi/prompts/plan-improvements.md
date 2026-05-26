@@ -56,7 +56,7 @@ Read `packages/$1/src/index.ts` and trace its dependency graph:
 
 - For each import, read the target module
 - Note size, exports, fan-out, code smells
-- Pay special attention to: `as any` casts, adapter closure density, forward references, wide parameter lists, mixed responsibilities
+- Pay special attention to: `as any` casts, adapter closure density, forward references, wide parameter lists, mixed responsibilities, anemic domain objects (data classes that a manager reaches into instead of telling)
 
 ### Step 4: Apply the smell taxonomy
 
