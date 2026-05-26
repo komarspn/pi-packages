@@ -6,7 +6,8 @@ import type { WorktreeManager } from "#src/lifecycle/worktree";
 import { NotificationState } from "#src/observation/notification-state";
 import type { RunConfig } from "#src/runtime";
 import type { AgentRecord } from "#src/types";
-import { createMockSession, toAgentSession } from "#test/helpers/mock-session";
+import { createBlockingRunner, createMockWorktrees, createRunResult, createSessionRunner } from "#test/helpers/manager-stubs";
+import { createMockSession } from "#test/helpers/mock-session";
 import { STUB_SNAPSHOT } from "#test/helpers/stub-ctx";
 
 /** Minimal registry with no user agents — sufficient since AgentManager only relays it to the runner. */
@@ -191,10 +192,7 @@ describe("AgentManager — Bug 3 clearCompleted", () => {
 
   it("clearCompleted does not remove running or queued agents", async () => {
     // Use maxConcurrent=1 to keep second agent queued; runner never resolves
-    const runner: AgentRunner = {
-      run: vi.fn().mockImplementation(() => new Promise(() => {})),
-      resume: vi.fn(),
-    };
+    const runner = createBlockingRunner();
     ({ manager } = createManager({ getMaxConcurrent: () => 1, runner }));
 
     const id1 = spawnBg(manager, "test1", "running agent");
@@ -219,12 +217,7 @@ describe("AgentManager — Bug 3 clearCompleted", () => {
     const disposeSpy = vi.fn();
     const sess = createMockSession({ dispose: disposeSpy });
     const runner: AgentRunner = {
-      run: vi.fn().mockResolvedValue({
-        responseText: "done",
-        session: toAgentSession(sess),
-        aborted: false,
-        steered: false,
-      }),
+      run: vi.fn().mockResolvedValue(createRunResult(sess)),
       resume: vi.fn(),
     };
     ({ manager } = createManager({ runner }));
@@ -264,10 +257,7 @@ describe("AgentManager — lifetime usage + compaction count are eagerly initial
 
   it("spawn initializes lifetimeUsage to zeros and compactionCount to 0", () => {
     // Runner never resolves — we just want to inspect the record at spawn time.
-    const runner: AgentRunner = {
-      run: vi.fn().mockImplementation(() => new Promise(() => {})),
-      resume: vi.fn(),
-    };
+    const runner = createBlockingRunner();
     ({ manager } = createManager({ runner }));
 
     const id = spawnBg(manager);
@@ -447,11 +437,7 @@ describe("AgentManager — isolation: worktree fails loud, no silent fallback", 
   });
 
   it("spawn() throws when worktrees.create returns undefined; no orphan record left behind", async () => {
-    const worktrees: WorktreeManager = {
-      create: vi.fn().mockReturnValue(undefined),
-      cleanup: vi.fn(() => ({ hasChanges: false })),
-      prune: vi.fn(),
-    };
+    const worktrees = createMockWorktrees({ createResult: undefined });
     const runner: AgentRunner = {
       run: vi.fn(),
       resume: vi.fn(),
@@ -510,11 +496,7 @@ describe("AgentManager — dependency injection via options bag", () => {
   });
 
   it("calls worktrees.create for worktree isolation", async () => {
-    const worktrees: WorktreeManager = {
-      create: vi.fn().mockReturnValue({ path: "/tmp/wt", branch: "pi-agent-x" }),
-      cleanup: vi.fn(() => ({ hasChanges: false })),
-      prune: vi.fn(),
-    };
+    const worktrees = createMockWorktrees();
     ({ manager } = createManager({ worktrees }));
 
     manager.spawn(STUB_SNAPSHOT, "general-purpose", "test", {
@@ -527,11 +509,7 @@ describe("AgentManager — dependency injection via options bag", () => {
   });
 
   it("calls worktrees.cleanup after agent completes with a worktree", async () => {
-    const worktrees: WorktreeManager = {
-      create: vi.fn().mockReturnValue({ path: "/tmp/wt", branch: "pi-agent-x" }),
-      cleanup: vi.fn(() => ({ hasChanges: false })),
-      prune: vi.fn(),
-    };
+    const worktrees = createMockWorktrees();
     ({ manager } = createManager({ worktrees }));
 
     const id = manager.spawn(STUB_SNAPSHOT, "general-purpose", "test", {
@@ -545,11 +523,7 @@ describe("AgentManager — dependency injection via options bag", () => {
   });
 
   it("sets record.worktreeState with path and branch from worktrees.create", async () => {
-    const worktrees: WorktreeManager = {
-      create: vi.fn().mockReturnValue({ path: "/tmp/wt", branch: "pi-agent-x" }),
-      cleanup: vi.fn(() => ({ hasChanges: false })),
-      prune: vi.fn(),
-    };
+    const worktrees = createMockWorktrees();
     ({ manager } = createManager({ worktrees }));
 
     const id = manager.spawn(STUB_SNAPSHOT, "general-purpose", "test", {
@@ -566,11 +540,7 @@ describe("AgentManager — dependency injection via options bag", () => {
   });
 
   it("records cleanup result on worktreeState after completion", async () => {
-    const worktrees: WorktreeManager = {
-      create: vi.fn().mockReturnValue({ path: "/tmp/wt", branch: "pi-agent-x" }),
-      cleanup: vi.fn(() => ({ hasChanges: true, branch: "pi-agent-x" })),
-      prune: vi.fn(),
-    };
+    const worktrees = createMockWorktrees({ cleanupResult: { hasChanges: true, branch: "pi-agent-x" } });
     ({ manager } = createManager({ worktrees }));
 
     const id = manager.spawn(STUB_SNAPSHOT, "general-purpose", "test", {
@@ -634,10 +604,7 @@ describe("AgentManager — queueing and concurrency with injected stubs", () => 
   });
 
   it("abort removes a queued agent without ever running it", () => {
-    const runner: AgentRunner = {
-      run: vi.fn().mockImplementation(() => new Promise(() => {})),
-      resume: vi.fn(),
-    };
+    const runner = createBlockingRunner();
     ({ manager } = createManager({ runner, getMaxConcurrent: () => 1 }));
 
     // First runs, second queues
@@ -702,13 +669,7 @@ describe("AgentManager — execution state", () => {
   it("sets record.execution with session and outputFile after session creation", async () => {
     const session = createMockSession();
     session.sessionManager.getSessionFile.mockReturnValue("/tmp/session.jsonl");
-    const runner: AgentRunner = {
-      run: vi.fn().mockImplementation(async (_ctx: any, _type: any, _prompt: any, opts: any) => {
-        opts.onSessionCreated?.(session);
-        return { responseText: "done", session, aborted: false, steered: false };
-      }),
-      resume: vi.fn(),
-    };
+    const runner = createSessionRunner(session);
     ({ manager } = createManager({ runner }));
 
     const id = spawnBg(manager);
@@ -721,10 +682,7 @@ describe("AgentManager — execution state", () => {
   });
 
   it("record.execution is undefined before the session is created", () => {
-    const runner: AgentRunner = {
-      run: vi.fn().mockImplementation(() => new Promise(() => {})),
-      resume: vi.fn(),
-    };
+    const runner = createBlockingRunner();
     ({ manager } = createManager({ runner }));
 
     const id = spawnBg(manager);
@@ -747,10 +705,7 @@ describe("AgentManager — queueSteer", () => {
   });
 
   it("returns true and buffers the message for a known agent", () => {
-    const runner: AgentRunner = {
-      run: vi.fn().mockImplementation(() => new Promise(() => {})),
-      resume: vi.fn(),
-    };
+    const runner = createBlockingRunner();
     ({ manager } = createManager({ runner }));
 
     const id = spawnBg(manager);
@@ -761,13 +716,7 @@ describe("AgentManager — queueSteer", () => {
 
   it("flushes queued steers to the session once onSessionCreated fires", async () => {
     const session = createMockSession();
-    const runner: AgentRunner = {
-      run: vi.fn().mockImplementation(async (_ctx: any, _type: any, _prompt: any, opts: any) => {
-        opts.onSessionCreated?.(session);
-        return { responseText: "done", session, aborted: false, steered: false };
-      }),
-      resume: vi.fn(),
-    };
+    const runner = createSessionRunner(session);
     ({ manager } = createManager({ runner }));
 
     // Queue a steer before spawn (simulated via queueSteer after spawn, before session)
@@ -845,13 +794,7 @@ describe("AgentManager — onSessionCreated callback receives record", () => {
   it("passes record as second argument to onSessionCreated callback", async () => {
     const session = createMockSession();
     const received: { record: AgentRecord | undefined } = { record: undefined };
-    const runner: AgentRunner = {
-      run: vi.fn().mockImplementation(async (_ctx: any, _type: any, _prompt: any, opts: any) => {
-        opts.onSessionCreated?.(session);
-        return { responseText: "done", session, aborted: false, steered: false };
-      }),
-      resume: vi.fn(),
-    };
+    const runner = createSessionRunner(session);
     ({ manager } = createManager({ runner }));
 
     const id = manager.spawn(STUB_SNAPSHOT, "general-purpose", "test", {
@@ -870,13 +813,7 @@ describe("AgentManager — onSessionCreated callback receives record", () => {
   it("passes record to foreground onSessionCreated callback", async () => {
     const session = createMockSession();
     const received: { record: AgentRecord | undefined } = { record: undefined };
-    const runner: AgentRunner = {
-      run: vi.fn().mockImplementation(async (_ctx: any, _type: any, _prompt: any, opts: any) => {
-        opts.onSessionCreated?.(session);
-        return { responseText: "done", session, aborted: false, steered: false };
-      }),
-      resume: vi.fn(),
-    };
+    const runner = createSessionRunner(session);
     ({ manager } = createManager({ runner }));
 
     await manager.spawnAndWait(STUB_SNAPSHOT, "general-purpose", "test", {
