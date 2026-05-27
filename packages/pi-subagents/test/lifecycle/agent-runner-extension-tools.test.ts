@@ -4,14 +4,13 @@
  * Extension-registered tools (added during `session.bindExtensions(...)`) are
  * not in the session's active tool set when the initial filter pass runs.
  * Without a post-bind re-filter, the `extensions: string[]` allowlist branch
- * never matches any extension tool, and `extensions: true` lets denylisted
- * extension tools slip through.
+ * never matches any extension tool.
  *
  * This file simulates that flow by having `getActiveToolNames` return a small
  * built-in set before `bindExtensions` and a larger set including extension
  * tools after, then asserts that the final `setActiveToolsByName` call (the
- * post-bind re-filter) honors the agent's `extensions` and `disallowedTools`
- * config against the post-bind world.
+ * post-bind re-filter) honors the agent's `extensions` config against the
+ * post-bind world.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -31,7 +30,6 @@ const agentConfigMock = {
     inheritContext: false,
     runInBackground: false,
     isolated: false,
-    disallowedTools: undefined as string[] | undefined,
   },
 };
 
@@ -94,7 +92,6 @@ beforeEach(() => {
     inheritContext: false,
     runInBackground: false,
     isolated: false,
-    disallowedTools: undefined,
   };
 });
 
@@ -159,23 +156,6 @@ describe("Patch 2: post-bind active-tool re-filter", () => {
     expect(postBindArgs).not.toContain("other_tool");
   });
 
-  it("post-bind re-filter respects disallowedTools denylist for extension tools", async () => {
-    agentConfigMock.current.extensions = true;
-    agentConfigMock.current.disallowedTools = ["bad_extension_tool"];
-    const session = createSessionWithExtensionToolRegistration(
-      ["read"],
-      ["read", "good_extension_tool", "bad_extension_tool"],
-    );
-    io.createSession.mockResolvedValue({ session });
-
-    await runAgent(STUB_SNAPSHOT, "test-agent", "go", { context: { exec, registry: mockAgentLookup } }, io);
-
-    const postBindArgs = session.setActiveToolsByName.mock.calls[1][0];
-    expect(postBindArgs).toContain("read");
-    expect(postBindArgs).toContain("good_extension_tool");
-    expect(postBindArgs).not.toContain("bad_extension_tool");
-  });
-
   it("post-bind re-filter excludes our own tools (EXCLUDED_TOOL_NAMES) even when extensions: true", async () => {
     agentConfigMock.current.extensions = true;
     const session = createSessionWithExtensionToolRegistration(
@@ -195,35 +175,10 @@ describe("Patch 2: post-bind active-tool re-filter", () => {
     expect(postBindArgs).not.toContain("steer_subagent");
   });
 
-  it("extensions: false still applies disallowedTools to built-in tools (post-bind re-filter)", async () => {
-    // When extensions: false, the loader is constructed with noExtensions: true,
-    // so bindExtensions doesn't register any extension tools. The post-bind
-    // re-filter still runs to apply denylisting against the (built-in-only)
-    // active set.
+  it("extensions: false skips the filter entirely (setActiveToolsByName not called)", async () => {
+    // When extensions: false, there is no filtering to apply — neither the
+    // pre-bind nor post-bind setActiveToolsByName should fire.
     agentConfigMock.current.extensions = false;
-    agentConfigMock.current.disallowedTools = ["read"];
-    const session = createSessionWithExtensionToolRegistration(
-      ["read", "write"],
-      // With noExtensions: true on the loader, bindExtensions adds nothing.
-      ["read", "write"],
-    );
-    io.createSession.mockResolvedValue({ session });
-
-    await runAgent(STUB_SNAPSHOT, "test-agent", "go", { context: { exec, registry: mockAgentLookup } }, io);
-
-    expect(session.setActiveToolsByName).toHaveBeenCalledTimes(2);
-    const postBindArgs = session.setActiveToolsByName.mock.calls[1][0];
-    // Denylisted built-in is removed.
-    expect(postBindArgs).not.toContain("read");
-    // Non-denylisted built-in survives.
-    expect(postBindArgs).toContain("write");
-  });
-
-  it("extensions: false with no disallowedTools skips the filter (no setActiveToolsByName call)", async () => {
-    // When extensions: false AND no disallowedTools, there's nothing to filter,
-    // so neither the pre-bind nor post-bind setActiveToolsByName should fire.
-    agentConfigMock.current.extensions = false;
-    agentConfigMock.current.disallowedTools = undefined;
     const session = createSessionWithExtensionToolRegistration(
       ["read"],
       ["read"],

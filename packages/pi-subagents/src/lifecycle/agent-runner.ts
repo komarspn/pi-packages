@@ -22,7 +22,7 @@ import type { ShellExec, SubagentType, ThinkingLevel } from "#src/types";
 const EXCLUDED_TOOL_NAMES = ["Agent", "get_subagent_result", "steer_subagent"];
 
 /**
- * Filter the session's active tool names according to extension/denylist rules.
+ * Filter the session's active tool names according to extension rules.
  *
  * Run twice - once before `bindExtensions` (filters built-in tools) and once after
  * (filters extension-registered tools, which only join the active set during
@@ -36,16 +36,13 @@ function filterActiveTools(
   activeTools: string[],
   config: ToolFilterConfig,
 ): string[] {
-  const { toolNames, extensions, disallowedSet } = config;
+  const { toolNames, extensions } = config;
   if (extensions === false) {
-    // Extensions disabled: only apply the denylist to built-in tools.
-    if (!disallowedSet) return activeTools;
-    return activeTools.filter((t) => !disallowedSet.has(t));
+    return activeTools;
   }
   const builtinToolNameSet = new Set(toolNames);
   return activeTools.filter((t) => {
     if (EXCLUDED_TOOL_NAMES.includes(t)) return false;
-    if (disallowedSet?.has(t)) return false;
     if (builtinToolNameSet.has(t)) return true;
     if (Array.isArray(extensions)) {
       return extensions.some((ext) => t.startsWith(ext) || t.includes(ext));
@@ -341,9 +338,9 @@ export async function runAgent(
   });
 
   // Filter active tools: remove our own tools to prevent nesting,
-  // apply extension allowlist if specified, and apply disallowedTools denylist.
+  // apply extension allowlist if specified.
   // First pass - over built-in tools, before bindExtensions registers extension tools.
-  if (cfg.toolFilter.extensions !== false || cfg.toolFilter.disallowedSet) {
+  if (cfg.toolFilter.extensions !== false) {
     const filtered = filterActiveTools(session.getActiveToolNames(), cfg.toolFilter);
     session.setActiveToolsByName(filtered);
   }
@@ -367,9 +364,8 @@ export async function runAgent(
   // Extension-registered tools (added during bindExtensions) are not in the
   // session's active set when the first filter pass runs above. Without this
   // re-filter, the `extensions: string[]` allowlist branch never matches any
-  // extension tools and `extensions: true` lets non-allowlisted denylist
-  // entries slip in. Run the same filter against the post-bind active set.
-  if (cfg.toolFilter.extensions !== false || cfg.toolFilter.disallowedSet) {
+  // extension tools. Run the same filter against the post-bind active set.
+  if (cfg.toolFilter.extensions !== false) {
     const refiltered = filterActiveTools(session.getActiveToolNames(), cfg.toolFilter);
     session.setActiveToolsByName(refiltered);
   }
