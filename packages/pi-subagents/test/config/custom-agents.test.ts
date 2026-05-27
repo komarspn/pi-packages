@@ -125,7 +125,7 @@ No extensions.`);
     expect(agent.skills).toBe(false);
   });
 
-  it("handles extension allowlist", () => {
+  it("coerces csv extension allowlist to true (deprecated syntax)", () => {
     writeAgent("partial", `---
 extensions: web-search, mcp-server
 skills: planning, review
@@ -135,7 +135,8 @@ Partial access.`);
 
     const result = loadCustomAgents(tmpDir);
     const agent = result.get("partial")!;
-    expect(agent.extensions).toEqual(["web-search", "mcp-server"]);
+    // extensions csv allowlist is no longer supported — coerced to true
+    expect(agent.extensions).toBe(true);
     expect(agent.skills).toEqual(["planning", "review"]);
   });
 

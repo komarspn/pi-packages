@@ -27,8 +27,8 @@ import type { AgentPromptConfig, SubagentType, ThinkingLevel } from "#src/types"
 export interface ToolFilterConfig {
   /** Built-in tool name allowlist for this agent type. */
   toolNames: string[];
-  /** Resolved extensions setting: false | true | string[] allowlist. */
-  extensions: boolean | string[];
+  /** Resolved extensions setting: true = inherit all, false = none. */
+  extensions: boolean;
 }
 
 /**

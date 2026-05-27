@@ -3,8 +3,8 @@
  *
  * Extension-registered tools (added during `session.bindExtensions(...)`) are
  * not in the session's active tool set when the initial filter pass runs.
- * Without a post-bind re-filter, the `extensions: string[]` allowlist branch
- * never matches any extension tool.
+ * Without a post-bind re-filter, `EXCLUDED_TOOL_NAMES` (recursion guard) would
+ * not be applied to extension-registered tools.
  *
  * This file simulates that flow by having `getActiveToolNames` return a small
  * built-in set before `bindExtensions` and a larger set including extension
@@ -23,7 +23,7 @@ const agentConfigMock = {
     name: "test-agent",
     description: "Test agent",
     builtinToolNames: ["read"],
-    extensions: true as boolean | string[],
+    extensions: true,
     skills: false,
     systemPrompt: "You are a test agent.",
     promptMode: "replace",
@@ -134,26 +134,6 @@ describe("Patch 2: post-bind active-tool re-filter", () => {
     const secondCallArgs = session.setActiveToolsByName.mock.calls[1][0];
     expect(secondCallArgs).toContain("read");
     expect(secondCallArgs).toContain("extension_tool");
-  });
-
-  it("post-bind re-filter respects extensions: string[] allowlist", async () => {
-    // Allowlist only "permission-system" prefix; "other_tool" must be excluded.
-    agentConfigMock.current.extensions = ["permission-system"];
-    const session = createSessionWithExtensionToolRegistration(
-      ["read"],
-      ["read", "permission-system_check", "other_tool"],
-    );
-    io.createSession.mockResolvedValue({ session });
-
-    await runAgent(STUB_SNAPSHOT, "test-agent", "go", { context: { exec, registry: mockAgentLookup } }, io);
-
-    const postBindArgs = session.setActiveToolsByName.mock.calls[1][0];
-    // Built-in tools are always allowed.
-    expect(postBindArgs).toContain("read");
-    // Allowlisted extension tool included.
-    expect(postBindArgs).toContain("permission-system_check");
-    // Non-allowlisted extension tool excluded.
-    expect(postBindArgs).not.toContain("other_tool");
   });
 
   it("post-bind re-filter excludes our own tools (EXCLUDED_TOOL_NAMES) even when extensions: true", async () => {

@@ -425,16 +425,6 @@ describe("buildEjectContent", () => {
     expect(buildEjectContent(cfg)).toContain("extensions: false");
   });
 
-  it("emits 'extensions: <list>' when extensions is an array", () => {
-    const cfg: AgentConfig = {
-      ...minimalConfig,
-      extensions: ["pi-github-tools", "pi-colgrep"],
-    };
-    expect(buildEjectContent(cfg)).toContain(
-      "extensions: pi-github-tools, pi-colgrep",
-    );
-  });
-
   it("emits 'skills: false' when skills is false", () => {
     const cfg: AgentConfig = { ...minimalConfig, skills: false };
     expect(buildEjectContent(cfg)).toContain("skills: false");

@@ -359,12 +359,12 @@ describe("assembleSessionConfig — isolated mode", () => {
     expect(result.toolFilter.extensions).toBe(true);
   });
 
-  it("isolated:true forces extensions to false even for string[] extension list", () => {
+  it("isolated:true forces extensions to false even when agentConfig has extensions:true", () => {
     mockResolveAgentConfig.mockReturnValueOnce({
       name: "Explore",
       description: "test",
       builtinToolNames: ["read"],
-      extensions: ["pi-github-tools"] as string[],
+      extensions: true as const,
       skills: false as const,
       systemPrompt: "prompt",
       promptMode: "replace" as const,
