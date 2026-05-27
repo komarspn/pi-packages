@@ -16,7 +16,7 @@ Run them in foreground or background, steer them mid-run, resume completed sessi
 
 ## Features
 
-- **Claude Code look & feel** — same tool names, calling conventions, and UI patterns (`Agent`, `get_subagent_result`, `steer_subagent`) — feels native
+- **Claude Code look & feel** — same tool names, calling conventions, and UI patterns (`subagent`, `get_subagent_result`, `steer_subagent`) — feels native
 - **Parallel background agents** — spawn multiple agents that run concurrently with automatic queuing (configurable concurrency limit, default 4) and individual completion notifications
 - **Live widget UI** — persistent above-editor widget with animated spinners, live tool activity, token counts, and colored status icons
 - **Conversation viewer** — select any agent in `/agents` to open a live-scrolling overlay of its full conversation (auto-follows new content, scroll up to pause)
@@ -49,10 +49,10 @@ pi -e ./src/index.ts
 
 ## Quick Start
 
-The parent agent spawns sub-agents using the `Agent` tool:
+The parent agent spawns sub-agents using the `subagent` tool:
 
 ```text
-Agent({
+subagent({
   subagent_type: "Explore",
   prompt: "Find all files that handle authentication",
   description: "Find auth files",
@@ -163,7 +163,7 @@ Report findings with file paths, line numbers, severity, and remediation advice.
 Then spawn it like any built-in type:
 
 ```text
-Agent({ subagent_type: "auditor", prompt: "Review the auth module", description: "Security audit" })
+subagent({ subagent_type: "auditor", prompt: "Review the auth module", description: "Security audit" })
 ```
 
 ### Frontmatter Fields
@@ -190,11 +190,11 @@ All fields are optional — sensible defaults for everything.
 
 Frontmatter is authoritative.
 If an agent file sets `model`, `thinking`, `max_turns`, `inherit_context`, `run_in_background`, `isolated`, or `isolation`, those values are locked for that agent.
-`Agent` tool parameters only fill fields the agent config leaves unspecified.
+`subagent` tool parameters only fill fields the agent config leaves unspecified.
 
 ## Tools
 
-### `Agent`
+### `subagent`
 
 Launch a sub-agent.
 
@@ -359,7 +359,7 @@ This prevents unintended tool escalation.
 Set `isolation: worktree` to run an agent in a temporary git worktree:
 
 ```text
-Agent({ subagent_type: "refactor", prompt: "...", isolation: "worktree" })
+subagent({ subagent_type: "refactor", prompt: "...", isolation: "worktree" })
 ```
 
 The agent gets a full, isolated copy of the repository.
@@ -368,7 +368,7 @@ On completion:
 - **No changes:** worktree is cleaned up automatically
 - **Changes made:** changes are committed to a new branch (`pi-agent-<id>`) and returned in the result
 
-If the worktree cannot be created (not a git repo, no commits, or `git worktree add` fails), the `Agent` tool returns a clear error instead of running unisolated — `isolation: "worktree"` is a strict guarantee, not a hint.
+If the worktree cannot be created (not a git repo, no commits, or `git worktree add` fails), the `subagent` tool returns a clear error instead of running unisolated — `isolation: "worktree"` is a strict guarantee, not a hint.
 Initialize git and commit at least once, or omit `isolation`.
 
 ## Skill Preloading

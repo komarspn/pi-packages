@@ -279,7 +279,7 @@ src/
 │   └── service-adapter.ts          SubagentsServiceAdapter class wrapping AgentManager
 │
 ├── tools/                          LLM-facing tool implementations
-│   ├── agent-tool.ts               Agent tool definition, validation, dispatch
+│   ├── agent-tool.ts               subagent tool definition, validation, dispatch
 │   ├── result-renderer.ts          pure per-status result rendering
 │   ├── spawn-config.ts             pure config resolution
 │   ├── foreground-runner.ts        foreground execution loop
@@ -729,7 +729,7 @@ Inline the `extensions === false` passthrough into the callsite and reduce the f
 - Smell: B (accidental complexity), C (two-pass filter dance)
 - Outcome: `filterActiveTools` is a one-liner; `SessionConfig` loses one nested type; the pre-bind/post-bind dance is gone
 
-### Step 4: Rename `Agent` tool to `subagent` — [#242]
+### Step 4: Rename `Agent` tool to `subagent` — [#242] ✅ Complete
 
 Rename the `Agent` tool to `subagent` to align with Pi's built-in tool naming convention (all lowercase: `read`, `bash`, `write`, `edit`, `find`, `grep`, `ls`).
 The PascalCase name was inherited from tintinweb/pi-subagents (mimicking Claude Code's convention), but Pi uses lowercase for all built-in tools.
