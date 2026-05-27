@@ -17,6 +17,7 @@ The fork carries three original patches from the thin-patch era, still present i
 
 1. **Peer-dep rename** — peer dependencies point at `@earendil-works/pi-*` (the active scope) rather than the deprecated `@mariozechner/pi-*` scope.
 2. **Patch 2 (post-bind active-tool re-filter)** — `runAgent` re-runs the active-tool filter after `session.bindExtensions(...)` so extension-registered tools land in the child's active tool set.
+   Scheduled for removal in Phase 14 (#239) — the two-pass filter dance exists to support `disallowed_tools` and `extensions: string[]` filtering, both of which are being removed.
 3. **Patch 3 (active_agent tag)** — `runAgent` prepends `<active_agent name="${agentConfig.name}"/>` to every assembled child system prompt so `@gotgenes/pi-permission-system` can resolve per-agent `permission:` frontmatter inside the child.
 
 Upstream PRs for these patches ([#71](https://github.com/tintinweb/pi-subagents/pull/71), [#72](https://github.com/tintinweb/pi-subagents/pull/72), [#73](https://github.com/tintinweb/pi-subagents/pull/73)) are open but the fork continues independently regardless.
@@ -24,10 +25,26 @@ Upstream PRs for these patches ([#71](https://github.com/tintinweb/pi-subagents/
 ## Implementation Priorities
 
 - Follow the phased plan in `docs/architecture/architecture.md`.
+- **Open for extension, closed for modification** — pi-subagents is a minimal core that publishes events and a service API.
+  Other packages hook into these to add permissions, rendering, or telemetry.
+  Pi-subagents has zero knowledge of its consumers — dependency arrows point inward, never outward.
 - Narrow core — the extension owns agent spawning, execution, and result retrieval; everything else is a consumer.
+- **No policy enforcement** — tool restrictions, skill access control, and extension filtering belong in `@gotgenes/pi-permission-system`, not in this package.
+  The `disallowed_tools` frontmatter field and `extensions: string[]` allowlist are being removed (Phase 14, #237, #238, #239).
+  Users should use `permission:` frontmatter for tool restrictions.
 - Typed API boundary — export `SubagentsService` via `Symbol.for()` accessors so other extensions can spawn agents without importing this package directly (done, #48).
 - Remove scheduling subsystem (done); ad-hoc RPC and group-join (done); output-file porting to Pi session format tracked in #61.
 - Cherry-pick upstream fixes when they align with this fork's scope; do not track upstream as a merge target.
+
+### Architectural direction
+
+The target architecture is documented in `docs/architecture/architecture.md` under "Target architecture."
+The key phases are:
+
+- **Phase 14** — Strip policy from core: remove `disallowed_tools`, `extensions` filtering, collapse `filterActiveTools` (#237, #238, #239).
+- **Phase 15** — Domain model evolution: `AgentRecord` → `Agent` with behavior, async `startAgent`, observer pattern, `ConcurrencyQueue` (#227–#232).
+- **Phase 16** — Invert dependencies: remove `permission-bridge.ts`, emit child session lifecycle events, dissolve `isolated`/`extensions: false`.
+- **Phase 17** — Extract UI to a separate package.
 
 ## Code Style
 

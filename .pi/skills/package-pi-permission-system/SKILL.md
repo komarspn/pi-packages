@@ -30,6 +30,29 @@ Pre-monorepo plans from the upstream fork live in `docs/plans/archive/` — issu
   Mechanism is forever; docs are reversible.
 - Treat any declared config field not read at runtime as a maintenance trap.
 
+### Upcoming: single source of truth for tool policy
+
+Pi-subagents is removing its `disallowed_tools` frontmatter field and `extensions: string[]` allowlist (pi-subagents Phase 14, #237, #238, #239).
+This package becomes the **sole authority** for tool access control.
+Users migrating from `disallowed_tools` should use `permission:` frontmatter in agent definitions:
+
+```yaml
+# Before (pi-subagents, being removed)
+disallowed_tools: bash
+
+# After (pi-permission-system)
+permission:
+  bash: deny
+```
+
+### Upcoming: event-based subagent integration
+
+Today, pi-subagents calls `registerChildSession()` via a bridge module to notify this package of child sessions.
+In pi-subagents Phase 16, that bridge is removed.
+Instead, pi-subagents will emit child session lifecycle events on `pi.events`, and this package will listen for them.
+This inverts the dependency direction — pi-subagents has zero knowledge of pi-permission-system.
+This package should be designed to detect and respond to child session events without requiring an outbound call from pi-subagents.
+
 ## Configuration
 
 One unified config file per scope, following the `pi-autoformat` convention (`extensions/<id>/config.json`).

@@ -112,6 +112,15 @@ They are ordered from most impactful (structural) to least (cosmetic).
 | Barrel re-export sprawl    | `index.ts` re-exports everything            | Remove barrel; use direct imports                           |
 | Unclear module boundaries  | Same concept lives in 3 files               | Co-locate; single responsibility                            |
 
+### Category F: Cross-package responsibility overlap
+
+| Signal                            | Evidence                                                        | Typical fix                                                                       |
+| --------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Duplicate policy enforcement      | Two packages both filter/restrict the same surface              | Remove from one; establish single source of truth                                 |
+| Outbound bridge to known consumer | Package reaches out to a specific consumer via bridge module    | Invert: emit events, let consumer hook in                                         |
+| Feature disguised as lifecycle    | Config field claims lifecycle control but only filters post-hoc | Remove the disguise; move the policy to the package that owns enforcement         |
+| Blunt instrument                  | Boolean kills an entire subsystem when granular control exists  | Remove the blunt flag; use the granular system (e.g., per-tool deny vs. no-tools) |
+
 ## Prioritization framework
 
 Score each finding on two axes:
@@ -164,3 +173,7 @@ These are failure modes and corrections discovered empirically:
 - **Start from index.ts outward** — the composition root reveals wiring overhead, coupling, and initialization hazards that file-by-file analysis misses.
 - **Lifecycle object > method extraction** — when mutable `let` variables are shared across closures, the fix is an object that owns that state, not extracting methods that still close over the variables.
 - **Behavior on domain object > orchestration in manager** — when a manager reaches into a data object 10+× to check status and perform transitions, the object is anemic; move the behavior to the object itself.
+- **Events > outbound bridges** — when package A needs to notify package B, prefer emitting events that B listens for over A calling B directly via a bridge module.
+  This keeps A closed for modification when new consumers (C, D, …) arrive.
+- **Single source of truth for policy** — when two packages both enforce the same kind of restriction (tool filtering, access control), the duplication creates confusion about where to configure it.
+  Remove the duplicate and direct users to the authoritative package.

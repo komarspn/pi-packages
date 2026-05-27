@@ -90,6 +90,13 @@ When the same set of fields is reset to the same values in multiple places, extr
 When a new parameter must flow through a callback chain, check whether the intermediaries actually need it.
 If they only relay it, the parameter belongs on an object the endpoints share — not threaded through every layer.
 
+### Cross-extension composition
+
+When one extension needs to communicate with another, prefer event-driven composition over outbound bridge modules.
+Publish events on the event bus or expose a service API via `Symbol.for()` — let consumers hook in rather than reaching out to known consumers.
+This keeps the publishing extension closed for modification when new consumers arrive.
+Do not add a bridge module that imports or dynamically discovers a specific consumer; that creates an outbound dependency that inverts the desired direction.
+
 ### Structural reasons before extracting duplication
 
 Before extracting apparent duplication into a shared abstraction, trace why the duplicates exist.
