@@ -19,9 +19,10 @@ import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type { ExecutionState } from "#src/lifecycle/execution-state";
 import type { LifetimeUsage } from "#src/lifecycle/usage";
 import { addUsage } from "#src/lifecycle/usage";
-import type { WorktreeState } from "#src/lifecycle/worktree-state";
+import type { WorktreeManager } from "#src/lifecycle/worktree";
+import { WorktreeState } from "#src/lifecycle/worktree-state";
 import type { NotificationState } from "#src/observation/notification-state";
-import type { AgentInvocation, SubagentType } from "#src/types";
+import type { AgentInvocation, IsolationMode, SubagentType } from "#src/types";
 
 export type AgentRecordStatus =
 	| "queued"
@@ -88,6 +89,24 @@ export class AgentRecord {
 	execution?: ExecutionState;
 	worktreeState?: WorktreeState;
 	notification?: NotificationState;
+
+	/**
+	 * Create a git worktree for isolated execution, set worktreeState, and return the worktree path.
+	 * Returns undefined if isolation is not "worktree".
+	 * Throws if worktree creation fails (strict isolation).
+	 */
+	setupWorktree(worktrees: WorktreeManager, isolation: IsolationMode | undefined): string | undefined {
+		if (isolation !== "worktree") return undefined;
+		const wt = worktrees.create(this.id);
+		if (!wt) {
+			throw new Error(
+				'Cannot run with isolation: "worktree" — not a git repo, no commits yet, or `git worktree add` failed. ' +
+				'Initialize git and commit at least once, or omit `isolation`.',
+			);
+		}
+		this.worktreeState = new WorktreeState(wt);
+		return wt.path;
+	}
 
 	// Steer buffer — messages queued before the session is ready
 	private _pendingSteers: string[] = [];

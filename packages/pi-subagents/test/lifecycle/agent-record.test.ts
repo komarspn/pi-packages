@@ -449,6 +449,35 @@ describe("AgentRecord — abort", () => {
 	});
 });
 
+describe("AgentRecord — setupWorktree", () => {
+	it("returns undefined and sets no worktreeState when isolation is not 'worktree'", () => {
+		const record = new AgentRecord({ id: "1", type: "general-purpose", description: "test" });
+		const worktrees = { create: vi.fn(), cleanup: vi.fn(), prune: vi.fn() };
+		const result = record.setupWorktree(worktrees, undefined);
+		expect(result).toBeUndefined();
+		expect(record.worktreeState).toBeUndefined();
+		expect(worktrees.create).not.toHaveBeenCalled();
+	});
+
+	it("creates a worktree, sets worktreeState, and returns the path when isolation is 'worktree'", () => {
+		const record = new AgentRecord({ id: "wt-1", type: "general-purpose", description: "test" });
+		const wtInfo = { path: "/tmp/wt", branch: "agent/wt-1" };
+		const worktrees = { create: vi.fn(() => wtInfo), cleanup: vi.fn(), prune: vi.fn() };
+		const result = record.setupWorktree(worktrees, "worktree");
+		expect(result).toBe("/tmp/wt");
+		expect(record.worktreeState).toBeDefined();
+		expect(record.worktreeState!.path).toBe("/tmp/wt");
+		expect(worktrees.create).toHaveBeenCalledWith("wt-1");
+	});
+
+	it("throws when worktree creation fails", () => {
+		const record = new AgentRecord({ id: "1", type: "general-purpose", description: "test" });
+		const worktrees = { create: vi.fn(() => undefined), cleanup: vi.fn(), prune: vi.fn() };
+		expect(() => record.setupWorktree(worktrees as any, "worktree")).toThrow(/Cannot run with isolation/);
+		expect(record.worktreeState).toBeUndefined();
+	});
+});
+
 describe("AgentRecord — flushPendingSteers", () => {
 	it("calls session.steer for each buffered message and clears the buffer", async () => {
 		const record = new AgentRecord({ id: "1", type: "general-purpose", description: "test" });
