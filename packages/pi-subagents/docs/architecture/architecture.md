@@ -686,25 +686,66 @@ See [phase-14-strip-policy.md](history/phase-14-strip-policy.md) for details.
 
 ## Improvement roadmap (Phase 15 — domain model evolution)
 
-Phase 15 addresses the anemic domain model in the lifecycle layer.
-`AgentRecord` is a data bag — identity, status transitions, and stats — but no behavior.
-`AgentManager` reaches into records 37 times, doing work that belongs on the agent.
-Per-agent state (pending steers, abort logic, run lifecycle) was scattered across the manager, `RunHandle`, and a manager-level Map.
-`RunHandle` has been dissolved into `Agent` methods — see Step 2.
+Phase 15 evolves `Agent` from a passive state machine into an object that **owns its entire execution lifecycle**.
+
+Steps 1–2 (complete) moved per-agent behavior from `AgentManager` onto `Agent`: abort, steer buffering, worktree setup, and run lifecycle methods (`completeRun`, `failRun`).
+However, Agent still cannot *run itself*.
+`AgentManager.startAgent()` orchestrates the entire execution: calling the runner, handling session creation, wiring observers, and cleaning up worktrees.
+The manager reaches into Agent 10 times across `spawn()` + `startAgent()` — writing to `notification`, `execution`, and `promise` after construction, passing its own `worktrees` and `runner` as method arguments, and threading `onSessionCreated` callbacks through three layers.
+
+The remaining steps address this by making **Agent born complete**: constructed with all dependencies and configuration, owning its entire execution lifecycle.
+
+### Architecture target
+
+Agent receives three concerns at construction:
+
+| Concern     | Fields                                                                        | Lifetime                  |
+| ----------- | ----------------------------------------------------------------------------- | ------------------------- |
+| Identity    | id, type, description, invocation                                             | Immutable                 |
+| Run config  | snapshot, prompt, model, isolation, maxTurns, thinking, signal, parentSession | Immutable per-run         |
+| Shared deps | runner, worktrees                                                             | Shared service references |
+
+`Agent.run()` encapsulates the full execution lifecycle:
+
+1. Set up worktree internally (knows its own isolation mode, has worktrees).
+2. Call `this.runner.run()` (has the runner).
+3. Handle session creation internally: set `execution`, flush pending steers, attach record-observer.
+4. Notify lifecycle observer (started, session created, completed, compacted).
+5. Clean up worktree on completion or error.
+6. Transition status.
+
+`AgentManager` becomes a collection manager + concurrency controller:
+
+- Creates complete Agent objects, stores them in the map.
+- Decides when to run (immediate or queue) and calls `agent.run()`.
+- Provides high-level actions: abort, list, cleanup.
+- Does *not* own the runner, worktrees, or any run-orchestration logic.
+
+The queue stores agent IDs, not `SpawnArgs`.
+When capacity opens, the manager looks up the agent and calls `agent.run()` — the agent already has everything.
+
+The `onSessionCreated` callback that currently threads through `AgentSpawnConfig` → `startAgent` → `RunOptions` → runner disappears.
+Agent handles session creation internally during `run()` and notifies external observers via the lifecycle observer pattern.
+
+The synchronous-throw contract for worktree failure (introduced in Step 2's hoist) is replaced by a uniform async error surface.
+Worktree failures inside `agent.run()` propagate through the promise.
+For background agents, errors surface via `get_subagent_result` and appear in `/agents`.
+For foreground agents, `spawnAndWait` awaits the promise naturally.
 
 The scheduling concern (queue, concurrency counter, drain) is tangled into `AgentManager` alongside collection management and run orchestration.
 `notifyConcurrencyChanged()` is a scheduling method exposed as a public API so settings can poke the queue — a cross-concern leak.
 
 ### Findings summary
 
-| Finding                                                           | Category     | Impact | Risk | Priority |
-| ----------------------------------------------------------------- | ------------ | ------ | ---- | -------- |
-| `AgentRecord` is anemic — no behavior, manager reaches in 37×     | B: Oversized | 5      | 3    | 15       |
-| Scheduling tangled into `AgentManager` (3 fields, 3 methods)      | A: Coupling  | 4      | 2    | 12       |
-| ~~`startAgent` uses `.then()`/`.catch()` instead of async/await~~ | C: Callbacks | 3      | 2    | ✅       |
-| `onSessionCreated` callback flows through 3 layers                | C: Callbacks | 3      | 2    | 10       |
-| `resume()` duplicates observer subscribe/unsubscribe pattern      | A: Redundant | 2      | 1    | 8        |
-| `exec`/`registry` relay-only deps on `AgentManager`               | C: Coupling  | 2      | 1    | 6        |
+| Finding                                                            | Category     | Impact | Risk | Priority |
+| ------------------------------------------------------------------ | ------------ | ------ | ---- | -------- |
+| ~~`AgentRecord` is anemic — no behavior, manager reaches in 37×~~  | B: Oversized | 5      | 3    | ✅       |
+| Agent cannot run itself — manager orchestrates 10 external touches | C: Coupling  | 5      | 3    | 15       |
+| Scheduling tangled into `AgentManager` (3 fields, 3 methods)       | A: Coupling  | 4      | 2    | 12       |
+| ~~`startAgent` uses `.then()`/`.catch()` instead of async/await~~  | C: Callbacks | 3      | 2    | ✅       |
+| ~~`onSessionCreated` callback flows through 3 layers~~             | C: Callbacks | 3      | 2    | subsumed |
+| `resume()` duplicates observer subscribe/unsubscribe pattern       | A: Redundant | 2      | 1    | 8        |
+| `exec`/`registry` relay-only deps on `AgentManager`                | C: Coupling  | 2      | 1    | 6        |
 
 ### Step 1: Evolve AgentRecord into Agent with behavior — [#227] ✅ Complete
 
@@ -731,43 +772,54 @@ Worktree setup was hoisted to callers (`spawn`, `drainQueue`) to preserve the sy
 - Smell: C (raw promise callbacks)
 - Outcome: zero `.then()`/`.catch()` in `agent-manager.ts`; `RunHandle` deleted; Agent owns run lifecycle
 
-### Step 3: Replace onSessionCreated callback with observer method — [#229]
+### Step 3: Agent born complete — Agent.run() absorbs startAgent — [#229]
 
-Add `onSessionCreated(agent, session)` to `AgentManagerObserver`.
-Remove the `onSessionCreated` callback from `AgentSpawnConfig`.
-Tool-layer code subscribes via the observer pattern instead of passing callbacks through the spawn config.
+Agent receives `runner`, `worktrees`, and a lifecycle observer at construction.
+Agent creates its own `NotificationState` from `parentSession.toolCallId` — no external write.
+`Agent.run()` encapsulates the entire execution lifecycle: worktree setup, runner invocation, session-creation handling, observer wiring, worktree cleanup, and status transitions.
+`startAgent` is deleted from `AgentManager`.
+The `onSessionCreated` callback is removed from `AgentSpawnConfig` — Agent handles session creation internally and notifies via the lifecycle observer.
+`SpawnArgs` is deleted — Agent has its config from construction.
 
-- Target: `src/lifecycle/agent-manager.ts`, `src/tools/background-spawner.ts`, `src/tools/foreground-runner.ts`
-- Smell: C (callback flowing through 3 layers)
-- Outcome: `AgentSpawnConfig` loses one callback field; session notification uses the observer pattern
+`AgentManager.spawn()` becomes: create complete Agent, put in map, call `agent.run()` or queue the agent ID.
+
+- Depends on: #228, #231
+- Target: `src/lifecycle/agent.ts`, `src/lifecycle/agent-manager.ts`, `src/tools/background-spawner.ts`, `src/tools/foreground-runner.ts`
+- Smell: C (manager orchestrates 10 external touches on Agent) + C (callback flowing through 3 layers)
+- Outcome: Agent owns its entire execution lifecycle; `startAgent`, `SpawnArgs`, `onSessionCreated` callback deleted; zero post-construction writes from `AgentManager`
 
 ### Step 4: Extract ConcurrencyQueue from AgentManager — [#230]
 
 Extract `queue[]`, `runningBackground`, `_getMaxConcurrent`, `drainQueue()`, `finalizeBackgroundRun()` into a `ConcurrencyQueue` class.
+The queue stores agent IDs — not `SpawnArgs`.
+Drain calls `agent.run()` directly — no worktree setup, no args threading.
 `SettingsManager` talks to the queue directly — `notifyConcurrencyChanged()` is eliminated from `AgentManager`.
 
+- Depends on: #229
 - Target: new `src/lifecycle/concurrency-queue.ts`, `src/lifecycle/agent-manager.ts`, `src/index.ts`
 - Smell: A (tangled concerns) + C (cross-concern leak via `notifyConcurrencyChanged`)
-- Outcome: `AgentManager` loses 3 fields, 3 methods (~40 lines); scheduling is independently testable
+- Outcome: `AgentManager` loses 3 fields, 3 methods (~40 lines); scheduling is independently testable; queue interface is trivial (agent has everything)
 
 ### Step 5: Push exec/registry relay deps to runner construction — [#231]
 
 `AgentManager` receives `exec` and `registry` in its constructor but only relays them to `runner.run()` via `context`.
-Move them to `ConcreteAgentRunner` construction.
+Move them to `ConcreteAgentRunner` construction so the runner is self-contained.
+This is a prerequisite for Step 3 — Agent holds the runner, and the runner must carry its own static dependencies.
 
 - Target: `src/lifecycle/agent-manager.ts`, `src/lifecycle/agent-runner.ts`, `src/index.ts`
 - Smell: C (relay-only dependencies)
-- Outcome: `AgentManager` loses 2 fields; `AgentManagerOptions` shrinks from 7 to 5 fields
+- Outcome: `AgentManager` loses 2 fields; `AgentManagerOptions` shrinks from 7 to 5 fields; runner is self-contained
 
-### Step 6: Unify resume() with Agent run lifecycle methods — [#232]
+### Step 6: Agent.resume() with internal observer lifecycle — [#232]
 
-After #228 dissolved `RunHandle` into Agent methods (`completeRun`, `failRun`, `releaseListeners`), `resume()` on `AgentManager` becomes a short delegation to `agent.resume(runner, prompt, signal)`.
-The agent manages its own observer subscription lifecycle using the same methods that `startAgent` uses.
+Agent has the runner from construction.
+`Agent.resume(prompt, signal)` manages its own observer subscription lifecycle using the same internal wiring as `run()`.
+`AgentManager.resume()` becomes a one-liner delegation to `agent.resume(prompt, signal)` — no manual `subscribeRecordObserver` / try-finally.
 
-- Depends on: #227, #228
-- Target: `src/lifecycle/agent-manager.ts`
+- Depends on: #229
+- Target: `src/lifecycle/agent.ts`, `src/lifecycle/agent-manager.ts`
 - Smell: A (duplicated observer subscribe/unsubscribe pattern)
-- Outcome: no manual `subscribeRecordObserver` / try-finally in the manager
+- Outcome: `AgentManager.resume()` is a 4-line delegation; observer lifecycle is Agent-internal
 
 ### Step dependency diagram
 
@@ -775,23 +827,26 @@ The agent manages its own observer subscription lifecycle using the same methods
 flowchart LR
     S1["Step 1<br/>Agent with behavior"]
     S2["Step 2<br/>async startAgent"]
-    S3["Step 3<br/>onSessionCreated observer"]
+    S5["Step 5<br/>runner self-contained"]
+    S3["Step 3<br/>Agent.run()"]
     S4["Step 4<br/>ConcurrencyQueue"]
-    S5["Step 5<br/>relay deps"]
-    S6["Step 6<br/>resume unification"]
+    S6["Step 6<br/>Agent.resume()"]
 
     S1 --> S2
-    S1 --> S6
-    S2 --> S6
-    S3 ~~~ S4
-    S4 ~~~ S5
+    S2 --> S3
+    S5 --> S3
+    S3 --> S4
+    S3 --> S6
 ```
 
 ### Tracks
 
-1. **Track A — Domain model** (Steps 1, 2, 6): Agent with behavior, async runs, resume unification.
-   Sequential — each depends on the previous.
-2. **Track B — Decoupling** (Steps 3, 4, 5): independent, can proceed in parallel with Track A.
+1. **Track A — Foundation** (Step 5): Runner becomes self-contained.
+   No dependencies on other Phase 15 steps; can start immediately.
+2. **Track B — Agent lifecycle** (Steps 3, 6): Agent born complete, owns run + resume.
+   Step 3 depends on Track A. Step 6 depends on Step 3.
+3. **Track C — Scheduling** (Step 4): ConcurrencyQueue extraction.
+   Depends on Step 3 (queue drains via `agent.run()`).
 
 ## Improvement roadmap (Phase 16 — invert dependencies)
 
