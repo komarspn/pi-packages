@@ -58,6 +58,9 @@ Rules use `"error"` (fail CI), `"warn"` (report only), or `"off"` (skip).
 // fallow-ignore-next-line unused-export
 export const keepThis = 1;
 
+// fallow-ignore-next-line unused-type
+export type KeepThisType = string;
+
 // fallow-ignore-file
 ```
 

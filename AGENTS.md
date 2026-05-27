@@ -119,6 +119,9 @@ Use `scripts/issue-context.sh <N>` to gather all available context for an issue 
   ES2023 APIs (`findLast`, `findLastIndex`, `toReversed`, `toSorted`, `toSpliced`, `with`) and ES2024 APIs (`Promise.withResolvers`, `Object.groupBy`, `Map.groupBy`, `Array.fromAsync`) are available and preferred.
   Do not use APIs introduced after ES2024.
 
+When a rename or extraction adds exports to a barrel file (`types.ts`, `index.ts`), verify at least one consumer imports the symbol from that barrel — not from the source module directly.
+Do not add speculative re-exports; fallow will flag them as dead code.
+
 Use `colgrep` for intent-based codebase exploration and convention discovery; use `grep` for exact symbol matching.
 
 ### Biome / ESLint linter conflicts
