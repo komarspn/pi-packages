@@ -1,9 +1,9 @@
-import type { AgentSpawnConfig, ParentSessionInfo } from "#src/lifecycle/agent-manager";
+import type { AgentSpawnConfig } from "#src/lifecycle/agent-manager";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import type { AgentActivityAccess } from "#src/tools/agent-tool";
 import { textResult } from "#src/tools/helpers";
 import type { ResolvedSpawnConfig } from "#src/tools/spawn-config";
-import type { Agent } from "#src/types";
+import type { Agent, ParentSessionInfo } from "#src/types";
 import { AgentActivityTracker } from "#src/ui/agent-activity-tracker";
 import { subscribeUIObserver } from "#src/ui/ui-observer";
 
