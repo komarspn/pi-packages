@@ -266,9 +266,9 @@ src/
 │   └── session-dir.ts              session directory derivation
 │
 ├── lifecycle/                      agent execution and state tracking
-│   ├── agent-manager.ts            spawn, queue, abort, resume, concurrency
+│   ├── agent-manager.ts            collection manager + concurrency controller
 │   ├── agent-runner.ts             session creation, turn loop, tool filtering
-│   ├── agent.ts                    status state machine, per-agent behavior (abort, steer, worktree)
+│   ├── agent.ts                    owns full execution lifecycle (run, abort, steer, worktree)
 │   ├── parent-snapshot.ts          immutable spawn-time parent state
 │   ├── execution-state.ts          session/output phase state
 │   ├── permission-bridge.ts        optional bridge to pi-permission-system registry
@@ -780,14 +780,15 @@ Worktree setup was hoisted to callers (`spawn`, `drainQueue`) to preserve the sy
 - Smell: C (relay-only dependencies)
 - Outcome: `AgentManager` loses 2 fields; `AgentManagerOptions` shrinks from 7 to 5 fields; runner is self-contained
 
-### Step 4: Agent born complete — Agent.run() absorbs startAgent — [#229]
+### Step 4: Agent born complete — Agent.run() absorbs startAgent — [#229] ✅
 
 Agent receives `runner`, `worktrees`, and a lifecycle observer at construction.
-Agent creates its own `NotificationState` from `parentSession.toolCallId` — no external write.
+Agent creates its own `AbortController` and `NotificationState` from `parentSession.toolCallId` — no external writes.
 `Agent.run()` encapsulates the entire execution lifecycle: worktree setup, runner invocation, session-creation handling, observer wiring, worktree cleanup, and status transitions.
 `startAgent` is deleted from `AgentManager`.
-The `onSessionCreated` callback is removed from `AgentSpawnConfig` — Agent handles session creation internally and notifies via the lifecycle observer.
+The `onSessionCreated` callback is removed from `AgentSpawnConfig` — replaced by `AgentLifecycleObserver` passed at construction.
 `SpawnArgs` is deleted — Agent has its config from construction.
+The queue is simplified from `{ id, args }[]` to `string[]` (agent IDs only).
 
 `AgentManager.spawn()` becomes: create complete Agent, put in map, call `agent.run()` or queue the agent ID.
 

@@ -18,10 +18,6 @@ import { subscribeAgentObserver } from "#src/observation/record-observer";
 import type { RunConfig } from "#src/runtime";
 import type { AgentInvocation, CompactionInfo, IsolationMode, ParentSessionInfo, SubagentType, ThinkingLevel } from "#src/types";
 
-// Re-exported from types.ts for backward compatibility.
-// Re-exported from types.ts for backward compatibility.
-export type { CompactionInfo, ParentSessionInfo } from "#src/types";
-
 /** Observer interface for agent lifecycle notifications. */
 export interface AgentManagerObserver {
   onAgentStarted(record: Agent): void;
