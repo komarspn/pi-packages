@@ -105,3 +105,16 @@ export type ShellExec = (
   args: string[],
   options?: { cwd?: string; timeout?: number },
 ) => Promise<{ stdout: string; stderr: string; code: number }>;
+
+/** Parent session identity — grouped fields that travel together from the tool boundary. */
+export interface ParentSessionInfo {
+	/** Path to the parent session's JSONL file (for deriving the subagent session directory). */
+	parentSessionFile?: string;
+	/** Session ID of the parent agent (stored in the child session's parentSession header). */
+	parentSessionId?: string;
+	/** Tool call ID for background notification wiring. When set, spawn attaches NotificationState. */
+	toolCallId?: string;
+}
+
+/** Compaction event info passed through lifecycle observers. */
+export type CompactionInfo = { reason: "manual" | "threshold" | "overflow"; tokensBefore: number };

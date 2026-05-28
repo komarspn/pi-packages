@@ -18,9 +18,10 @@ import type { WorktreeManager } from "#src/lifecycle/worktree";
 import { NotificationState } from "#src/observation/notification-state";
 import { subscribeAgentObserver } from "#src/observation/record-observer";
 import type { RunConfig } from "#src/runtime";
-import type { AgentInvocation, IsolationMode, SubagentType, ThinkingLevel } from "#src/types";
+import type { AgentInvocation, CompactionInfo, IsolationMode, ParentSessionInfo, SubagentType, ThinkingLevel } from "#src/types";
 
-export type CompactionInfo = { reason: "manual" | "threshold" | "overflow"; tokensBefore: number };
+// Re-exported from types.ts for backward compatibility.
+export type { CompactionInfo } from "#src/types";
 
 /** Observer interface for agent lifecycle notifications. */
 export interface AgentManagerObserver {
@@ -50,14 +51,8 @@ interface SpawnArgs {
   options: AgentSpawnConfig;
 }
 
-export interface ParentSessionInfo {
-  /** Path to the parent session's JSONL file (for deriving the subagent session directory). */
-  parentSessionFile?: string;
-  /** Session ID of the parent agent (stored in the child session's parentSession header). */
-  parentSessionId?: string;
-  /** Tool call ID for background notification wiring. When set, spawn attaches NotificationState. */
-  toolCallId?: string;
-}
+// Re-exported from types.ts for backward compatibility.
+export type { ParentSessionInfo } from "#src/types";
 
 export interface AgentSpawnConfig {
   description: string;

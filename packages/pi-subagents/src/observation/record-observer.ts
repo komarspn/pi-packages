@@ -6,8 +6,7 @@
  */
 
 import type { Agent } from "#src/lifecycle/agent";
-import type { CompactionInfo } from "#src/lifecycle/agent-manager";
-import type { SubscribableSession } from "#src/types";
+import type { CompactionInfo, SubscribableSession } from "#src/types";
 
 export interface AgentObserverOptions {
   onCompact?: (record: Agent, info: CompactionInfo) => void;
