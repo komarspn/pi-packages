@@ -740,15 +740,15 @@ The scheduling concern (queue, concurrency counter, drain) is tangled into `Agen
 
 ### Findings summary
 
-| Finding                                                            | Category     | Impact | Risk | Priority |
-| ------------------------------------------------------------------ | ------------ | ------ | ---- | -------- |
-| ~~`AgentRecord` is anemic — no behavior, manager reaches in 37×~~  | B: Oversized | 5      | 3    | ✅       |
-| Agent cannot run itself — manager orchestrates 10 external touches | C: Coupling  | 5      | 3    | 15       |
-| Scheduling tangled into `AgentManager` (3 fields, 3 methods)       | A: Coupling  | 4      | 2    | 12       |
-| ~~`startAgent` uses `.then()`/`.catch()` instead of async/await~~  | C: Callbacks | 3      | 2    | ✅       |
-| ~~`onSessionCreated` callback flows through 3 layers~~             | C: Callbacks | 3      | 2    | subsumed |
-| `resume()` duplicates observer subscribe/unsubscribe pattern       | A: Redundant | 2      | 1    | 8        |
-| `exec`/`registry` relay-only deps on `AgentManager`                | C: Coupling  | 2      | 1    | 6        |
+| Finding                                                                | Category     | Impact | Risk | Priority |
+| ---------------------------------------------------------------------- | ------------ | ------ | ---- | -------- |
+| ~~`AgentRecord` is anemic — no behavior, manager reaches in 37×~~      | B: Oversized | 5      | 3    | ✅       |
+| ~~Agent cannot run itself — manager orchestrates 10 external touches~~ | C: Coupling  | 5      | 3    | ✅       |
+| ~~Scheduling tangled into `AgentManager` (3 fields, 3 methods)~~       | A: Coupling  | 4      | 2    | ✅       |
+| ~~`startAgent` uses `.then()`/`.catch()` instead of async/await~~      | C: Callbacks | 3      | 2    | ✅       |
+| ~~`onSessionCreated` callback flows through 3 layers~~                 | C: Callbacks | 3      | 2    | subsumed |
+| ~~`resume()` duplicates observer subscribe/unsubscribe pattern~~       | A: Redundant | 2      | 1    | ✅       |
+| ~~`exec`/`registry` relay-only deps on `AgentManager`~~                | C: Coupling  | 2      | 1    | ✅       |
 
 ### Step 1: Evolve AgentRecord into Agent with behavior — [#227] ✅ Complete
 
