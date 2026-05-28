@@ -24,7 +24,19 @@ import { addUsage } from "#src/lifecycle/usage";
 import type { WorktreeManager } from "#src/lifecycle/worktree";
 import { WorktreeState } from "#src/lifecycle/worktree-state";
 import type { NotificationState } from "#src/observation/notification-state";
-import type { AgentInvocation, IsolationMode, SubagentType } from "#src/types";
+import type { AgentInvocation, CompactionInfo, IsolationMode, SubagentType } from "#src/types";
+
+/** Per-agent lifecycle observer — created by AgentManager for each spawn. */
+export interface AgentLifecycleObserver {
+	/** Fires when the agent transitions to running (inside run(), after markRunning). */
+	onStarted?(agent: Agent): void;
+	/** Fires when the runner creates the session — delivers the session to external consumers. */
+	onSessionCreated?(agent: Agent, session: AgentSession): void;
+	/** Fires once when the run completes or fails (for concurrency drain). */
+	onRunFinished?(agent: Agent): void;
+	/** Fires on compaction events during the run. */
+	onCompacted?(agent: Agent, info: CompactionInfo): void;
+}
 
 export type AgentStatus =
 	| "queued"
