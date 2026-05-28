@@ -121,6 +121,8 @@ classDiagram
         +markError()
         +markStopped()
         +resetForResume()
+        +run()
+        +resume(prompt, signal)
         +abort(): boolean
         +queueSteer(message)
         +flushPendingSteers(session)
@@ -136,7 +138,7 @@ classDiagram
     class AgentManager {
         +spawn(snapshot, type, prompt, config)
         +spawnAndWait(snapshot, type, prompt, config)
-        +resume(id, snapshot, exec)
+        +resume(id, prompt, signal)
         +getRecord(id): Agent
         +listAgents(): Agent[]
         +abort(id)
@@ -812,7 +814,7 @@ Drain calls `agent.run()` directly — no worktree setup, no args threading.
 - Smell: A (tangled concerns) + C (cross-concern leak via `notifyConcurrencyChanged`)
 - Outcome: `AgentManager` loses 3 fields, 3 methods (~40 lines); scheduling is independently testable; queue interface is trivial (agent has everything)
 
-### Step 6: Agent.resume() with internal observer lifecycle — [#232]
+### Step 6: Agent.resume() with internal observer lifecycle — [#232] ✅
 
 Agent has the runner from construction.
 `Agent.resume(prompt, signal)` manages its own observer subscription lifecycle using the same internal wiring as `run()`.
