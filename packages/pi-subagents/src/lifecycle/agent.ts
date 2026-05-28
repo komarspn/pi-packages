@@ -148,10 +148,14 @@ export class Agent {
 	 * Create a git worktree for isolated execution, set worktreeState, and return the worktree path.
 	 * Returns undefined if isolation is not "worktree".
 	 * Throws if worktree creation fails (strict isolation).
+	 * Uses this._worktrees and this._isolation (set at construction).
 	 */
-	setupWorktree(worktrees: WorktreeManager, isolation: IsolationMode | undefined): string | undefined {
-		if (isolation !== "worktree") return undefined;
-		const wt = worktrees.create(this.id);
+	setupWorktree(): string | undefined {
+		if (this._isolation !== "worktree") return undefined;
+		if (!this._worktrees) {
+			throw new Error("Agent not configured for worktree isolation — missing worktrees dependency");
+		}
+		const wt = this._worktrees.create(this.id);
 		if (!wt) {
 			throw new Error(
 				'Cannot run with isolation: "worktree" — not a git repo, no commits yet, or `git worktree add` failed. ' +

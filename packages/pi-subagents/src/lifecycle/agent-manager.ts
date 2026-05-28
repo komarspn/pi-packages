@@ -130,6 +130,8 @@ export class AgentManager {
       startedAt: Date.now(),
       invocation: options.invocation,
       parentSession: options.parentSession,
+      isolation: options.isolation,
+      worktrees: this.worktrees,
     });
     this.agents.set(id, record);
 
@@ -148,7 +150,7 @@ export class AgentManager {
     // setupWorktree can throw (e.g. strict worktree-isolation failure) - clean
     // up the record so callers don't see an orphan in `listAgents()`.
     try {
-      record.setupWorktree(this.worktrees, options.isolation);
+      record.setupWorktree();
       record.promise = this.startAgent(id, record, args);
     } catch (err) {
       this.agents.delete(id);
@@ -215,7 +217,7 @@ export class AgentManager {
       const record = this.agents.get(next.id);
       if (record?.status !== "queued") continue;
       try {
-        record.setupWorktree(this.worktrees, next.args.options.isolation);
+        record.setupWorktree();
         record.promise = this.startAgent(next.id, record, next.args);
       } catch (err) {
         // Late failure (e.g. strict worktree-isolation) - surface on the record
