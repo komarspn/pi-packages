@@ -5,6 +5,19 @@ issue_title: "Extract worktree isolation to @gotgenes/pi-subagents-worktrees"
 
 # Extract worktree isolation to @gotgenes/pi-subagents-worktrees
 
+## Status — paused, blocked on #270 (2026-05-29)
+
+TDD execution paused partway.
+Steps 2–3 (scaffold + git-plumbing lift-and-shift, `worktreeAgents` config loader) landed and are green on `main`.
+Step 1 (re-exporting the seam types from pi-subagents' `service.ts`) and Step 4 (the `WorkspaceProvider` implementation) were reverted.
+
+Reason: the worktrees package must `import { getSubagentsService, type WorkspaceProvider } from "@gotgenes/pi-subagents"`, but pi-subagents is not type-consumable from a sibling package today.
+Its public entry ships raw `.ts` that uses the internal `#src/*` alias, `exports["."]` points at a non-existent `./src/service.ts` (real file: `./src/service/service.ts`), and neither consumer-side `tsconfig` `paths` (program-global, collide with pi-subagents' own `#src`) nor package.json `imports` (tsc won't resolve `.ts` targets) bridge it.
+This is packaging work on pi-subagents, split out as prerequisite **#270**.
+
+Resume #263 after #270 lands.
+The consumption mechanism in "Design Overview" (importing the seam types) is contingent on #270's chosen fix; if #270 cannot make the source cleanly consumable, revisit the alternative of a local seam contract accessed via the published `Symbol.for("@gotgenes/pi-subagents:service")` global (matching how `pi-permission-system` composes).
+
 ## Problem Statement
 
 Phase 16, Step 3 of ADR 0002 (`packages/pi-subagents/docs/decisions/0002-extensions-on-a-minimal-core.md`).
