@@ -3,8 +3,20 @@
   "version": "11.5.0",
   "type": "module",
   "exports": {
-    ".": "./src/service.ts"
+    ".": {
+      "types": "./dist/public.d.ts",
+      "default": "./src/service/service.ts"
+    }
   },
+  "files": [
+    "src",
+    "dist",
+    "docs",
+    "vitest.config.ts",
+    "AGENTS.md",
+    "CHANGELOG.md",
+    ".prettierignore"
+  ],
   "imports": {
     "#src/*": "./src/*",
     "#test/*": "./test/*"
@@ -48,6 +60,7 @@
   "scripts": {
     "check": "tsc --noEmit",
     "build:types": "rollup -c rollup.dts.config.mjs",
+    "prepack": "pnpm run build:types",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint:md": "rumdl check *.md docs/**/*.md",
