@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Agent, type AgentLifecycleObserver } from "#src/lifecycle/agent";
 import type { AgentRunner, RunResult } from "#src/lifecycle/agent-runner";
+import type { Workspace, WorkspaceProvider } from "#src/lifecycle/workspace";
 import type { WorktreeManager } from "#src/lifecycle/worktree";
 import { WorktreeIsolation } from "#src/lifecycle/worktree-isolation";
 import { createMockSession, toAgentSession } from "#test/helpers/mock-session";
@@ -733,11 +734,14 @@ function createRunnableAgent(overrides?: {
 	isolation?: "worktree";
 	parentSession?: { toolCallId?: string; parentSessionFile?: string; parentSessionId?: string };
 	signal?: AbortSignal;
+	baseCwd?: string;
+	workspaceProvider?: WorkspaceProvider;
 }) {
 	const runner = overrides?.runner ?? createMockRunner();
 	const worktrees: WorktreeManager = overrides?.worktrees ?? { create: vi.fn(), cleanup: vi.fn(() => ({ hasChanges: false })), prune: vi.fn() };
 	const observer = overrides?.observer ?? {};
 	const worktree = overrides?.isolation === "worktree" ? new WorktreeIsolation(worktrees, "run-1") : undefined;
+	const provider = overrides?.workspaceProvider;
 	return new Agent({
 		id: "run-1",
 		type: "general-purpose",
@@ -750,7 +754,19 @@ function createRunnableAgent(overrides?: {
 		getRunConfig: overrides?.getRunConfig,
 		parentSession: overrides?.parentSession,
 		signal: overrides?.signal,
+		baseCwd: overrides?.baseCwd ?? "/base",
+		getWorkspaceProvider: provider ? () => provider : undefined,
 	});
+}
+
+/** Build a Workspace with a recorded dispose. */
+function makeWorkspace(cwd: string, disposeResult?: { resultAddendum?: string }): Workspace {
+	return { cwd, dispose: vi.fn(() => disposeResult) };
+}
+
+/** Build a WorkspaceProvider whose prepare resolves to the given workspace. */
+function makeWorkspaceProvider(workspace: Workspace | undefined): WorkspaceProvider {
+	return { prepare: vi.fn(async () => workspace) };
 }
 
 describe("Agent.run() — happy path", () => {
@@ -831,6 +847,81 @@ describe("Agent.run() — worktree", () => {
 		// The abort listener wired before worktree setup must be detached on failure,
 		// not leaked onto the parent signal.
 		expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+	});
+});
+
+describe("Agent.run() — workspace provider", () => {
+	it("prepares the workspace and threads its cwd into runner.run", async () => {
+		const runner = createMockRunner();
+		const provider = makeWorkspaceProvider(makeWorkspace("/ws/dir"));
+		const agent = createRunnableAgent({ runner, workspaceProvider: provider });
+		await agent.run();
+		const runOpts = (runner.run as ReturnType<typeof vi.fn>).mock.calls[0][3];
+		expect(runOpts.context.cwd).toBe("/ws/dir");
+	});
+
+	it("calls prepare with the run-start context", async () => {
+		const provider = makeWorkspaceProvider(makeWorkspace("/ws/dir"));
+		const agent = createRunnableAgent({ workspaceProvider: provider, baseCwd: "/parent" });
+		await agent.run();
+		expect(provider.prepare).toHaveBeenCalledWith({
+			agentId: "run-1",
+			agentType: "general-purpose",
+			baseCwd: "/parent",
+			invocation: undefined,
+		});
+	});
+
+	it("appends the dispose resultAddendum to the result", async () => {
+		const workspace = makeWorkspace("/ws/dir", { resultAddendum: "\n\n---\nsaved to branch foo" });
+		const agent = createRunnableAgent({ workspaceProvider: makeWorkspaceProvider(workspace) });
+		await agent.run();
+		expect(agent.result).toBe("done\n\n---\nsaved to branch foo");
+		expect(workspace.dispose).toHaveBeenCalledWith({ status: "completed", description: "run test" });
+	});
+
+	it("falls back to baseCwd (cwd undefined) when prepare returns undefined", async () => {
+		const runner = createMockRunner();
+		const provider = makeWorkspaceProvider(undefined);
+		const agent = createRunnableAgent({ runner, workspaceProvider: provider });
+		await agent.run();
+		const runOpts = (runner.run as ReturnType<typeof vi.fn>).mock.calls[0][3];
+		expect(runOpts.context.cwd).toBeUndefined();
+		expect(agent.status).toBe("completed");
+	});
+
+	it("marks error and fires onRunFinished when prepare rejects", async () => {
+		const onRunFinished = vi.fn();
+		const provider: WorkspaceProvider = { prepare: vi.fn(() => Promise.reject(new Error("prepare failed"))) };
+		const agent = createRunnableAgent({ workspaceProvider: provider, observer: { onRunFinished } });
+		await agent.run();
+		expect(agent.status).toBe("error");
+		expect(agent.error).toBe("prepare failed");
+		expect(onRunFinished).toHaveBeenCalledOnce();
+	});
+
+	it("disposes with status error when the runner throws", async () => {
+		const runner = createMockRunner();
+		(runner.run as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("runner exploded"));
+		const workspace = makeWorkspace("/ws/dir", { resultAddendum: "\nshould be discarded" });
+		const agent = createRunnableAgent({ runner, workspaceProvider: makeWorkspaceProvider(workspace) });
+		await agent.run();
+		expect(agent.status).toBe("error");
+		expect(workspace.dispose).toHaveBeenCalledWith({ status: "error", description: "run test" });
+		expect(agent.result).toBeUndefined();
+	});
+
+	it("takes precedence over the worktree collaborator (worktree not set up)", async () => {
+		const worktrees: WorktreeManager = {
+			create: vi.fn(() => ({ path: "/tmp/wt", branch: "pi-agent-run-1" })),
+			cleanup: vi.fn(() => ({ hasChanges: false })),
+			prune: vi.fn(),
+		};
+		const provider = makeWorkspaceProvider(makeWorkspace("/ws/dir"));
+		const agent = createRunnableAgent({ worktrees, isolation: "worktree", workspaceProvider: provider });
+		await agent.run();
+		expect(worktrees.create).not.toHaveBeenCalled();
+		expect(worktrees.cleanup).not.toHaveBeenCalled();
 	});
 });
 

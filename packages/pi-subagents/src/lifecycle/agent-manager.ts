@@ -168,6 +168,8 @@ export class AgentManager {
           : undefined,
       observer: this.buildObserver(options),
       getRunConfig: this.getRunConfig,
+      baseCwd: this.baseCwd,
+      getWorkspaceProvider: () => this._workspaceProvider,
     });
     this.agents.set(id, record);
 

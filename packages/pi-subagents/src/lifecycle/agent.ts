@@ -26,6 +26,7 @@ import type { ExecutionState } from "#src/lifecycle/execution-state";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import type { LifetimeUsage } from "#src/lifecycle/usage";
 import { addUsage } from "#src/lifecycle/usage";
+import type { Workspace, WorkspaceProvider } from "#src/lifecycle/workspace";
 import type { WorktreeIsolation } from "#src/lifecycle/worktree-isolation";
 import { NotificationState } from "#src/observation/notification-state";
 import { subscribeAgentObserver } from "#src/observation/record-observer";
@@ -72,6 +73,10 @@ export interface AgentInit {
 	worktree?: WorktreeIsolation;
 	observer?: AgentLifecycleObserver;
 	getRunConfig?: () => RunConfig;
+	/** Resolves the registered workspace provider (if any) at run-start. */
+	getWorkspaceProvider?: () => WorkspaceProvider | undefined;
+	/** Parent working directory handed to a workspace provider's prepare(). */
+	baseCwd?: string;
 
 	// Run config (required for run(), optional for tests)
 	snapshot?: ParentSnapshot;
@@ -129,6 +134,10 @@ export class Agent {
 	readonly worktree?: WorktreeIsolation;
 	readonly observer?: AgentLifecycleObserver;
 	private readonly _getRunConfig?: () => RunConfig;
+	private readonly _getWorkspaceProvider?: () => WorkspaceProvider | undefined;
+	private readonly _baseCwd: string;
+	/** Workspace prepared at run-start by a provider — undefined when none is registered. */
+	private _workspace?: Workspace;
 
 	// Run config — optional (required for run())
 	private readonly _snapshot?: ParentSnapshot;
@@ -186,6 +195,8 @@ export class Agent {
 		this.worktree = init.worktree;
 		this.observer = init.observer;
 		this._getRunConfig = init.getRunConfig;
+		this._getWorkspaceProvider = init.getWorkspaceProvider;
+		this._baseCwd = init.baseCwd ?? "";
 
 		// Run config
 		this._snapshot = init.snapshot;
@@ -223,8 +234,23 @@ export class Agent {
 		this.observer?.onStarted?.(this);
 		this.wireSignal(this._signal, () => this.abort());
 
+		let cwd: string | undefined;
 		try {
-			this.worktree?.setup();
+			// Provider-first: a registered workspace provider supplies the cwd and
+			// owns teardown; otherwise fall back to the legacy worktree collaborator.
+			const provider = this._getWorkspaceProvider?.();
+			if (provider) {
+				this._workspace = await provider.prepare({
+					agentId: this.id,
+					agentType: this.type,
+					baseCwd: this._baseCwd,
+					invocation: this.invocation,
+				});
+				cwd = this._workspace?.cwd;
+			} else {
+				this.worktree?.setup();
+				cwd = this.worktree?.path;
+			}
 		} catch (err) {
 			this.markError(err);
 			this.releaseListeners();
@@ -236,7 +262,7 @@ export class Agent {
 		try {
 			const result = await this._runner.run(this._snapshot, this.type, this._prompt, {
 				context: {
-					cwd: this.worktree?.path,
+					cwd,
 					parentSession: this._parentSession,
 				},
 				model: this._model,
@@ -442,9 +468,19 @@ export class Agent {
 		this.releaseListeners();
 
 		let finalResult = result.responseText;
-		const wtResult = this.worktree?.cleanup(this.description);
-		if (wtResult?.hasChanges && wtResult.branch) {
-			finalResult += `\n\n---\nChanges saved to branch \`${wtResult.branch}\`. Merge with: \`git merge ${wtResult.branch}\``;
+		if (this._workspace) {
+			const finalStatus: AgentStatus = result.aborted
+				? "aborted"
+				: result.steered
+					? "steered"
+					: "completed";
+			const disposeResult = this._workspace.dispose({ status: finalStatus, description: this.description });
+			if (disposeResult?.resultAddendum) finalResult += disposeResult.resultAddendum;
+		} else {
+			const wtResult = this.worktree?.cleanup(this.description);
+			if (wtResult?.hasChanges && wtResult.branch) {
+				finalResult += `\n\n---\nChanges saved to branch \`${wtResult.branch}\`. Merge with: \`git merge ${wtResult.branch}\``;
+			}
 		}
 
 		if (result.aborted) this.markAborted(finalResult);
@@ -465,8 +501,9 @@ export class Agent {
 		this.releaseListeners();
 
 		try {
-			this.worktree?.cleanup(this.description);
-		} catch (cleanupErr) { debugLog("cleanupWorktree on agent error", cleanupErr); }
+			if (this._workspace) this._workspace.dispose({ status: "error", description: this.description });
+			else this.worktree?.cleanup(this.description);
+		} catch (cleanupErr) { debugLog("workspace dispose on agent error", cleanupErr); }
 
 		this.observer?.onRunFinished?.(this);
 	}
