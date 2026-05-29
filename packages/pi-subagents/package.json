@@ -47,6 +47,7 @@
   },
   "scripts": {
     "check": "tsc --noEmit",
+    "build:types": "rollup -c rollup.dts.config.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint:md": "rumdl check *.md docs/**/*.md",
@@ -58,6 +59,8 @@
     "@earendil-works/pi-coding-agent": "0.75.4",
     "@earendil-works/pi-tui": "0.75.4",
     "@types/node": "catalog:",
+    "rollup": "^4.60.4",
+    "rollup-plugin-dts": "^6.4.1",
     "rumdl": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
