@@ -10,14 +10,26 @@
  */
 
 import type { LifetimeUsage } from "#src/lifecycle/usage";
-import type { WorkspaceProvider } from "#src/lifecycle/workspace";
+import type {
+  Workspace,
+  WorkspaceDisposeOutcome,
+  WorkspaceDisposeResult,
+  WorkspacePrepareContext,
+  WorkspaceProvider,
+} from "#src/lifecycle/workspace";
 
-// Generative extension seam (ADR 0002, Phase 16 Step 2). Only the provider
-// entry-point type is re-exported here; a consumer assigning to
-// `WorkspaceProvider` recovers `Workspace` and the context types via inference
-// (e.g. `Parameters<WorkspaceProvider["prepare"]>[0]`). Named re-exports of
-// those collaborator types are tracked in #272.
-export type { LifetimeUsage, WorkspaceProvider };
+// Generative extension seam (ADR 0002, Phase 16 Step 2). The provider type
+// and all four collaborator types it references are re-exported by name so
+// consumers can import them directly rather than recovering them via
+// indexed-access inference (e.g. `Parameters<WorkspaceProvider["prepare"]>[0]`).
+export type {
+  LifetimeUsage,
+  Workspace,
+  WorkspaceDisposeOutcome,
+  WorkspaceDisposeResult,
+  WorkspacePrepareContext,
+  WorkspaceProvider,
+};
 
 export type SubagentStatus =
   | "queued"

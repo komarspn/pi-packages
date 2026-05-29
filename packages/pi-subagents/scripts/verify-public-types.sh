@@ -24,7 +24,7 @@ if grep -q '#src' "$DTS"; then
   grep -n '#src' "$DTS" >&2
   exit 1
 fi
-for sym in getSubagentsService WorkspaceProvider SubagentsService LifetimeUsage; do
+for sym in getSubagentsService WorkspaceProvider SubagentsService LifetimeUsage Workspace WorkspacePrepareContext WorkspaceDisposeOutcome WorkspaceDisposeResult; do
   grep -q "$sym" "$DTS" || { echo "FAIL: '$sym' missing from dist/public.d.ts" >&2; exit 1; }
 done
 echo "OK: dist/public.d.ts is self-contained and exports the public surface"
@@ -52,12 +52,25 @@ cat > "$CONSUMER/tsconfig.json" <<'JSON'
 JSON
 
 cat > "$CONSUMER/probe.ts" <<'TS'
-import { getSubagentsService, type WorkspaceProvider } from "@gotgenes/pi-subagents";
+import {
+  getSubagentsService,
+  type Workspace,
+  type WorkspaceDisposeOutcome,
+  type WorkspaceDisposeResult,
+  type WorkspacePrepareContext,
+  type WorkspaceProvider,
+} from "@gotgenes/pi-subagents";
 
-// Exercise both a value export and a type-only export from the public surface.
+// Exercise the value export and all workspace collaborator type exports.
 const provider: WorkspaceProvider = {
-  async prepare() {
-    return undefined;
+  async prepare(ctx: WorkspacePrepareContext): Promise<Workspace | undefined> {
+    const workspace: Workspace = {
+      cwd: ctx.baseCwd,
+      dispose(_outcome: WorkspaceDisposeOutcome): WorkspaceDisposeResult | undefined {
+        return undefined;
+      },
+    };
+    return workspace;
   },
 };
 
