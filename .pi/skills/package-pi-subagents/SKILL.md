@@ -54,6 +54,14 @@ The key phases are:
 Formatting is handled by Biome (`biome check`, `biome format`).
 The repo intentionally does not use Prettier — a top-level `.prettierignore` blocks any harness with project-level write-time Prettier formatting from reformatting files here.
 
+## Build
+
+This package is otherwise ship-source (Pi runs `./src/index.ts` directly), but it carries the repo's only build step: a type-declaration bundle for the public API surface (ADR 0003).
+`pnpm run build:types` runs `rollup -c rollup.dts.config.mjs` (`rollup-plugin-dts`) to roll `src/service/service.ts` into a single self-contained `dist/public.d.ts` — internal `#src/*` types inlined, peer-dep types kept external.
+The bundle is gitignored, regenerated at `prepack`, and shipped via the `package.json` `files` allowlist; `exports["."].types` points at it while `exports["."].default` serves the `.ts` source.
+Never commit `dist/`.
+`pnpm run verify:public-types` (`scripts/verify-public-types.sh`, also a CI step) packs the tarball and type-checks a throwaway consumer against it — run it after any change to the public surface, the `exports` map, or the rollup config.
+
 ## Testing
 
 The fork preserves upstream's full `vitest` suite (362 tests) plus tests added for Patch 3.
