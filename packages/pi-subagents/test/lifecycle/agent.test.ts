@@ -425,20 +425,6 @@ describe("Agent — resetForResume", () => {
 });
 
 describe("convenience getters", () => {
-	describe("session", () => {
-		it("returns undefined when subagentSession is not set", () => {
-			const record = new Agent({ id: "1", type: "general-purpose", description: "test" });
-			expect(record.session).toBeUndefined();
-		});
-
-		it("returns session from subagentSession when set", () => {
-			const record = new Agent({ id: "1", type: "general-purpose", description: "test" });
-			const session = createMockSession();
-			record.subagentSession = toSubagentSession(createSubagentSessionStub(session));
-			expect(record.session).toBe(session);
-		});
-	});
-
 	describe("outputFile", () => {
 		it("returns undefined when subagentSession is not set", () => {
 			const record = new Agent({ id: "1", type: "general-purpose", description: "test" });

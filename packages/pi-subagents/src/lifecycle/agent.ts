@@ -19,7 +19,7 @@
  */
 
 import type { Model } from "@earendil-works/pi-ai";
-import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { debugLog } from "#src/debug";
 import type { CreateSubagentSessionParams } from "#src/lifecycle/create-subagent-session";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
@@ -153,11 +153,6 @@ export class Agent {
 	private _pendingSteers: string[] = [];
 	/** Number of steer messages waiting to be delivered. */
 	get pendingSteerCount(): number { return this._pendingSteers.length; }
-
-	/** The active agent session, or undefined before the session is created. */
-	get session(): AgentSession | undefined {
-		return this.subagentSession?.session;
-	}
 
 	/** Path to the agent's session JSONL file, or undefined if not yet available. */
 	get outputFile(): string | undefined {
