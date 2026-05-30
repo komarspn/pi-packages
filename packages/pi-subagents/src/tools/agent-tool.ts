@@ -220,11 +220,6 @@ Guidelines:
 						description: "Optional agent ID to resume from. Continues from previous context.",
 					}),
 				),
-				isolated: Type.Optional(
-					Type.Boolean({
-						description: "If true, agent gets no extension/MCP tools — only built-in tools.",
-					}),
-				),
 				inherit_context: Type.Optional(
 					Type.Boolean({
 						description:

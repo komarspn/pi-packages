@@ -140,17 +140,6 @@ describe("resolveSpawnConfig — invocation fields", () => {
     expect(result.execution.runInBackground).toBe(true);
   });
 
-  it("sets isolated from params", () => {
-    const result = resolveSpawnConfig(
-      { subagent_type: "general-purpose", prompt: "test", description: "d", isolated: true },
-      testRegistry,
-      makeModelInfo(),
-      defaultSettings,
-    );
-    if ("error" in result) return;
-    expect(result.execution.isolated).toBe(true);
-  });
-
   it("builds agentInvocation snapshot", () => {
     const result = resolveSpawnConfig(
       { subagent_type: "general-purpose", prompt: "test", description: "d", thinking: "high" },
@@ -163,10 +152,8 @@ describe("resolveSpawnConfig — invocation fields", () => {
       modelName: undefined,
       thinking: "high",
       maxTurns: undefined,
-      isolated: false,
       inheritContext: false,
       runInBackground: false,
-      isolation: undefined,
     });
   });
 });

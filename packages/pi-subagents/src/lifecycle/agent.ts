@@ -81,7 +81,6 @@ export interface AgentInit {
 	prompt?: string;
 	model?: Model<any>;
 	maxTurns?: number;
-	isolated?: boolean;
 	thinkingLevel?: ThinkingLevel;
 	parentSession?: ParentSessionInfo;
 	isBackground?: boolean;
@@ -140,7 +139,6 @@ export class Agent {
 	private readonly _prompt?: string;
 	private readonly _model?: Model<any>;
 	private readonly _maxTurns?: number;
-	private readonly _isolated?: boolean;
 	private readonly _thinkingLevel?: ThinkingLevel;
 	private readonly _parentSession?: ParentSessionInfo;
 	private readonly _signal?: AbortSignal;
@@ -198,7 +196,6 @@ export class Agent {
 		this._prompt = init.prompt;
 		this._model = init.model;
 		this._maxTurns = init.maxTurns;
-		this._isolated = init.isolated;
 		this._thinkingLevel = init.thinkingLevel;
 		this._parentSession = init.parentSession;
 		this._signal = init.signal;
@@ -261,7 +258,6 @@ export class Agent {
 				maxTurns: this._maxTurns,
 				defaultMaxTurns: runConfig?.defaultMaxTurns,
 				graceTurns: runConfig?.graceTurns,
-				isolated: this._isolated,
 				thinkingLevel: this._thinkingLevel,
 				signal: this.abortController.signal,
 				onSessionCreated: (session) => {

@@ -22,12 +22,10 @@ function makeConfig(overrides: Partial<ResolvedSpawnConfig> = {}): ResolvedSpawn
 			thinking: undefined,
 			inheritContext: false,
 			runInBackground: false,
-			isolated: false,
 			agentInvocation: {
 				modelName: undefined,
 				thinking: undefined,
 				maxTurns: undefined,
-				isolated: false,
 				inheritContext: false,
 				runInBackground: false,
 			},

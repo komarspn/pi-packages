@@ -16,7 +16,7 @@ export const DEFAULT_AGENTS: Map<string, AgentConfig> = new Map([
       displayName: "Agent",
       description: "General-purpose agent for complex, multi-step tasks",
       // builtinToolNames omitted — means "all available tools" (resolved at lookup time)
-      // inheritContext / runInBackground / isolated omitted — strategy fields, callers decide per-call.
+      // inheritContext / runInBackground omitted — strategy fields, callers decide per-call.
       // Setting them to false would lock callsite intent (see resolveAgentInvocationConfig in invocation-config.ts).
       extensions: true,
       skills: true,

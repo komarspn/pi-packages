@@ -148,7 +148,6 @@ export interface RunOptions {
   model?: Model<any>;
   maxTurns?: number;
   signal?: AbortSignal;
-  isolated?: boolean;
   thinkingLevel?: ThinkingLevel;
   /** Called once after session creation - session delivery mechanism. */
   onSessionCreated?: (session: AgentSession) => void;
@@ -283,7 +282,6 @@ export async function runAgent(
     },
     {
       cwd: options.context.cwd,
-      isolated: options.isolated,
       model: options.model,
       thinkingLevel: options.thinkingLevel,
     },
@@ -297,7 +295,7 @@ export async function runAgent(
   // Load extensions/skills: true → load; false → don't.
   // Suppress AGENTS.md/CLAUDE.md and APPEND_SYSTEM.md - upstream's
   // buildSystemPrompt() re-appends both AFTER systemPromptOverride, which
-  // would defeat prompt_mode: replace and isolated: true. Parent context, if
+  // would defeat prompt_mode: replace. Parent context, if
   // wanted, reaches the subagent via prompt_mode: append (parentSystemPrompt
   // is embedded in systemPromptOverride) or inherit_context (conversation).
   const loader = deps.io.createResourceLoader({

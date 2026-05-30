@@ -13,7 +13,6 @@ function makeAgentConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
     promptMode: "replace",
     inheritContext: false,
     runInBackground: false,
-    isolated: false,
     ...overrides,
   };
 }

@@ -44,10 +44,10 @@ describe("renderStats", () => {
 	});
 
 	it("includes tags", () => {
-		const details = makeDetails({ tags: ["thinking: high", "isolated"] });
+		const details = makeDetails({ tags: ["thinking: high", "inherit context"] });
 		const result = renderStats(details, theme);
 		expect(result).toContain("[dim:thinking: high]");
-		expect(result).toContain("[dim:isolated]");
+		expect(result).toContain("[dim:inherit context]");
 	});
 
 	it("includes turn count with max turns", () => {

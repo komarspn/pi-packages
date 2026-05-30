@@ -67,8 +67,6 @@ export interface AssemblerContext {
 export interface AssemblerOptions {
   /** Override working directory (e.g. for worktree isolation). */
   cwd?: string;
-  /** When true, forces extensions and skills to false. */
-  isolated?: boolean;
   /** Explicit model override — wins over agentConfig.model and parent model. */
   model?: unknown;
   /** Explicit thinking level — wins over agentConfig.thinking. */
@@ -150,7 +148,7 @@ function resolveDefaultModel(
  *
  * @param type       The subagent type name (case-insensitive registry lookup).
  * @param ctx        Narrow context from the parent session.
- * @param options    Per-call overrides (cwd, isolated, model, thinkingLevel).
+ * @param options    Per-call overrides (cwd, model, thinkingLevel).
  * @param env        Pre-resolved environment info from `detectEnv()`.
  * @param registry   Agent config lookup — provides resolveAgentConfig and getToolNamesForType.
  * @param io         IO collaborators (skill loader, memory builder, prompt builder).
@@ -167,9 +165,8 @@ export function assembleSessionConfig(
 
   const effectiveCwd = options.cwd ?? ctx.cwd;
 
-  // Resolve extensions/skills: isolated overrides to false
-  const extensions = options.isolated ? false : agentConfig.extensions;
-  const skills = options.isolated ? false : agentConfig.skills;
+  const extensions = agentConfig.extensions;
+  const skills = agentConfig.skills;
 
   // Build prompt extras (memory, preloaded skills)
   const extras: PromptExtras = {};

@@ -15,7 +15,6 @@ const DEFAULT_AGENT_CONFIG: AgentConfig = {
 	promptMode: "replace",
 	inheritContext: false,
 	runInBackground: false,
-	isolated: false,
 };
 
 /**

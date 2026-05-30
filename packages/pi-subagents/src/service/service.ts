@@ -61,7 +61,6 @@ export interface SpawnOptions {
   model?: string;
   maxTurns?: number;
   thinkingLevel?: string;
-  isolated?: boolean;
   inheritContext?: boolean;
   foreground?: boolean;
   bypassQueue?: boolean;

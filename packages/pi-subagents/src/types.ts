@@ -50,8 +50,6 @@ export interface AgentConfig extends AgentIdentity, AgentPromptConfig {
   inheritContext?: boolean;
   /** Default for spawn: run in background. undefined = caller decides. */
   runInBackground?: boolean;
-  /** Default for spawn: no extension tools. undefined = caller decides. */
-  isolated?: boolean;
   /** true = this is an embedded default agent (informational) */
   isDefault?: boolean;
   /** false = agent is hidden from the registry */
@@ -65,7 +63,6 @@ export interface AgentInvocation {
   modelName?: string;
   thinking?: ThinkingLevel;
   maxTurns?: number;
-  isolated?: boolean;
   inheritContext?: boolean;
   runInBackground?: boolean;
 }

@@ -43,7 +43,6 @@ export interface SpawnExecution {
   thinking: ThinkingLevel | undefined;
   inheritContext: boolean;
   runInBackground: boolean;
-  isolated: boolean;
   agentInvocation: AgentInvocation;
 }
 
@@ -102,7 +101,6 @@ export function resolveSpawnConfig(
   const thinking = resolvedConfig.thinking;
   const inheritContext = resolvedConfig.inheritContext;
   const runInBackground = resolvedConfig.runInBackground;
-  const isolated = resolvedConfig.isolated;
 
   // Compute display model name (only shown when different from parent)
   const parentModelId = modelInfo.parentModel?.id;
@@ -120,7 +118,6 @@ export function resolveSpawnConfig(
     modelName,
     thinking,
     maxTurns: normalizeMaxTurns(resolvedConfig.maxTurns),
-    isolated,
     inheritContext,
     runInBackground,
   };
@@ -147,7 +144,6 @@ export function resolveSpawnConfig(
       thinking,
       inheritContext,
       runInBackground,
-      isolated,
       agentInvocation,
     },
     presentation: { modelName, agentTags, detailBase },

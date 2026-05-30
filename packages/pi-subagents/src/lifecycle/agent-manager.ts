@@ -41,7 +41,6 @@ export interface AgentSpawnConfig {
   description: string;
   model?: Model<any>;
   maxTurns?: number;
-  isolated?: boolean;
   inheritContext?: boolean;
   thinkingLevel?: ThinkingLevel;
   isBackground?: boolean;
@@ -149,7 +148,6 @@ export class AgentManager {
       prompt,
       model: options.model,
       maxTurns: options.maxTurns,
-      isolated: options.isolated,
       thinkingLevel: options.thinkingLevel,
       parentSession: options.parentSession,
       signal: options.signal,

@@ -48,7 +48,6 @@ export function spawnBackground(
       description: execution.description,
       model: execution.model,
       maxTurns: execution.effectiveMaxTurns,
-      isolated: execution.isolated,
       inheritContext: execution.inheritContext,
       thinkingLevel: execution.thinking,
       isBackground: true,

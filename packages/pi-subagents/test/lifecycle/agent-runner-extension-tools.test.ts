@@ -27,7 +27,6 @@ const agentConfigMock = {
     promptMode: "replace",
     inheritContext: false,
     runInBackground: false,
-    isolated: false,
   },
 };
 
@@ -89,7 +88,6 @@ beforeEach(() => {
     promptMode: "replace",
     inheritContext: false,
     runInBackground: false,
-    isolated: false,
   };
 });
 

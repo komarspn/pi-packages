@@ -405,7 +405,6 @@ describe("buildEjectContent", () => {
       maxTurns: 10,
       inheritContext: true,
       runInBackground: true,
-      isolated: true,
     };
     const content = buildEjectContent(cfg);
     expect(content).toContain("display_name: My Agent");
@@ -415,7 +414,6 @@ describe("buildEjectContent", () => {
     expect(content).toContain("max_turns: 10");
     expect(content).toContain("inherit_context: true");
     expect(content).toContain("run_in_background: true");
-    expect(content).toContain("isolated: true");
   });
 
   it("emits 'extensions: false' when extensions is false", () => {
