@@ -31,6 +31,8 @@ Load this skill when writing, debugging, or planning tests.
   Bare `vi.fn()` and chained `.mockReturnValue()` produce `Mock<Procedure>` which is not assignable to specific function signatures.
 - When a test factory accepts overrides via `Partial<ProductionInterface>`, the spread `{ ...defaults, ...overrides }` creates a union type that also erases mock methods.
   Either remove the `Partial<ProductionInterface>` annotation (let TypeScript infer from the spread) or drop the overrides parameter and configure mocks on the returned object directly.
+- When a test factory uses `??` to supply defaults from an overrides object, explicit `undefined` values are swallowed.
+  Use `"key" in overrides` presence checks or `Object.hasOwn(overrides, "key")` for fields where `undefined` is a meaningful test value.
 - Prefer reading `process.env` inside functions rather than capturing it as a module-level constant — `vi.stubEnv()` alone cannot change a constant already evaluated at import time.
   If a module-level constant is unavoidable, test it with `vi.resetModules()` + `await import(...)` inside the test body, and call `vi.unstubAllEnvs()` + `vi.resetModules()` in `afterEach`.
 

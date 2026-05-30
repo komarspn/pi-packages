@@ -56,3 +56,42 @@ Pre-completion reviewer: initial FAIL (MD060 table alignment in SKILL.md, auto-f
 - `print-mode.test.ts` now mocks `#src/lifecycle/create-subagent-session` (was `#src/lifecycle/agent-runner`); `index.ts` wraps the factory as `(params) => createSubagentSession(params, deps)`, so the module mock still intercepts it.
 - fallow stayed clean throughout — the transient duplication of IO interfaces + turn-loop helpers between `agent-runner.ts` and the new modules (steps 3–5) was removed in step 6 before the pre-completion gate ran.
 - Reviewer's two minor non-blocking notes: SKILL.md Session-domain count now lists `conversation.ts` but still omits the pre-existing `content-items.ts` (drift predates this issue); `create-subagent-session.ts` keeps an accurate "old runner's runAgent()" provenance comment.
+
+## Stage: Final Retrospective (2026-05-30T13:37:00Z)
+
+### Session summary
+
+Shipped issue #265 (`pi-subagents-v13.1.0`) and ran the retrospective across all three stages (planning, TDD implementation, ship).
+The implementation landed cleanly in 7 TDD commits + 1 docs commit; test count 951 → 960.
+
+### Observations
+
+#### What went well
+
+- The lift-and-shift strategy (new modules alongside old, swap consumers, delete old) kept every intermediate commit compiling and the suite green — zero broken-baseline moments across 7 steps.
+- The `createSubagentSessionStub` pattern (steer/dispose delegate to the wrapped `MockSession`) let 6 tool/service test files migrate with a one-line change each, preserving all existing session-spy assertions.
+- Verification ran incrementally: `pnpm vitest run <file>` after every Red/Green, `pnpm run check` after every interface change, and `pnpm -r run test` (full cross-package) after step 6's deletion to confirm the permission system (1504 tests) was unaffected.
+
+#### What caused friction (agent side)
+
+1. `missing-context` — The plan's step-5 file list omitted 6 tool/service test files (`steer-tool`, `agent-tool`, `background-spawner`, `foreground-runner`, `get-result-tool`, `service-adapter`) that directly set `record.execution = { session, outputFile }`.
+   The existing planning rule ("grep all test files for every removed symbol") was present but was not applied to the renamed `.execution` property — only to removed type imports.
+   Impact: step 5 took ~2× expected time; each file was discovered reactively via `tsc --noEmit` errors.
+2. `rabbit-hole` — Step 6's `sed` invocation for import-path renames failed silently on macOS BSD `sed` because the `#` delimiter clashed with `#test/helpers/...` paths. 3 consecutive tool calls were spent diagnosing and retrying before switching to per-file `sed` with `@` delimiters.
+   Impact: added ~3 minutes of friction; the `edit` tool would have been safer for targeted, known-file replacements.
+3. `other` (autoformat race) — The `pi-autoformat` extension ran concurrently with `git commit` twice during the docs phase, causing `.git/index.lock` conflicts.
+   Recovery was mechanical (remove lock, retry) but required user intervention once.
+   Impact: one user prompt to retry; no rework.
+4. `other` (markdown table alignment) — Replacing short table cells with long module lists in SKILL.md broke MD060's compact-table rule.
+   The pre-completion reviewer caught it (initial FAIL); `rumdl fmt` auto-fixed it.
+   Impact: one amend + re-lint cycle; self-identified after reviewer report.
+
+#### What caused friction (user side)
+
+- No user-side friction observed.
+  The user's only intervention was a retry prompt after the autoformat/git-lock race — a timing issue, not a judgment or context gap.
+
+### Changes made
+
+1. `.pi/skills/testing/SKILL.md` — added rule about `??` swallowing explicit `undefined` in factory overrides (under "Vitest mock patterns").
+2. `packages/pi-subagents/docs/retro/0265-born-complete-subagent-session.md` — appended Final Retrospective stage entry.
