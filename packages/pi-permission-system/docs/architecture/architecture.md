@@ -545,7 +545,7 @@ src/
 
 ## Improvement roadmap — Phase 1
 
-Goal: make issue #266 (configurable preview limits + future formatter extension seam) easy to implement.
+Goal: make issue [#266] (configurable preview limits + future formatter extension seam) easy to implement.
 
 Today, `tool-input-preview.ts` uses module-level constants (`TOOL_INPUT_PREVIEW_MAX_LENGTH = 200`, `TOOL_TEXT_SUMMARY_MAX_LENGTH = 80`) and there is no path for extension config to reach the formatting layer.
 The call chain from handler → gate descriptor → prompt → formatting spans 5 pure-function layers with no config parameter.
@@ -567,7 +567,7 @@ The config normalizer only handles booleans and arrays — no pattern exists for
 
 ### Findings
 
-Filtered to what blocks or complicates #266:
+Filtered to what blocks or complicates [#266]:
 
 | #   | Finding                                                                                                                                                                                                     | Category                           | Files                                                                                     | Impact | Risk | Priority |
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------- | ------ | ---- | -------- |
@@ -579,7 +579,7 @@ Filtered to what blocks or complicates #266:
 
 ### Steps
 
-1. **Extract `ToolPreviewFormatter` class from `tool-input-preview.ts`** (#282)
+1. **Extract `ToolPreviewFormatter` class from `tool-input-preview.ts`** ([#282])
    - Create a new class that accepts `{ toolInputPreviewMaxLength: number; toolTextSummaryMaxLength: number }` in its constructor
    - Move `formatToolInputForPrompt`, `formatJsonInputForPrompt`, `formatSearchInputForPrompt`, and `sanitizeInlineText` (the config-dependent functions) onto the class as methods
    - Keep pure utility functions (`truncateInlineText`, `countTextLines`, `formatCount`, `getPromptPath`, `serializeToolInputPreview`) as standalone exports — they have no config dependency
@@ -588,10 +588,10 @@ Filtered to what blocks or complicates #266:
    - The module-level constants remain as default values
    - Target: `tool-input-preview.ts` splits into `tool-input-preview.ts` (utilities) + `tool-preview-formatter.ts` (class)
    - Category: B + C (oversized module → cohesive collaborator)
-   - Outcome: formatter is a single injectable object; #266 passes config by constructing the formatter with user-configured limits
+   - Outcome: formatter is a single injectable object; [#266] passes config by constructing the formatter with user-configured limits
    - Commit: `refactor: extract ToolPreviewFormatter class from tool-input-preview`
 
-2. **Thread `ToolPreviewFormatter` through the gate descriptor chain** (#282)
+2. **Thread `ToolPreviewFormatter` through the gate descriptor chain** ([#282])
    - `describeToolGate(tcc, check, formatter)` — accepts the formatter
    - `formatAskPrompt(result, agentName, input, formatter)` — accepts the formatter
    - `PermissionGateHandler` constructs the formatter from config and passes it to gate descriptors
@@ -599,20 +599,20 @@ Filtered to what blocks or complicates #266:
    - Outcome: config reaches formatting with one parameter instead of threading two numbers through 5 layers
    - Commit: `refactor: thread ToolPreviewFormatter through gate descriptor chain`
 
-3. **Add numeric config normalization to `extension-config.ts`** (#266)
+3. **Add numeric config normalization to `extension-config.ts`** ([#266])
    - Add a `normalizeOptionalPositiveInt(raw, defaultValue, maxValue)` helper
    - Add `toolInputPreviewMaxLength` and `toolTextSummaryMaxLength` to `PermissionSystemExtensionConfig` as optional fields
    - Update `normalizePermissionSystemConfig` to parse them
    - Update `permissions.schema.json` and `config.example.json`
    - Category: C (missing abstraction)
-   - Outcome: config system can handle numeric fields; #266 config additions are mechanical
+   - Outcome: config system can handle numeric fields; [#266] config additions are mechanical
    - Commit: `feat: add toolInputPreviewMaxLength and toolTextSummaryMaxLength config fields (#266)`
 
-4. **Wire config to `ToolPreviewFormatter` construction** (#266)
+4. **Wire config to `ToolPreviewFormatter` construction** ([#266])
    - In `index.ts` or `PermissionGateHandler`, construct `ToolPreviewFormatter` using config values (with fallback to defaults)
    - On config refresh, reconstruct the formatter
    - Category: C (config → collaborator wiring)
-   - Outcome: user-configured limits take effect at runtime; #266 is complete
+   - Outcome: user-configured limits take effect at runtime; [#266] is complete
    - Commit: `feat: use configured preview limits in permission prompts (#266)`
 
 ### Step dependency diagram
@@ -637,3 +637,7 @@ flowchart TD
 | Formatter extraction | 1 → 2 | Extract the collaborator, thread it through the call chain |
 | Config schema        | 3     | Add numeric fields to config (independent of extraction)   |
 | Integration          | 4     | Wire config to formatter (depends on both tracks)          |
+
+[#266]: https://github.com/gotgenes/pi-packages/issues/266
+[#282]: https://github.com/gotgenes/pi-packages/issues/282
+[#283]: https://github.com/gotgenes/pi-packages/issues/283
