@@ -8,7 +8,7 @@ import {
 } from "#src/tools/get-result-tool";
 import type { Agent } from "#src/types";
 import { createTestAgent } from "#test/helpers/make-agent";
-import { createMockSession, createSubagentSessionStub, toSubagentSession } from "#test/helpers/mock-session";
+import { createSubagentSessionStub, toSubagentSession } from "#test/helpers/mock-session";
 import { STUB_CTX } from "#test/helpers/stub-ctx";
 
 const testRegistry = new AgentTypeRegistry(() => new Map());
