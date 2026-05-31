@@ -24,3 +24,26 @@ Referenced the Phase 1 roadmap in the architecture doc and confirmed #285 (handl
 - Included `toolInputLogPreviewMaxLength` in `ToolPreviewFormatterOptions` even though the issue only lists two fields, because log-formatting methods (`formatGenericToolInputForLog`, `getToolInputPreviewForLog`, `getPermissionLogContext`) use it and they're all moving to the class.
   If #266 decides not to expose it in config, the field defaults to 1000 and remains internal.
 - No ambiguity worth asking the user about — the issue proposed clear steps.
+
+## Stage: Implementation — TDD (2026-05-30T22:30:00Z)
+
+### Session summary
+
+Extracted `ToolPreviewFormatter` from `tool-input-preview.ts` and threaded it through the gate descriptor chain in 4 commits (test step 1, refactor steps 2–5 combined, style fix, docs).
+All 68 test files pass with 1527 tests, a net gain of 7 tests over the 1520 baseline.
+The `vi.mock` in `permission-prompts.test.ts` was removed; the formatter is now injected directly.
+
+### Observations
+
+- **Plan deviation — steps 2–5 folded into one commit.**
+  Removing the 7 config-dependent exports from `tool-input-preview.ts` immediately broke `tool.ts`, `permission-prompts.ts`, and their tests at the TypeScript level, making it impossible to commit the extraction without simultaneously updating all consumers.
+  The intermediate state was uncompilable, so the extraction, threading, test updates, and `vi.mock` removal all landed in one refactor commit.
+  Noted in the commit body.
+- **ESLint `prefer-nullish-coalescing` in `sanitizeInlineText`.**
+  The `maxLength !== undefined ? maxLength : default` ternary in `tool-preview-formatter.ts` was caught by the pre-commit hook; fixed before committing by collapsing to `maxLength ?? this.options.toolTextSummaryMaxLength`.
+- **Biome `useTemplate` warnings.**
+  Two string-concatenation lints in `tool-preview-formatter.test.ts` required a manual edit (unsafe auto-fix); patched with a separate `style:` commit.
+- **Pre-completion reviewer WARNs (intentional):**
+  - `formatAskPrompt` accepts the full `ToolPreviewFormatter` rather than a narrower `{ formatToolInputForPrompt }` interface — documented in the plan as intentional for forward compatibility.
+  - `formatAskPrompt` silently returns empty preview when `formatter` is `undefined` — documented in the plan as safe default behavior.
+- Pre-completion reviewer verdict: **PASS**.
