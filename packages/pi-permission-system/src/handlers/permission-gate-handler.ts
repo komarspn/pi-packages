@@ -17,11 +17,9 @@ import {
 } from "#src/permission-prompts";
 import type { PermissionSession } from "#src/permission-session";
 import {
-  TOOL_INPUT_LOG_PREVIEW_MAX_LENGTH,
-  TOOL_INPUT_PREVIEW_MAX_LENGTH,
-  TOOL_TEXT_SUMMARY_MAX_LENGTH,
-} from "#src/tool-input-preview";
-import { ToolPreviewFormatter } from "#src/tool-preview-formatter";
+  resolveToolPreviewLimits,
+  ToolPreviewFormatter,
+} from "#src/tool-preview-formatter";
 import {
   checkRequestedToolRegistration,
   getToolNameFromValue,
@@ -144,12 +142,9 @@ export class PermissionGateHandler {
         : undefined;
     };
 
-    // ── Formatter (constructed with defaults; #266 will wire config values) ──
-    const formatter = new ToolPreviewFormatter({
-      toolInputPreviewMaxLength: TOOL_INPUT_PREVIEW_MAX_LENGTH,
-      toolTextSummaryMaxLength: TOOL_TEXT_SUMMARY_MAX_LENGTH,
-      toolInputLogPreviewMaxLength: TOOL_INPUT_LOG_PREVIEW_MAX_LENGTH,
-    });
+    const formatter = new ToolPreviewFormatter(
+      resolveToolPreviewLimits(this.session.config),
+    );
 
     // ── Ordered gate pipeline ─────────────────────────────────────────────
     // infraDirs is computed once, outside the pipeline, exactly as before.

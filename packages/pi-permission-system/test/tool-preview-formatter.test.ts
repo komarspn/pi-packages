@@ -12,6 +12,7 @@ import {
   TOOL_TEXT_SUMMARY_MAX_LENGTH,
 } from "#src/tool-input-preview";
 import {
+  resolveToolPreviewLimits,
   ToolPreviewFormatter,
   type ToolPreviewFormatterOptions,
 } from "#src/tool-preview-formatter";
@@ -334,5 +335,51 @@ describe("ToolPreviewFormatter.getPermissionLogContext", () => {
     );
     expect(ctx.toolInputPreview).toBeDefined();
     expect(ctx.toolInputPreview!.length).toBeLessThanOrEqual(16);
+  });
+});
+
+// ── resolveToolPreviewLimits ───────────────────────────────────────────────
+
+describe("resolveToolPreviewLimits", () => {
+  test("uses configured toolInputPreviewMaxLength when provided", () => {
+    const opts = resolveToolPreviewLimits({ toolInputPreviewMaxLength: 400 });
+    expect(opts.toolInputPreviewMaxLength).toBe(400);
+  });
+
+  test("falls back to TOOL_INPUT_PREVIEW_MAX_LENGTH when toolInputPreviewMaxLength is absent", () => {
+    const opts = resolveToolPreviewLimits({});
+    expect(opts.toolInputPreviewMaxLength).toBe(TOOL_INPUT_PREVIEW_MAX_LENGTH);
+  });
+
+  test("uses configured toolTextSummaryMaxLength when provided", () => {
+    const opts = resolveToolPreviewLimits({ toolTextSummaryMaxLength: 120 });
+    expect(opts.toolTextSummaryMaxLength).toBe(120);
+  });
+
+  test("falls back to TOOL_TEXT_SUMMARY_MAX_LENGTH when toolTextSummaryMaxLength is absent", () => {
+    const opts = resolveToolPreviewLimits({});
+    expect(opts.toolTextSummaryMaxLength).toBe(TOOL_TEXT_SUMMARY_MAX_LENGTH);
+  });
+
+  test("always sets toolInputLogPreviewMaxLength to TOOL_INPUT_LOG_PREVIEW_MAX_LENGTH", () => {
+    const opts = resolveToolPreviewLimits({
+      toolInputPreviewMaxLength: 999,
+      toolTextSummaryMaxLength: 999,
+    });
+    expect(opts.toolInputLogPreviewMaxLength).toBe(
+      TOOL_INPUT_LOG_PREVIEW_MAX_LENGTH,
+    );
+  });
+
+  test("returns all three options when both fields are configured", () => {
+    const opts = resolveToolPreviewLimits({
+      toolInputPreviewMaxLength: 400,
+      toolTextSummaryMaxLength: 120,
+    });
+    expect(opts).toEqual({
+      toolInputPreviewMaxLength: 400,
+      toolTextSummaryMaxLength: 120,
+      toolInputLogPreviewMaxLength: TOOL_INPUT_LOG_PREVIEW_MAX_LENGTH,
+    });
   });
 });

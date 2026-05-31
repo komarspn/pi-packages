@@ -11,6 +11,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
+import { DEFAULT_EXTENSION_CONFIG } from "#src/extension-config";
 import { PermissionGateHandler } from "#src/handlers/permission-gate-handler";
 import type { PermissionSession } from "#src/permission-session";
 import type { Rule } from "#src/rule";
@@ -139,6 +140,7 @@ function makeStatefulSession(
     getActiveSkillEntries: vi.fn().mockReturnValue([]),
     getInfrastructureDirs: vi.fn().mockReturnValue([]),
     getInfrastructureReadPaths: vi.fn().mockReturnValue([]),
+    config: DEFAULT_EXTENSION_CONFIG,
     canPrompt: vi.fn().mockReturnValue(true),
     prompt: vi
       .fn()

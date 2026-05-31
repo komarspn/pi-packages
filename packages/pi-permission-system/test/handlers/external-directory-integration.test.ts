@@ -12,6 +12,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
 import { EXTENSION_TAG } from "#src/denial-messages";
+import { DEFAULT_EXTENSION_CONFIG } from "#src/extension-config";
 import { formatExternalDirectoryAskPrompt } from "#src/handlers/gates/external-directory-messages";
 import { PermissionGateHandler } from "#src/handlers/permission-gate-handler";
 import {
@@ -116,6 +117,7 @@ function makeSession(
     getActiveSkillEntries: vi.fn().mockReturnValue([]),
     getInfrastructureDirs: vi.fn().mockReturnValue([]),
     getInfrastructureReadPaths: vi.fn().mockReturnValue([]),
+    config: DEFAULT_EXTENSION_CONFIG,
     canPrompt: vi.fn().mockReturnValue(true),
     prompt: vi.fn().mockResolvedValue({ approved: true, state: "approved" }),
     ...overrides,

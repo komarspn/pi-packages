@@ -1,10 +1,14 @@
 import { getNonEmptyString, toRecord } from "./common";
+import type { PermissionSystemExtensionConfig } from "./extension-config";
 import {
   formatEditInputForPrompt,
   formatReadInputForPrompt,
   formatWriteInputForPrompt,
   getPromptPath,
   serializeToolInputPreview,
+  TOOL_INPUT_LOG_PREVIEW_MAX_LENGTH,
+  TOOL_INPUT_PREVIEW_MAX_LENGTH,
+  TOOL_TEXT_SUMMARY_MAX_LENGTH,
   truncateInlineText,
 } from "./tool-input-preview";
 import type { PermissionCheckResult } from "./types";
@@ -13,6 +17,27 @@ export interface ToolPreviewFormatterOptions {
   toolInputPreviewMaxLength: number;
   toolTextSummaryMaxLength: number;
   toolInputLogPreviewMaxLength: number;
+}
+
+type ConfigurablePreviewLimits = Pick<
+  PermissionSystemExtensionConfig,
+  "toolInputPreviewMaxLength" | "toolTextSummaryMaxLength"
+>;
+
+/**
+ * Resolve `ToolPreviewFormatterOptions` from a config object, falling back to
+ * the built-in defaults for any field that is absent.
+ */
+export function resolveToolPreviewLimits(
+  config: ConfigurablePreviewLimits,
+): ToolPreviewFormatterOptions {
+  return {
+    toolInputPreviewMaxLength:
+      config.toolInputPreviewMaxLength ?? TOOL_INPUT_PREVIEW_MAX_LENGTH,
+    toolTextSummaryMaxLength:
+      config.toolTextSummaryMaxLength ?? TOOL_TEXT_SUMMARY_MAX_LENGTH,
+    toolInputLogPreviewMaxLength: TOOL_INPUT_LOG_PREVIEW_MAX_LENGTH,
+  };
 }
 
 /**

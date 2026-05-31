@@ -4,7 +4,7 @@
  */
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-
+import { DEFAULT_EXTENSION_CONFIG } from "#src/extension-config";
 import { PermissionGateHandler } from "#src/handlers/permission-gate-handler";
 import type { PermissionDecisionEvent } from "#src/permission-events";
 import { PERMISSIONS_DECISION_CHANNEL } from "#src/permission-events";
@@ -83,6 +83,7 @@ function makeSession(
       .fn()
       .mockReturnValue(["/test/agent", "/test/agent/git"]),
     getInfrastructureReadPaths: vi.fn().mockReturnValue([]),
+    config: DEFAULT_EXTENSION_CONFIG,
     canPrompt: vi.fn().mockReturnValue(true),
     prompt: vi.fn().mockResolvedValue({ approved: true, state: "approved" }),
     ...overrides,
