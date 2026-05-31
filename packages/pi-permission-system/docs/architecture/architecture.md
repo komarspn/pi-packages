@@ -490,7 +490,7 @@ src/
 │   ├── index.ts              Barrel re-exports
 │   ├── lifecycle.ts          SessionLifecycleHandler (session + cleanupRpc)
 │   ├── before-agent-start.ts AgentPrepHandler (session + toolRegistry); shouldExposeTool pure helper
-│   ├── permission-gate-handler.ts PermissionGateHandler (session + events + toolRegistry); getEventInput + extractSkillNameFromInput pure helpers
+│   ├── permission-gate-handler.ts PermissionGateHandler (session + events + toolRegistry); validateRequestedTool + getEventInput + extractSkillNameFromInput pure helpers
 │   └── gates/               Pure descriptor factories + runner
 │       ├── types.ts          GateOutcome, ToolCallContext
 │       ├── descriptor.ts     GateDescriptor (with DenialContext), GateBypass, GateResult, GateRunnerDeps types
@@ -648,16 +648,16 @@ The two phases are otherwise independent and can run in either order, with one e
 
 ### Current health metrics
 
-| Metric               | Value                                                        |
-| -------------------- | ------------------------------------------------------------ |
-| Health score         | 74 B                                                         |
-| LOC                  | 30,811                                                       |
-| Dead files / exports | 0%                                                           |
-| Avg cyclomatic       | 1.4                                                          |
-| Maintainability      | 91.2 (good)                                                  |
-| Duplication          | 9.1% (122 clone groups)                                      |
-| Refactoring targets  | 5 (4 medium, 1 high)                                         |
-| Worst CRAP risk      | `permission-gate-handler.ts` 172, `permission-manager.ts` 97 |
+| Metric               | Value                                                                                      |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| Health score         | 74 B                                                                                       |
+| LOC                  | 30,811                                                                                     |
+| Dead files / exports | 0%                                                                                         |
+| Avg cyclomatic       | 1.4                                                                                        |
+| Maintainability      | 91.2 (good)                                                                                |
+| Duplication          | 9.1% (122 clone groups)                                                                    |
+| Refactoring targets  | 4 (3 medium, 1 high) — after [#285]                                                        |
+| Worst CRAP risk      | `permission-gate-handler.ts` 79.4 (handleInput), `permission-manager.ts` 97 — after [#285] |
 
 ### Findings
 
@@ -674,14 +674,11 @@ All findings are `fallow`-confirmed and untracked before this phase.
 
 ### Steps
 
-1. **Decompose `handleToolCall`** ([#285])
-   - Extract a `runGate(descriptor)` helper closing over `tcc` and `runnerDeps` that handles the bypass log/emit branch, calls `runGateCheck`, and returns a block result or `undefined`.
-   - Extract the tool-name validation prelude into a helper returning a discriminated result.
-   - The body collapses to validate → build context → ordered gate pipeline that short-circuits on the first block.
-   - Ordering: recommended before Phase 1 step 2 (formatter threading), which adds an argument to the `describeToolGate` call this step relocates — decompose-then-extend is cheaper than the reverse.
-   - Category: B (god function on the security path)
-   - Outcome: cognitive 52 → target < 15; CRAP 172 falls as the repeated block dissolves.
-   - Commit: `refactor: decompose handleToolCall into a gate pipeline`
+1. ✅ **Decompose `handleToolCall`** ([#285]) — **completed**
+   - Extracted `validateRequestedTool` (pure, exported) for the tool-name validation prelude.
+   - Extracted `runGate` closure (inside `handleToolCall`) for the unified bypass/runner/short-circuit shape.
+   - Collapsed the body to validate → build context → ordered producer-array pipeline.
+   - Outcome: `handleToolCall` no longer appears as a refactoring target; CRAP risk for the file dropped from 172 → 79.4 (now `handleInput`); refactoring targets 5 → 4.
 
 2. **Decompose `resolvePermissions`** ([#286])
    - Extract `mergeScopesWithOrigins(scopes)` returning `{ mergedPermission, origins }`, isolating origin-map bookkeeping from the resolve pipeline.
