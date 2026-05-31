@@ -8,7 +8,6 @@
  * the real interaction between PermissionSession, SessionRules, and
  * PermissionManager.
  */
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_EXTENSION_CONFIG } from "#src/extension-config";
@@ -20,6 +19,8 @@ import type { ToolRegistry } from "#src/tool-registry";
 import type { PermissionCheckResult } from "#src/types";
 import { wildcardMatch } from "#src/wildcard-matcher";
 
+import { makeCtx, makeEvents } from "#test/helpers/handler-fixtures";
+
 // ── SDK stub ───────────────────────────────────────────────────────────────
 vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
   const original =
@@ -28,27 +29,6 @@ vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
 });
 
 // ── helpers ────────────────────────────────────────────────────────────────
-
-const CWD = "/test/project";
-
-function makeCtx(overrides: Partial<ExtensionContext> = {}): ExtensionContext {
-  return {
-    cwd: CWD,
-    hasUI: true,
-    ui: {
-      setStatus: vi.fn(),
-      notify: vi.fn(),
-      select: vi.fn(),
-      input: vi.fn(),
-    },
-    sessionManager: {
-      getEntries: vi.fn().mockReturnValue([]),
-      getSessionDir: vi.fn().mockReturnValue("/sessions/test"),
-      addEntry: vi.fn(),
-    },
-    ...overrides,
-  } as unknown as ExtensionContext;
-}
 
 /**
  * Build a PermissionSession mock with stateful session-rule tracking.
@@ -150,13 +130,6 @@ function makeStatefulSession(
       .mockResolvedValue({ approved: true, state: "approved_for_session" }),
     ...overrides,
   } as unknown as PermissionSession;
-}
-
-function makeEvents() {
-  return {
-    emit: vi.fn(),
-    on: vi.fn().mockReturnValue(() => undefined),
-  };
 }
 
 function makeToolRegistry(): ToolRegistry {

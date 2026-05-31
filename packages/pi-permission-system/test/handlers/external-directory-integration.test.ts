@@ -8,20 +8,22 @@
  * Regression guard: importing the four external-directory message helpers
  * ensures the test file fails to load if any helper is removed.
  */
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
 import { EXTENSION_TAG } from "#src/denial-messages";
 import { DEFAULT_EXTENSION_CONFIG } from "#src/extension-config";
 import { formatExternalDirectoryAskPrompt } from "#src/handlers/gates/external-directory-messages";
 import { PermissionGateHandler } from "#src/handlers/permission-gate-handler";
-import {
-  PERMISSIONS_DECISION_CHANNEL,
-  type PermissionDecisionEvent,
-} from "#src/permission-events";
 import type { PermissionSession } from "#src/permission-session";
 import type { ToolRegistry } from "#src/tool-registry";
 import type { PermissionCheckResult, PermissionState } from "#src/types";
+
+import {
+  getDecisionEvents,
+  makeCtx,
+  makeEvents,
+  makeToolCallEvent,
+} from "#test/helpers/handler-fixtures";
 
 // ── SDK stubs ──────────────────────────────────────────────────────────────
 vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
@@ -70,39 +72,6 @@ function makeCheckPermission(
     });
 }
 
-function makeCtx(
-  overrides: Partial<ExtensionContext> & { cwd?: string } = {},
-): ExtensionContext {
-  return {
-    cwd: CWD,
-    hasUI: true,
-    ui: {
-      setStatus: vi.fn(),
-      notify: vi.fn(),
-      select: vi.fn(),
-      input: vi.fn(),
-    },
-    sessionManager: {
-      getEntries: vi.fn().mockReturnValue([]),
-      getSessionDir: vi.fn().mockReturnValue("/sessions/test"),
-      addEntry: vi.fn(),
-    },
-    ...overrides,
-  } as unknown as ExtensionContext;
-}
-
-function makeToolCallEvent(
-  toolName: string,
-  input: Record<string, unknown> = {},
-) {
-  return {
-    type: "tool_call",
-    toolCallId: "tc-ext-1",
-    name: toolName,
-    input,
-  };
-}
-
 function makeSession(
   overrides: Partial<Record<keyof PermissionSession, unknown>> = {},
 ): PermissionSession {
@@ -122,13 +91,6 @@ function makeSession(
     prompt: vi.fn().mockResolvedValue({ approved: true, state: "approved" }),
     ...overrides,
   } as unknown as PermissionSession;
-}
-
-function makeEvents() {
-  return {
-    emit: vi.fn(),
-    on: vi.fn().mockReturnValue(() => undefined),
-  };
 }
 
 /** All PATH_BEARING_TOOLS members. */
@@ -164,14 +126,6 @@ function makeHandler(overrides?: {
   return { handler, events, session };
 }
 
-function getDecisionEvents(
-  events: ReturnType<typeof makeEvents>,
-): PermissionDecisionEvent[] {
-  return events.emit.mock.calls
-    .filter(([channel]) => channel === PERMISSIONS_DECISION_CHANNEL)
-    .map(([, payload]) => payload as PermissionDecisionEvent);
-}
-
 // ── Regression guard: helper presence ──────────────────────────────────────
 
 describe("external_directory helper regression guard", () => {
@@ -199,7 +153,7 @@ describe("external_directory path scope", () => {
       session: { checkPermission: makeCheckPermission("deny") },
     });
     const event = makeToolCallEvent("read", {
-      path: `${CWD}/src/index.ts`,
+      input: { path: `${CWD}/src/index.ts` },
     });
     const result = await handler.handleToolCall(event, makeCtx());
     // Should not be blocked — the external_directory gate is skipped,
@@ -211,7 +165,7 @@ describe("external_directory path scope", () => {
     const { handler } = makeHandler({
       session: { checkPermission: makeCheckPermission("deny") },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     const result = await handler.handleToolCall(event, makeCtx());
     expect(result).toMatchObject({ block: true });
   });
@@ -221,7 +175,7 @@ describe("external_directory path scope", () => {
       session: { checkPermission: makeCheckPermission("deny", "allow") },
     });
     const event = makeToolCallEvent("bash", {
-      command: `cat ${EXTERNAL_PATH}`,
+      input: { command: `cat ${EXTERNAL_PATH}` },
     });
     // bash is not in PATH_BEARING_TOOLS, so the external_directory gate
     // for tool path does not fire (bash-external-directory gate is separate)
@@ -239,7 +193,9 @@ describe("external_directory path scope", () => {
     const { handler } = makeHandler({
       session: { checkPermission: makeCheckPermission("deny") },
     });
-    const event = makeToolCallEvent(toolName, { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent(toolName, {
+      input: { path: EXTERNAL_PATH },
+    });
     const result = await handler.handleToolCall(event, makeCtx());
     expect(result).toMatchObject({ block: true });
   });
@@ -251,7 +207,7 @@ describe("external_directory path scope", () => {
       session: { checkPermission: makeCheckPermission("deny") },
     });
     // No path in input — external_directory gate should not fire
-    const event = makeToolCallEvent(toolName, {});
+    const event = makeToolCallEvent(toolName);
     const result = await handler.handleToolCall(event, makeCtx());
     expect(result).toEqual({});
   });
@@ -264,7 +220,7 @@ describe("external_directory policy state — allow", () => {
     const { handler } = makeHandler({
       session: { checkPermission: makeCheckPermission("allow") },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     const result = await handler.handleToolCall(event, makeCtx());
     expect(result).toEqual({});
   });
@@ -273,7 +229,7 @@ describe("external_directory policy state — allow", () => {
     const { handler, events } = makeHandler({
       session: { checkPermission: makeCheckPermission("allow") },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx());
     const decisions = getDecisionEvents(events);
     const extDirDecision = decisions.find(
@@ -290,7 +246,7 @@ describe("external_directory policy state — allow", () => {
     const { handler, session } = makeHandler({
       session: { checkPermission: makeCheckPermission("allow") },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx());
     const reviewCalls = (session.logger.review as ReturnType<typeof vi.fn>).mock
       .calls;
@@ -307,7 +263,7 @@ describe("external_directory — allow external reads, gate external writes (#14
     const { handler } = makeHandler({
       session: { checkPermission: makeCheckPermission("allow", "allow") },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     const result = await handler.handleToolCall(event, makeCtx());
     expect(result).toEqual({});
   });
@@ -322,7 +278,9 @@ describe("external_directory — allow external reads, gate external writes (#14
         prompt,
       },
     });
-    const event = makeToolCallEvent("write", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("write", {
+      input: { path: EXTERNAL_PATH },
+    });
     const result = await handler.handleToolCall(event, makeCtx());
     // external_directory passes; write gate prompts and user approves
     expect(result).toEqual({});
@@ -333,7 +291,9 @@ describe("external_directory — allow external reads, gate external writes (#14
     const { handler } = makeHandler({
       session: { checkPermission: makeCheckPermission("allow", "deny") },
     });
-    const event = makeToolCallEvent("write", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("write", {
+      input: { path: EXTERNAL_PATH },
+    });
     const result = await handler.handleToolCall(event, makeCtx());
     expect(result.block).toBe(true);
   });
@@ -342,7 +302,9 @@ describe("external_directory — allow external reads, gate external writes (#14
     const { handler, events } = makeHandler({
       session: { checkPermission: makeCheckPermission("allow", "deny") },
     });
-    const event = makeToolCallEvent("write", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("write", {
+      input: { path: EXTERNAL_PATH },
+    });
     await handler.handleToolCall(event, makeCtx());
     const decisions = getDecisionEvents(events);
     const extDirDecision = decisions.find(
@@ -367,7 +329,7 @@ describe("external_directory policy state — deny", () => {
     const { handler } = makeHandler({
       session: { checkPermission: makeCheckPermission("deny") },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     const result = await handler.handleToolCall(event, makeCtx());
     expect(result.block).toBe(true);
     expect(result.reason).toContain(EXTERNAL_PATH);
@@ -377,7 +339,7 @@ describe("external_directory policy state — deny", () => {
     const { handler } = makeHandler({
       session: { checkPermission: makeCheckPermission("deny") },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     const result = await handler.handleToolCall(event, makeCtx());
     expect(result.reason).toContain("[pi-permission-system]");
     expect(result.reason).not.toContain("Hard stop");
@@ -387,7 +349,7 @@ describe("external_directory policy state — deny", () => {
     const { handler, session } = makeHandler({
       session: { checkPermission: makeCheckPermission("deny") },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx());
     const reviewCalls = (session.logger.review as ReturnType<typeof vi.fn>).mock
       .calls;
@@ -404,7 +366,7 @@ describe("external_directory policy state — deny", () => {
     const { handler, events } = makeHandler({
       session: { checkPermission: makeCheckPermission("deny") },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx());
     const decisions = getDecisionEvents(events);
     const extDirDecision = decisions.find(
@@ -430,7 +392,7 @@ describe("external_directory policy state — ask", () => {
           .mockResolvedValue({ approved: true, state: "approved" }),
       },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     const result = await handler.handleToolCall(event, makeCtx());
     expect(result).toEqual({});
   });
@@ -444,7 +406,7 @@ describe("external_directory policy state — ask", () => {
           .mockResolvedValue({ approved: true, state: "approved" }),
       },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx());
     const decisions = getDecisionEvents(events);
     const extDirDecision = decisions.find(
@@ -464,7 +426,7 @@ describe("external_directory policy state — ask", () => {
         prompt: vi.fn().mockResolvedValue({ approved: false, state: "denied" }),
       },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     const result = await handler.handleToolCall(event, makeCtx());
     expect(result.block).toBe(true);
   });
@@ -476,7 +438,7 @@ describe("external_directory policy state — ask", () => {
         prompt: vi.fn().mockResolvedValue({ approved: false, state: "denied" }),
       },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx());
     const decisions = getDecisionEvents(events);
     const extDirDecision = decisions.find(
@@ -500,7 +462,7 @@ describe("external_directory policy state — ask", () => {
         }),
       },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     const result = await handler.handleToolCall(event, makeCtx());
     expect(result.block).toBe(true);
     expect(result.reason).toContain("not needed");
@@ -513,7 +475,7 @@ describe("external_directory policy state — ask", () => {
         canPrompt: vi.fn().mockReturnValue(false),
       },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     const result = await handler.handleToolCall(
       event,
       makeCtx({ hasUI: false }),
@@ -529,7 +491,7 @@ describe("external_directory policy state — ask", () => {
         canPrompt: vi.fn().mockReturnValue(false),
       },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx({ hasUI: false }));
     const reviewCalls = (session.logger.review as ReturnType<typeof vi.fn>).mock
       .calls;
@@ -549,7 +511,7 @@ describe("external_directory policy state — ask", () => {
         canPrompt: vi.fn().mockReturnValue(false),
       },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx({ hasUI: false }));
     const decisions = getDecisionEvents(events);
     const extDirDecision = decisions.find(
@@ -602,7 +564,7 @@ describe("external_directory per-agent override", () => {
         resolveAgentName: vi.fn().mockReturnValue("special-agent"),
       },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     const result1 = await handler1.handleToolCall(event, makeCtx());
     expect(result1).toEqual({});
 
@@ -633,7 +595,7 @@ describe("external_directory decision event fields", () => {
     const { handler, events } = makeHandler({
       session: { checkPermission: makeCheckPermission("deny") },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx());
     const decisions = getDecisionEvents(events);
     const extDirDecision = decisions.find(
@@ -650,7 +612,7 @@ describe("external_directory decision event fields", () => {
         resolveAgentName: vi.fn().mockReturnValue("my-agent"),
       },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx());
     const decisions = getDecisionEvents(events);
     const extDirDecision = decisions.find(
@@ -665,7 +627,7 @@ describe("external_directory decision event fields", () => {
     const { handler, events } = makeHandler({
       session: { checkPermission: makeCheckPermission("allow") },
     });
-    const event = makeToolCallEvent("read", { path: EXTERNAL_PATH });
+    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx());
     const decisions = getDecisionEvents(events);
     const extDirDecision = decisions.find(
