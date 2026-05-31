@@ -40,3 +40,53 @@ Pre-completion reviewer returned PASS with all 5 acceptance criteria verified.
 - The `SubagentStatus` type definition was kept in `src/lifecycle/subagent.ts` (single home) and re-exported from `src/service/service.ts`, matching the existing `LifetimeUsage` / workspace re-export pattern and avoiding a `lifecycle → service` cycle.
 - Docs: the architecture doc's session-encapsulation table had misaligned Markdown table columns after the rename (cell widths changed); `rumdl fmt` auto-fixed them.
 - Pre-completion reviewer: PASS — all deterministic checks, all 5 acceptance criteria, conventional commits, docs, Mermaid diagrams, and dead-code gate confirmed clean.
+
+## Stage: Final Retrospective (2026-05-31T01:05:57Z)
+
+### Session summary
+
+Shipped the full Planning → TDD → Ship lifecycle for the internal `Agent` → `Subagent` rename across `@gotgenes/pi-subagents`: 7 implementation commits (6 `refactor:`/`test:` + 1 `docs:`), 973 tests green throughout, CI passed on `27abb5aa`, and issue #280 closed.
+No release was triggered (all `refactor:`/`test:`/`docs:` commits), so no release-please PR appeared — expected.
+
+### Observations
+
+#### What went well
+
+- Two planning-stage catches prevented downstream rework: the `lifecycle → service` import cycle (resolved by keeping `SubagentStatus`'s single home in `subagent.ts` and re-exporting from `service.ts`) and the acceptance grep matching bare `Agent` in comments/strings (so each step swept non-symbol text).
+  Both were anticipated in the plan and held during execution.
+- Incremental verification carried the rename safely: `pnpm run check` plus the affected test files ran after every step, so the text-based substitution mistakes were caught instantly and never reached a commit.
+  The pre-completion reviewer then returned a clean PASS with nothing to fix.
+- The status re-export needed a follow-up `import type { SubagentStatus }` because `export type { … } from` does not create a local binding for `SubagentRecord` to reference — `pnpm run check` flagged it immediately, a one-edit fix.
+
+#### What caused friction (agent side)
+
+- `wrong-abstraction` — The plan specified each rename as a "scope-aware language-service pass" (`findRenameLocations`), but the execution toolkit has no LSP-rename tool — only `Edit`, `Bash` (`sed`/`perl`/`python`), and `grep`.
+  Execution fell back to text substitution, which is exactly why the comment/string sweep was needed and why the regex gymnastics below happened.
+  Impact: added friction but no rework — `tsc` + tests caught every gap; no incorrect commit landed.
+- `other` (cross-platform tooling) — Repeated silent failures from BSD `sed` / `perl` one-liners: BSD `sed` lacks `\b` and lookahead; `perl -i ''` is malformed (the `-i ''` form is a `sed`-ism); neither interprets `\uXXXX` escapes, so em-dash `describe("Agent — …")` blocks and `notification.ts` body renames did not match.
+  Each failure forced a grep-verify-redo loop, ultimately resolved by switching to Python `re.sub`.
+  Impact: roughly 5–8 extra tool calls across the TDD stage; no rework beyond the redo cycles.
+
+#### What caused friction (user side)
+
+- None.
+  The user's two `ask_user` answers at planning time (file renames + full-consistency adjacent identifiers) front-loaded every scope decision, so the TDD and Ship stages ran without a single mid-course correction.
+
+### Diagnostic details
+
+- **Model-performance correlation** — One subagent dispatched (`pre-completion-reviewer`) on judgment-heavy review work (acceptance verification, Mermaid validation via `mmdc`, dead-code gate); appropriate match, no mismatch.
+- **Escalation-delay tracking** — The `notification.ts` body rename cycled ~4–5 consecutive `sed`/`perl`/`grep` calls on the same substitution before switching to `perl -i -0pe`; under the 5-call threshold but the closest the session came.
+  The general lesson (prefer Python `re.sub`) generalizes the fix.
+- **Unused-tool detection** — No Explore/`colgrep` gap: the codebase was already understood from planning, and an exact symbol rename is not a semantic-search task.
+  The only "missing capability" is a language-service rename tool, which is not in the toolkit — a genuine gap, not an unused option.
+- **Feedback-loop gap analysis** — No gap: `pnpm run check` and affected tests ran after each step (incremental); `pnpm run lint`, `pnpm fallow dead-code`, and `verify:public-types` ran as the final batch.
+  Verification cadence was correct.
+
+### Changes made
+
+1. Appended this Final Retrospective stage entry to `packages/pi-subagents/docs/retro/0280-rename-agent-to-subagent.md`.
+
+### Follow-ups considered (not applied)
+
+1. Proposed adding a bulk-substitution tooling rule (prefer Python `re.sub` over `sed`/`perl` one-liners, since BSD `sed` lacks `\b`/lookahead and `\uXXXX` is uninterpreted) to the `code-design` skill's Tooling section.
+   The user opted to record the observation here only and skip the skill change.
