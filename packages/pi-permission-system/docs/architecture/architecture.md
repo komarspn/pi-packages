@@ -480,7 +480,8 @@ src/
 ├── expand-home.ts            ~/$HOME expansion for patterns
 ├── session-rules.ts          Session approval store (Ruleset wrapper)
 ├── policy-loader.ts          PolicyLoader interface + FilePolicyLoader (file I/O, mtime caching)
-├── permission-manager.ts     Policy merge + checkPermission(); delegates I/O to PolicyLoader
+├── scope-merge.ts            Cross-scope permission merge + origin-map bookkeeping
+├── permission-manager.ts     Scope loading + rule composition + checkPermission(); delegates I/O to PolicyLoader
 ├── permission-gate.ts        Pure deny/ask/allow gate (injected IO)
 ├── permission-prompter.ts    Yolo-mode, review logging, UI/forwarding branch; PromptPermissionDetails type
 ├── permission-dialog.ts      Dialog options (once / session / deny)
@@ -640,16 +641,16 @@ The two phases are otherwise independent and can run in either order, with one e
 
 ### Current health metrics
 
-| Metric               | Value                                                                                      |
-| -------------------- | ------------------------------------------------------------------------------------------ |
-| Health score         | 74 B                                                                                       |
-| LOC                  | 30,811                                                                                     |
-| Dead files / exports | 0%                                                                                         |
-| Avg cyclomatic       | 1.4                                                                                        |
-| Maintainability      | 91.2 (good)                                                                                |
-| Duplication          | 9.1% (122 clone groups)                                                                    |
-| Refactoring targets  | 4 (3 medium, 1 high) — after [#285]                                                        |
-| Worst CRAP risk      | `permission-gate-handler.ts` 79.4 (handleInput), `permission-manager.ts` 97 — after [#285] |
+| Metric               | Value                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------ |
+| Health score         | 74 B                                                                                                   |
+| LOC                  | 31,416                                                                                                 |
+| Dead files / exports | 0%                                                                                                     |
+| Avg cyclomatic       | 1.4                                                                                                    |
+| Maintainability      | 91.2 (good)                                                                                            |
+| Duplication          | 9.2% (after [#286])                                                                                    |
+| Refactoring targets  | 4 (3 medium, 1 high) — after [#286]; `permission-manager.ts` no longer a target                        |
+| Worst CRAP risk      | `permission-gate-handler.ts` 79.4 (handleInput), `config-loader.ts` (stripJsonComments) — after [#286] |
 
 ### Findings
 
@@ -658,7 +659,7 @@ All findings are `fallow`-confirmed and untracked before this phase.
 | #   | Finding                                                                                                                                                                      | Category                         | Files                                   | Impact | Risk | Priority |
 | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | --------------------------------------- | ------ | ---- | -------- |
 | 1   | `handleToolCall` runs six gates with a repeated bypass/runner/short-circuit shape — cognitive 52, CRAP 172, the package's worst                                              | B: god function                  | `handlers/permission-gate-handler.ts`   | 5      | 2    | 20       |
-| 2   | `resolvePermissions` interleaves scope merge with parallel origin-map bookkeeping — cognitive 33, CRAP 97                                                                    | B: god function                  | `permission-manager.ts`                 | 4      | 2    | 16       |
+| 2   | ✅ `resolvePermissions` interleaves scope merge with parallel origin-map bookkeeping — cognitive 33, CRAP 97 — resolved by [#286]                                            | B: god function                  | `permission-manager.ts`                 | 4      | 2    | 16       |
 | 3   | `runGateCheck` carries the full check→log→emit→approve cycle as six inline phases — cognitive 32                                                                             | B: god function                  | `handlers/gates/runner.ts`              | 4      | 2    | 16       |
 | 4   | Two token classifiers share a 31-line rejection prelude (production clone); `collectPathCandidateTokens` (37) and `collectPatternCommandTokens` (33) are complexity hotspots | A: duplication / B: god function | `handlers/gates/bash-path-extractor.ts` | 4      | 3    | 12       |
 | 5   | `stripJsonComments` is a five-variable character scanner — cognitive 31                                                                                                      | B: god function                  | `config-loader.ts`                      | 2      | 2    | 8        |
@@ -672,12 +673,10 @@ All findings are `fallow`-confirmed and untracked before this phase.
    - Collapsed the body to validate → build context → ordered producer-array pipeline.
    - Outcome: `handleToolCall` no longer appears as a refactoring target; CRAP risk for the file dropped from 172 → 79.4 (now `handleInput`); refactoring targets 5 → 4.
 
-2. **Decompose `resolvePermissions`** ([#286])
-   - Extract `mergeScopesWithOrigins(scopes)` returning `{ mergedPermission, origins }`, isolating origin-map bookkeeping from the resolve pipeline.
+2. ✅ **Decompose `resolvePermissions`** ([#286]) — **completed**
+   - Extracted `mergeScopesWithOrigins(scopes)` (into new `src/scope-merge.ts`) returning `{ mergedPermission, origins }`, isolating origin-map bookkeeping from the resolve pipeline.
    - The remaining body reads as load scopes → merge with origins → extract universal fallback → build config rules → compose.
-   - Category: B (god function)
-   - Outcome: cognitive 33 → target < 15; CRAP 97 falls.
-   - Commit: `refactor: extract mergeScopesWithOrigins from resolvePermissions`
+   - Outcome: `resolvePermissions` no longer appears as a refactoring target; `permission-manager.ts` dropped from the CRAP-risk list.
 
 3. **Decompose `runGateCheck`** ([#287])
    - Extract `resolveGateCheck`, `emitSessionHit`, and `recordSessionApprovals` as named helpers for phases 1, 2, and 6.
