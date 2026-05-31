@@ -47,6 +47,3 @@ Pre-completion reviewer: **PASS**.
 - **`validateRequestedTool` returns raw name, not normalised:** confirmed by the `ok`-path unit test.
   The plan note was accurate and critical — the normalised form from `ToolRegistrationCheckResult.normalizedToolName` would have silently changed `tcc.toolName` for tools registered under aliases.
 - **All pre-existing suites stayed green without modification**, as required by the plan's behavior-preservation goal.
-
-[#282]: https://github.com/gotgenes/pi-packages/issues/282
-[#288]: https://github.com/gotgenes/pi-packages/issues/288
