@@ -651,8 +651,8 @@ The two phases are otherwise independent and can run in either order, with one e
 | Avg cyclomatic       | 1.4                                                                                                    |
 | Maintainability      | 91.2 (good)                                                                                            |
 | Duplication          | 9.2% (after [#286])                                                                                    |
-| Refactoring targets  | 4 (3 medium, 1 high) — after [#286]; `permission-manager.ts` no longer a target                        |
-| Worst CRAP risk      | `permission-gate-handler.ts` 79.4 (handleInput), `config-loader.ts` (stripJsonComments) — after [#286] |
+| Refactoring targets  | 3 (2 medium, 1 high) — after [#290]; `config-loader.ts` no longer a target                             |
+| Worst CRAP risk      | `permission-gate-handler.ts` 79.4 (handleInput) — after [#290]                                         |
 
 ### Findings
 
@@ -664,7 +664,7 @@ All findings are `fallow`-confirmed and untracked before this phase.
 | 2   | ✅ `resolvePermissions` interleaves scope merge with parallel origin-map bookkeeping — cognitive 33, CRAP 97 — resolved by [#286]                                                                    | B: god function                  | `permission-manager.ts`                 | 4      | 2    | 16       |
 | 3   | ✅ `runGateCheck` carried the full check→log→emit→approve cycle as six inline phases — cognitive 32 — resolved by [#287]                                                                             | B: god function                  | `handlers/gates/runner.ts`              | 4      | 2    | 16       |
 | 4   | ✅ Two token classifiers share a 31-line rejection prelude (production clone); `collectPathCandidateTokens` (37) and `collectPatternCommandTokens` (33) are complexity hotspots — resolved by [#289] | A: duplication / B: god function | `handlers/gates/bash-path-extractor.ts` | 4      | 3    | 12       |
-| 5   | `stripJsonComments` is a five-variable character scanner — cognitive 31                                                                                                                              | B: god function                  | `config-loader.ts`                      | 2      | 2    | 8        |
+| 5   | ✅ `stripJsonComments` is a five-variable character scanner — cognitive 31 — resolved by [#290]                                                                                                      | B: god function                  | `config-loader.ts`                      | 2      | 2    | 8        |
 | 6   | 9.1% duplication concentrated in the test tree — the single largest health deduction (-4.1)                                                                                                          | D: test duplication              | `test/` (clone families)                | 3      | 1    | 15       |
 
 ### Steps
@@ -693,12 +693,12 @@ All findings are `fallow`-confirmed and untracked before this phase.
    - Category: A + B (production clone + god functions)
    - Outcome: clone removed; `collectPathCandidateTokens` and `collectPatternCommandTokens` decomposed into focused helpers; `bash-token-classification.ts` has dedicated unit tests (43 tests) covering every rejection and acceptance branch.
 
-5. **Reduce `stripJsonComments` complexity** ([#290])
-   - Model the scanner as an explicit small state machine or extract per-mode consume helpers.
-   - Lowest priority; defer if the higher-priority targets consume the phase.
+5. ✅ **Reduce `stripJsonComments` complexity** ([#290]) — **completed**
+   - Replaced the five-flag single-loop scanner with a stateless dispatcher delegating to three private consume helpers: `consumeLineComment`, `consumeBlockComment`, and `consumeString`, each returning a `ScanSegment` value (`{ output, nextIndex }`).
+   - Added 14 direct unit tests for `stripJsonComments` (the function was exported but had no dedicated coverage) to pin the contract before the refactor.
    - Category: B (god function)
-   - Outcome: cognitive 31 → target < 15.
-   - Commit: `refactor: model stripJsonComments as a state machine`
+   - Outcome: `stripJsonComments` no longer appears as a refactoring target; `config-loader.ts` dropped from the CRAP-risk list; refactoring targets 4 → 3.
+   - Commits: `test: add direct stripJsonComments unit tests`, `refactor: model stripJsonComments as consume helpers`
 
 6. **Extract shared test fixtures** ([#288])
    - Extract handler/session setup, ruleset, and event-payload factories into `test/helpers/`, then migrate the top clone families (`permission-system.test.ts`, the external-directory tests, the handler-event tests, `bash-path.test.ts`, `runner.test.ts`).
