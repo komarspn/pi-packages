@@ -264,9 +264,7 @@ The `SessionRules` scalar primitive is retained so `session-rules.test.ts` is no
 - Whether to also lift phase 1's check resolution onto the descriptor (e.g. `descriptor.resolveCheck(deps)`) so the runner stops branching on `preCheck`/`preResolved` — deferred.
   It is value-returning and small; revisit only if `fallow health --targets` still flags `runner.ts` above the `< 15` target after step 3.
 
-[#285]: https://github.com/gotgenes/pi-packages/issues/285
 [#286]: https://github.com/gotgenes/pi-packages/issues/286
-[#287]: https://github.com/gotgenes/pi-packages/issues/287
 [#288]: https://github.com/gotgenes/pi-packages/issues/288
 [#289]: https://github.com/gotgenes/pi-packages/issues/289
 [#290]: https://github.com/gotgenes/pi-packages/issues/290
