@@ -28,7 +28,7 @@ import type { LifetimeUsage } from "#src/lifecycle/usage";
 import { addUsage } from "#src/lifecycle/usage";
 import type { Workspace, WorkspaceProvider } from "#src/lifecycle/workspace";
 import { NotificationState } from "#src/observation/notification-state";
-import { subscribeAgentObserver } from "#src/observation/record-observer";
+import { subscribeSubagentObserver } from "#src/observation/record-observer";
 import type { RunConfig } from "#src/runtime";
 import type { AgentInvocation, CompactionInfo, ParentSessionInfo, SubagentType, ThinkingLevel } from "#src/types";
 
@@ -301,7 +301,7 @@ export class Subagent {
 		}
 
 		this.flushPendingSteers();
-		this.attachObserver(subscribeAgentObserver(this.subagentSession, this, {
+		this.attachObserver(subscribeSubagentObserver(this.subagentSession, this, {
 			onCompact: (r, info) => this.observer?.onCompacted?.(r, info),
 		}));
 		this.observer?.onSessionCreated?.(this);
@@ -336,7 +336,7 @@ export class Subagent {
 		}
 
 		this.resetForResume(Date.now());
-		this.attachObserver(subscribeAgentObserver(subagentSession, this, {
+		this.attachObserver(subscribeSubagentObserver(subagentSession, this, {
 			onCompact: (r, info) => this.observer?.onCompacted?.(r, info),
 		}));
 

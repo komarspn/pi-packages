@@ -8,7 +8,7 @@
 import type { Subagent } from "#src/lifecycle/subagent";
 import type { CompactionInfo, SubscribableSession } from "#src/types";
 
-export interface AgentObserverOptions {
+export interface SubagentObserverOptions {
   onCompact?: (record: Subagent, info: CompactionInfo) => void;
 }
 
@@ -22,10 +22,10 @@ export interface AgentObserverOptions {
  *
  * @returns An unsubscribe function.
  */
-export function subscribeAgentObserver(
+export function subscribeSubagentObserver(
   session: SubscribableSession,
   record: Subagent,
-  options?: AgentObserverOptions,
+  options?: SubagentObserverOptions,
 ): () => void {
   return session.subscribe((event) => {
     if (event.type === "tool_execution_end") {
