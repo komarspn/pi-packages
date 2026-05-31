@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AgentManager, type AgentManagerObserver } from "#src/lifecycle/agent-manager";
 import { ConcurrencyQueue } from "#src/lifecycle/concurrency-queue";
 import type { CreateSubagentSessionParams } from "#src/lifecycle/create-subagent-session";
+import { SubagentManager, type SubagentManagerObserver } from "#src/lifecycle/subagent-manager";
 import type { SubagentSession } from "#src/lifecycle/subagent-session";
 import type { WorkspaceProvider } from "#src/lifecycle/workspace";
 import { NotificationState } from "#src/observation/notification-state";
@@ -21,26 +21,26 @@ function defaultFactory(): SessionFactory {
   return vi.fn(async (_params: CreateSubagentSessionParams) => toSubagentSession(createSubagentSessionStub()));
 }
 
-/** Test helper: construct an AgentManager with injected stubs. */
+/** Test helper: construct an SubagentManager with injected stubs. */
 function createManager(overrides?: {
   createSubagentSession?: SessionFactory;
-  observer?: Partial<AgentManagerObserver>;
+  observer?: Partial<SubagentManagerObserver>;
   getMaxConcurrent?: () => number;
   getRunConfig?: () => RunConfig;
   baseCwd?: string;
 }) {
   const createSubagentSession: SessionFactory = overrides?.createSubagentSession ?? defaultFactory();
-  const observer: AgentManagerObserver | undefined = overrides?.observer
+  const observer: SubagentManagerObserver | undefined = overrides?.observer
     ? {
-        onAgentStarted: overrides.observer.onAgentStarted ?? (() => {}),
-        onAgentCompleted: overrides.observer.onAgentCompleted ?? (() => {}),
-        onAgentCompacted: overrides.observer.onAgentCompacted ?? (() => {}),
-        onAgentCreated: overrides.observer.onAgentCreated ?? (() => {}),
+        onSubagentStarted: overrides.observer.onSubagentStarted ?? (() => {}),
+        onSubagentCompleted: overrides.observer.onSubagentCompleted ?? (() => {}),
+        onSubagentCompacted: overrides.observer.onSubagentCompacted ?? (() => {}),
+        onSubagentCreated: overrides.observer.onSubagentCreated ?? (() => {}),
       }
     : undefined;
   // Forward-reference via closure — safe because drain is never called during construction.
   // eslint-disable-next-line prefer-const -- forward reference: must be declared before queue, assigned after
-  let mgr: AgentManager;
+  let mgr: SubagentManager;
   const queue = new ConcurrencyQueue(
     overrides?.getMaxConcurrent ?? (() => DEFAULT_MAX_CONCURRENT),
     (id) => {
@@ -49,7 +49,7 @@ function createManager(overrides?: {
       record.promise = record.run();
     },
   );
-  mgr = new AgentManager({
+  mgr = new SubagentManager({
     createSubagentSession,
     observer,
     queue,
@@ -60,7 +60,7 @@ function createManager(overrides?: {
 }
 
 /** Spawn a background agent using STUB_SNAPSHOT. */
-function spawnBg(mgr: AgentManager, prompt = "test", desc = prompt) {
+function spawnBg(mgr: SubagentManager, prompt = "test", desc = prompt) {
   return mgr.spawn(STUB_SNAPSHOT, "general-purpose", prompt, {
     description: desc,
     isBackground: true,
@@ -68,14 +68,14 @@ function spawnBg(mgr: AgentManager, prompt = "test", desc = prompt) {
 }
 
 /** Spawn a foreground agent using STUB_SNAPSHOT. */
-function spawnFg(mgr: AgentManager, prompt = "test", desc = prompt) {
+function spawnFg(mgr: SubagentManager, prompt = "test", desc = prompt) {
   return mgr.spawnAndWait(STUB_SNAPSHOT, "general-purpose", prompt, {
     description: desc,
   });
 }
 
-describe("AgentManager — Bug 1 race condition (notification.resultConsumed vs onComplete)", () => {
-  let manager: AgentManager;
+describe("SubagentManager — Bug 1 race condition (notification.resultConsumed vs onComplete)", () => {
+  let manager: SubagentManager;
 
   afterEach(() => {
     manager.dispose();
@@ -83,7 +83,7 @@ describe("AgentManager — Bug 1 race condition (notification.resultConsumed vs 
 
   it("reproduces bug: onComplete fires with resultConsumed=false when markConsumed called after await", async () => {
     let seenConsumed: boolean | undefined;
-    ({ manager } = createManager({ observer: { onAgentCompleted: (r) => {
+    ({ manager } = createManager({ observer: { onSubagentCompleted: (r) => {
       seenConsumed = r.notification?.resultConsumed;
     } } }));
 
@@ -101,7 +101,7 @@ describe("AgentManager — Bug 1 race condition (notification.resultConsumed vs 
 
   it("fix: onComplete sees resultConsumed=true when markConsumed called before await", async () => {
     let seenConsumed: boolean | undefined;
-    ({ manager } = createManager({ observer: { onAgentCompleted: (r) => {
+    ({ manager } = createManager({ observer: { onSubagentCompleted: (r) => {
       seenConsumed = r.notification?.resultConsumed;
     } } }));
 
@@ -118,7 +118,7 @@ describe("AgentManager — Bug 1 race condition (notification.resultConsumed vs 
 
   it("normal case: onComplete fires with no notification when agent was not spawned via tool", async () => {
     let completedRecord: Subagent | undefined;
-    ({ manager } = createManager({ observer: { onAgentCompleted: (r) => {
+    ({ manager } = createManager({ observer: { onSubagentCompleted: (r) => {
       completedRecord = r;
     } } }));
 
@@ -131,7 +131,7 @@ describe("AgentManager — Bug 1 race condition (notification.resultConsumed vs 
 
   it("onComplete is not called for foreground agents", async () => {
     let onCompleteCalled = false;
-    ({ manager } = createManager({ observer: { onAgentCompleted: () => {
+    ({ manager } = createManager({ observer: { onSubagentCompleted: () => {
       onCompleteCalled = true;
     } } }));
 
@@ -141,15 +141,15 @@ describe("AgentManager — Bug 1 race condition (notification.resultConsumed vs 
   });
 });
 
-describe("AgentManager — completion callbacks", () => {
-  let manager: AgentManager;
+describe("SubagentManager — completion callbacks", () => {
+  let manager: SubagentManager;
 
   afterEach(() => {
     manager.dispose();
   });
 
   it("does not let onComplete errors turn a completed agent into a failed run", async () => {
-    ({ manager } = createManager({ observer: { onAgentCompleted: () => {
+    ({ manager } = createManager({ observer: { onSubagentCompleted: () => {
       throw new Error("stale extension context");
     } } }));
 
@@ -160,8 +160,8 @@ describe("AgentManager — completion callbacks", () => {
   });
 });
 
-describe("AgentManager — cleanup timer", () => {
-  let manager: AgentManager;
+describe("SubagentManager — cleanup timer", () => {
+  let manager: SubagentManager;
 
   afterEach(() => {
     manager.dispose();
@@ -174,8 +174,8 @@ describe("AgentManager — cleanup timer", () => {
   });
 });
 
-describe("AgentManager — Bug 3 clearCompleted", () => {
-  let manager: AgentManager;
+describe("SubagentManager — Bug 3 clearCompleted", () => {
+  let manager: SubagentManager;
 
   afterEach(() => {
     manager.dispose();
@@ -244,8 +244,8 @@ describe("AgentManager — Bug 3 clearCompleted", () => {
 
 // Eager init removes the optional/required asymmetry that previously required
 // `??=` defaults at the callback sites and `?? 0` / `?? 1` at the read sites.
-describe("AgentManager — lifetime usage + compaction count are eagerly initialized", () => {
-  let manager: AgentManager;
+describe("SubagentManager — lifetime usage + compaction count are eagerly initialized", () => {
+  let manager: SubagentManager;
 
   afterEach(() => {
     manager.dispose();
@@ -297,7 +297,7 @@ describe("AgentManager — lifetime usage + compaction count are eagerly initial
       return { responseText: "done", aborted: false, steered: false };
     });
 
-    ({ manager } = createManager({ createSubagentSession: factory, observer: { onAgentCompacted: (record, info) => {
+    ({ manager } = createManager({ createSubagentSession: factory, observer: { onSubagentCompacted: (record, info) => {
       compactSeen.push({ count: record.compactionCount, reason: info.reason });
     } } }));
 
@@ -317,7 +317,7 @@ describe("AgentManager — lifetime usage + compaction count are eagerly initial
     const { factory, stub } = createSessionFactory(session);
     stub.resumeTurnLoop.mockImplementation(async () => {
       // Emit events through the session — the record observer subscribed by
-      // AgentManager.resume() will pick them up.
+      // SubagentManager.resume() will pick them up.
       session.emit({ type: "message_end", message: { role: "assistant", usage: { input: 70, output: 30, cacheWrite: 5 } } });
       session.emit({ type: "compaction_end", aborted: false, result: { tokensBefore: 999 }, reason: "overflow" });
       return "second";
@@ -338,8 +338,8 @@ describe("AgentManager — lifetime usage + compaction count are eagerly initial
   });
 });
 
-describe("AgentManager — getRunConfig threads defaultMaxTurns and graceTurns into the turn loop", () => {
-  let manager: AgentManager;
+describe("SubagentManager — getRunConfig threads defaultMaxTurns and graceTurns into the turn loop", () => {
+  let manager: SubagentManager;
 
   afterEach(() => {
     manager.dispose();
@@ -371,8 +371,8 @@ describe("AgentManager — getRunConfig threads defaultMaxTurns and graceTurns i
   });
 });
 
-describe("AgentManager — parent session threading", () => {
-  let manager: AgentManager;
+describe("SubagentManager — parent session threading", () => {
+  let manager: SubagentManager;
 
   afterEach(() => {
     manager.dispose();
@@ -396,8 +396,8 @@ describe("AgentManager — parent session threading", () => {
   });
 });
 
-describe("AgentManager — dependency injection via options bag", () => {
-  let manager: AgentManager;
+describe("SubagentManager — dependency injection via options bag", () => {
+  let manager: SubagentManager;
 
   afterEach(() => {
     manager.dispose();
@@ -430,8 +430,8 @@ describe("AgentManager — dependency injection via options bag", () => {
 
 });
 
-describe("AgentManager — queueing and concurrency with injected stubs", () => {
-  let manager: AgentManager;
+describe("SubagentManager — queueing and concurrency with injected stubs", () => {
+  let manager: SubagentManager;
 
   afterEach(() => {
     manager.dispose();
@@ -517,7 +517,7 @@ describe("AgentManager — queueing and concurrency with injected stubs", () => 
     ({ manager } = createManager({
       createSubagentSession: factory,
       getMaxConcurrent: () => 1,
-      observer: { onAgentStarted: (record) => { startedIds.push(record.id); } },
+      observer: { onSubagentStarted: (record) => { startedIds.push(record.id); } },
     }));
 
     const id1 = spawnBg(manager, "a");
@@ -537,8 +537,8 @@ describe("AgentManager — queueing and concurrency with injected stubs", () => 
   });
 });
 
-describe("AgentManager — subagent session state", () => {
-  let manager: AgentManager;
+describe("SubagentManager — subagent session state", () => {
+  let manager: SubagentManager;
 
   afterEach(() => {
     manager.dispose();
@@ -569,16 +569,16 @@ describe("AgentManager — subagent session state", () => {
 });
 
 
-describe("AgentManager — onAgentCreated observer", () => {
-  let manager: AgentManager;
+describe("SubagentManager — onSubagentCreated observer", () => {
+  let manager: SubagentManager;
 
   afterEach(() => {
     manager.dispose();
   });
 
-  it("fires onAgentCreated when a background agent is spawned", () => {
+  it("fires onSubagentCreated when a background agent is spawned", () => {
     const onCreated = vi.fn();
-    ({ manager } = createManager({ observer: { onAgentCreated: onCreated } }));
+    ({ manager } = createManager({ observer: { onSubagentCreated: onCreated } }));
 
     const id = manager.spawn(STUB_SNAPSHOT, "general-purpose", "test", {
       description: "test agent",
@@ -591,9 +591,9 @@ describe("AgentManager — onAgentCreated observer", () => {
     manager.abort(id);
   });
 
-  it("does not fire onAgentCreated for foreground agents", async () => {
+  it("does not fire onSubagentCreated for foreground agents", async () => {
     const onCreated = vi.fn();
-    ({ manager } = createManager({ observer: { onAgentCreated: onCreated } }));
+    ({ manager } = createManager({ observer: { onSubagentCreated: onCreated } }));
 
     await manager.spawnAndWait(STUB_SNAPSHOT, "general-purpose", "test", {
       description: "foreground agent",
@@ -602,12 +602,12 @@ describe("AgentManager — onAgentCreated observer", () => {
     expect(onCreated).not.toHaveBeenCalled();
   });
 
-  it("fires onAgentCreated before onAgentStarted for background agents", async () => {
+  it("fires onSubagentCreated before onSubagentStarted for background agents", async () => {
     const callOrder: string[] = [];
     ({ manager } = createManager({
       observer: {
-        onAgentCreated: () => { callOrder.push("created"); },
-        onAgentStarted: () => { callOrder.push("started"); },
+        onSubagentCreated: () => { callOrder.push("created"); },
+        onSubagentStarted: () => { callOrder.push("started"); },
       },
     }));
 
@@ -621,8 +621,8 @@ describe("AgentManager — onAgentCreated observer", () => {
   });
 });
 
-describe("AgentManager — lifecycle observer forwarding", () => {
-  let manager: AgentManager;
+describe("SubagentManager — lifecycle observer forwarding", () => {
+  let manager: SubagentManager;
 
   afterEach(() => {
     manager.dispose();
@@ -669,8 +669,8 @@ describe("AgentManager — lifecycle observer forwarding", () => {
   });
 });
 
-describe("AgentManager — toolCallId notification wiring", () => {
-  let manager: AgentManager;
+describe("SubagentManager — toolCallId notification wiring", () => {
+  let manager: SubagentManager;
 
   afterEach(() => {
     manager.dispose();
@@ -706,8 +706,8 @@ describe("AgentManager — toolCallId notification wiring", () => {
   });
 });
 
-describe("AgentManager — registerWorkspaceProvider", () => {
-  let manager: AgentManager;
+describe("SubagentManager — registerWorkspaceProvider", () => {
+  let manager: SubagentManager;
 
   afterEach(() => {
     manager.dispose();

@@ -49,7 +49,7 @@ export class SubagentRuntime {
    */
   readonly agentActivity: Map<string, AgentActivityTracker> = new Map();
   /**
-   * Persistent widget reference. Null until constructed after AgentManager.
+   * Persistent widget reference. Null until constructed after SubagentManager.
    * Delegation methods use optional chaining so callers never need `widget!`.
    */
   widget: WidgetLike | null = null;

@@ -7,7 +7,7 @@
  */
 
 import { AgentTypeRegistry } from "#src/config/agent-types";
-import type { AgentManager } from "#src/lifecycle/agent-manager";
+import type { SubagentManager } from "#src/lifecycle/subagent-manager";
 import type { AgentActivityTracker } from "#src/ui/agent-activity-tracker";
 import { ERROR_STATUSES, type Theme } from "#src/ui/display";
 import { renderWidgetLines } from "#src/ui/widget-renderer";
@@ -78,7 +78,7 @@ export class AgentWidget {
   private lastStatusText: string | undefined;
 
   constructor(
-    private manager: AgentManager,
+    private manager: SubagentManager,
     private agentActivity: Map<string, AgentActivityTracker>,
     private registry: AgentTypeRegistry,
   ) {}

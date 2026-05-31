@@ -3,7 +3,7 @@
  *
  * The factory produces a born-complete SubagentSession (issue #265). These
  * helpers wrap the SubagentSession stub from mock-session into the factory shape
- * AgentManager injects into each Agent. Tests with unique turn-loop behavior
+ * SubagentManager injects into each Subagent. Tests with unique turn-loop behavior
  * (event-emitting, gated, error-throwing) configure the returned stub directly.
  */
 import { vi } from "vitest";

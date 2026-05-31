@@ -3,7 +3,7 @@ import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import type { WorkspaceProvider } from "#src/lifecycle/workspace";
 import { NotificationState } from "#src/observation/notification-state";
 import type { SubagentsService } from "#src/service/service";
-import type { AgentManagerLike, ServiceRuntimeLike } from "#src/service/service-adapter";
+import type { ServiceRuntimeLike, SubagentManagerLike } from "#src/service/service-adapter";
 import { SubagentsServiceAdapter, toSubagentRecord } from "#src/service/service-adapter";
 import type { SessionContext, Subagent } from "#src/types";
 import { createTestAgent } from "#test/helpers/make-agent";
@@ -202,7 +202,7 @@ describe("SubagentsServiceAdapter — getRecord and listAgents", () => {
 });
 
 describe("SubagentsServiceAdapter — spawn", () => {
-  function defaultManager(): AgentManagerLike {
+  function defaultManager(): SubagentManagerLike {
     return {
       spawn: vi.fn(() => "spawned-id"),
       getRecord: vi.fn(),
@@ -323,9 +323,9 @@ describe("SubagentsServiceAdapter — steer, abort, waitForAll, hasRunning", () 
   function createTestManager() {
     return {
       spawn: vi.fn(() => "id"),
-      getRecord: vi.fn<AgentManagerLike["getRecord"]>(),
+      getRecord: vi.fn<SubagentManagerLike["getRecord"]>(),
       listAgents: vi.fn(() => [] as Subagent[]),
-      abort: vi.fn<AgentManagerLike["abort"]>(() => true),
+      abort: vi.fn<SubagentManagerLike["abort"]>(() => true),
       waitForAll: vi.fn(async () => {}),
       hasRunning: vi.fn(() => true),
       registerWorkspaceProvider: vi.fn(() => () => {}),
@@ -414,7 +414,7 @@ describe("SubagentsServiceAdapter — steer, abort, waitForAll, hasRunning", () 
 describe("SubagentsServiceAdapter — registerWorkspaceProvider", () => {
   it("delegates to manager.registerWorkspaceProvider and returns its disposer", () => {
     const disposer = vi.fn();
-    const mgr: AgentManagerLike = {
+    const mgr: SubagentManagerLike = {
       spawn: vi.fn(() => "id"),
       getRecord: vi.fn(),
       listAgents: vi.fn(() => []),

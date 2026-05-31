@@ -1,5 +1,5 @@
 /**
- * service-adapter.ts — Adapter that wraps AgentManager to satisfy SubagentsService.
+ * service-adapter.ts — Adapter that wraps SubagentManager to satisfy SubagentsService.
  *
  * Handles model resolution at the API boundary, record serialization
  * (stripping non-serializable fields), and session gating.
@@ -11,8 +11,8 @@ import type { SpawnOptions, SubagentRecord, SubagentsService } from "#src/servic
 import type { ModelRegistry } from "#src/session/model-resolver";
 import type { SessionContext, Subagent } from "#src/types";
 
-/** Narrow interface for the AgentManager — avoids coupling to the concrete class. */
-export interface AgentManagerLike {
+/** Narrow interface for the SubagentManager — avoids coupling to the concrete class. */
+export interface SubagentManagerLike {
   spawn(snapshot: ParentSnapshot, type: string, prompt: string, options: unknown): string;
   getRecord(id: string): Subagent | undefined;
   listAgents(): Subagent[];
@@ -31,10 +31,10 @@ export interface ServiceRuntimeLike {
   buildSnapshot(inheritContext: boolean): ParentSnapshot;
 }
 
-/** Adapter that wraps AgentManager to satisfy SubagentsService. */
+/** Adapter that wraps SubagentManager to satisfy SubagentsService. */
 export class SubagentsServiceAdapter implements SubagentsService {
   constructor(
-    private readonly manager: AgentManagerLike,
+    private readonly manager: SubagentManagerLike,
     private readonly resolveModel: (input: string, registry: ModelRegistry) => unknown,
     private readonly runtime: ServiceRuntimeLike,
   ) {}

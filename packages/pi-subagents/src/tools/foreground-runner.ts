@@ -1,6 +1,6 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
-import type { AgentSpawnConfig } from "#src/lifecycle/agent-manager";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
+import type { AgentSpawnConfig } from "#src/lifecycle/subagent-manager";
 import type { AgentActivityAccess } from "#src/tools/agent-tool";
 import {
   buildDetails,

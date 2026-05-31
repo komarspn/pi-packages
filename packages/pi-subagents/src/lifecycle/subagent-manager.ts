@@ -1,5 +1,5 @@
 /**
- * agent-manager.ts - Tracks agents, background execution, resume support.
+ * subagent-manager.ts - Tracks subagents, background execution, resume support.
  *
  * Background agents are subject to a configurable concurrency limit (default: 4).
  * Excess agents are queued and auto-started as running agents complete.
@@ -20,15 +20,15 @@ import type { RunConfig } from "#src/runtime";
 import type { AgentInvocation, CompactionInfo, ParentSessionInfo, SubagentType, ThinkingLevel } from "#src/types";
 
 /** Observer interface for agent lifecycle notifications. */
-export interface AgentManagerObserver {
-  onAgentStarted(record: Subagent): void;
-  onAgentCompleted(record: Subagent): void;
-  onAgentCompacted(record: Subagent, info: CompactionInfo): void;
+export interface SubagentManagerObserver {
+  onSubagentStarted(record: Subagent): void;
+  onSubagentCompleted(record: Subagent): void;
+  onSubagentCompacted(record: Subagent, info: CompactionInfo): void;
   /** Fires synchronously after a background agent record is created (before run). */
-  onAgentCreated(record: Subagent): void;
+  onSubagentCreated(record: Subagent): void;
 }
 
-export interface AgentManagerOptions {
+export interface SubagentManagerOptions {
   /** Assembly factory that produces a born-complete SubagentSession per spawn. */
   createSubagentSession: (params: CreateSubagentSessionParams) => Promise<SubagentSession>;
   /** Concurrency queue — owns scheduling, limit checks, and drain logic. */
@@ -36,7 +36,7 @@ export interface AgentManagerOptions {
   /** Base working directory handed to a workspace provider (the parent cwd). */
   baseCwd: string;
   getRunConfig?: () => RunConfig;
-  observer?: AgentManagerObserver;
+  observer?: SubagentManagerObserver;
 }
 
 export interface AgentSpawnConfig {
@@ -62,10 +62,10 @@ export interface AgentSpawnConfig {
   parentSession?: ParentSessionInfo;
 }
 
-export class AgentManager {
+export class SubagentManager {
   private agents = new Map<string, Subagent>();
   private cleanupInterval: ReturnType<typeof setInterval>;
-  private readonly observer?: AgentManagerObserver;
+  private readonly observer?: SubagentManagerObserver;
   private readonly createSubagentSession: (params: CreateSubagentSessionParams) => Promise<SubagentSession>;
   private readonly queue: ConcurrencyQueue;
   private readonly baseCwd: string;
@@ -77,7 +77,7 @@ export class AgentManager {
     return this._workspaceProvider;
   }
 
-  constructor(options: AgentManagerOptions) {
+  constructor(options: SubagentManagerOptions) {
     this.createSubagentSession = options.createSubagentSession;
     this.queue = options.queue;
     this.baseCwd = options.baseCwd;
@@ -110,7 +110,7 @@ export class AgentManager {
     return {
       onStarted: (agent) => {
         if (options.isBackground) this.queue.markStarted();
-        this.observer?.onAgentStarted(agent);
+        this.observer?.onSubagentStarted(agent);
       },
       onSessionCreated: options.observer?.onSessionCreated
         ? (agent) => options.observer!.onSessionCreated!(agent)
@@ -118,11 +118,11 @@ export class AgentManager {
       onRunFinished: (agent) => {
         if (options.isBackground) {
           this.queue.markFinished();
-          try { this.observer?.onAgentCompleted(agent); } catch (err) { debugLog("onAgentCompleted observer", err); }
+          try { this.observer?.onSubagentCompleted(agent); } catch (err) { debugLog("onSubagentCompleted observer", err); }
         }
       },
       onCompacted: (agent, info) => {
-        this.observer?.onAgentCompacted(agent, info);
+        this.observer?.onSubagentCompacted(agent, info);
       },
     };
   }
@@ -163,7 +163,7 @@ export class AgentManager {
     this.agents.set(id, record);
 
     if (options.isBackground) {
-      this.observer?.onAgentCreated(record);
+      this.observer?.onSubagentCreated(record);
     }
 
     if (options.isBackground && !options.bypassQueue && this.queue.isFull()) {

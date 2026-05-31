@@ -150,9 +150,9 @@ describe("AgentTool — background execution", () => {
 		expect(text).toContain("bg task");
 	});
 
-	it("does not emit subagents:created directly — delegated to observer.onAgentCreated", async () => {
-		// The subagents:created event is now emitted by AgentManagerObserver.onAgentCreated,
-		// called from AgentManager.spawn(). Tested in agent-manager.test.ts.
+	it("does not emit subagents:created directly — delegated to observer.onSubagentCreated", async () => {
+		// The subagents:created event is now emitted by SubagentManagerObserver.onSubagentCreated,
+		// called from SubagentManager.spawn(). Tested in subagent-manager.test.ts.
 		// This test ensures the tool no longer holds an emitEvent dep for this purpose.
 		const deps = createToolDeps();
 		deps.manager.getRecord = vi.fn().mockReturnValue(createTestAgent({ status: "running" }));

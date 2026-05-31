@@ -23,11 +23,11 @@ import {
 import { AgentTypeRegistry } from "#src/config/agent-types";
 import { loadCustomAgents } from "#src/config/custom-agents";
 import { SessionLifecycleHandler, ToolStartHandler } from "#src/handlers/index";
-import { AgentManager, type AgentManagerObserver } from "#src/lifecycle/agent-manager";
 import { createChildLifecyclePublisher } from "#src/lifecycle/child-lifecycle";
 import { ConcurrencyQueue } from "#src/lifecycle/concurrency-queue";
 import { createSubagentSession, type SubagentSessionDeps } from "#src/lifecycle/create-subagent-session";
 import { buildParentSnapshot } from "#src/lifecycle/parent-snapshot";
+import { SubagentManager, type SubagentManagerObserver } from "#src/lifecycle/subagent-manager";
 import { buildEventData, type NotificationDetails, NotificationManager } from "#src/observation/notification";
 import { createNotificationRenderer } from "#src/observation/renderer";
 import { createSubagentRuntime } from "#src/runtime";
@@ -56,7 +56,7 @@ export default function (pi: ExtensionAPI) {
   const runtime = createSubagentRuntime();
 
   // ---- Notification system ----
-  // runtime.widget is assigned after AgentManager construction; arrow closures
+  // runtime.widget is assigned after SubagentManager construction; arrow closures
   // capture `runtime` by reference so they always read the current value.
   const notifications = new NotificationManager(
     (msg, opts) => pi.sendMessage(msg, opts),
@@ -76,8 +76,8 @@ export default function (pi: ExtensionAPI) {
   settings.load();
 
   // Observer: receives agent lifecycle notifications and dispatches events/notifications.
-  const observer: AgentManagerObserver = {
-    onAgentStarted(record) {
+  const observer: SubagentManagerObserver = {
+    onSubagentStarted(record) {
       // Emit started event when agent transitions to running (including from queue).
       pi.events.emit("subagents:started", {
         id: record.id,
@@ -85,7 +85,7 @@ export default function (pi: ExtensionAPI) {
         description: record.description,
       });
     },
-    onAgentCompleted(record) {
+    onSubagentCompleted(record) {
       // Emit lifecycle event based on terminal status.
       const isError = record.status === "error" || record.status === "stopped" || record.status === "aborted";
       const eventData = buildEventData(record);
@@ -110,7 +110,7 @@ export default function (pi: ExtensionAPI) {
 
       notifications.sendCompletion(record);
     },
-    onAgentCompacted(record, info) {
+    onSubagentCompacted(record, info) {
       // Emit compacted event when agent's session compacts (preserves count on record).
       pi.events.emit("subagents:compacted", {
         id: record.id,
@@ -121,7 +121,7 @@ export default function (pi: ExtensionAPI) {
         compactionCount: record.compactionCount,
       });
     },
-    onAgentCreated(record) {
+    onSubagentCreated(record) {
       // Emit created event for background agents (before startAgent / queue drain).
       pi.events.emit("subagents:created", {
         id: record.id,
@@ -150,7 +150,7 @@ export default function (pi: ExtensionAPI) {
     lifecycle: createChildLifecyclePublisher((channel, data) => pi.events.emit(channel, data)),
   };
 
-  // ConcurrencyQueue: scheduling extracted from AgentManager.
+  // ConcurrencyQueue: scheduling extracted from SubagentManager.
   // startAgent callback forward-references manager via closure (safe — drain is never called during construction).
   const queue = new ConcurrencyQueue(
     () => settings.maxConcurrent,
@@ -161,7 +161,7 @@ export default function (pi: ExtensionAPI) {
     },
   );
 
-  const manager = new AgentManager({
+  const manager = new SubagentManager({
     createSubagentSession: (params) => createSubagentSession(params, subagentSessionDeps),
     baseCwd: process.cwd(),
     observer,
