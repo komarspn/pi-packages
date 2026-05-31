@@ -64,7 +64,7 @@ The `permission` object uses deep-shallow merge; scalar fields use simple replac
 
 - Schema: `schemas/permissions.schema.json`
 - Example: `config/config.example.json`
-- Keep schema, example, `README.md`, and TypeScript types/loaders aligned — changing one without the others is a bug.
+- Keep schema, example config, `docs/configuration.md`, `README.md`, and TypeScript types/loaders aligned — changing one without the others is a bug.
 - When removing a config field, keep the loader tolerant: detect the legacy key, emit a non-fatal config issue, and discard the value.
 - When adding an optional field to `PermissionSystemExtensionConfig`, do not include it in `DEFAULT_EXTENSION_CONFIG` with an explicit `undefined` value — tests use `deepEqual` and it breaks equality.
 - When a config example sets a policy for `write`, include the same policy for `edit` — both tools modify files and users expect them gated together.
