@@ -29,7 +29,7 @@ Before investigating the plan, load skills relevant to the change:
 - Load the `code-design` skill for design principles and structural heuristics.
 - Load the `testing` skill if the plan involves test changes or TDD steps.
 - Load the `markdown-conventions` skill — it contains project-specific rules (one-sentence-per-line, frontmatter schema) that differ from standard markdown conventions.
-- Load the `design-review` skill and run its checklist on the affected modules if the plan adds fields to shared interfaces or touches wiring between layers.
+- Load the `design-review` skill and run its checklist before finalizing the design for any refactor, extraction, or change to shared interfaces or layer wiring — judge this from the issue, not from a plan that already shows wiring changes.
 
 ## Gather context
 
@@ -60,6 +60,10 @@ Before starting fresh, check whether prior sessions have already done work on th
 4. If no retro file exists, this is the first session on this issue — proceed normally.
 
 ## Decide
+
+Treat the issue's "Proposed change" as a hypothesis, not a spec.
+An extraction that only relocates statements to lower a complexity metric — introducing no new collaborator and moving no behavior onto data — is procedure-splitting, not design improvement.
+When the issue prescribes a specific decomposition, verify (against the `code-design` heuristics) that each extracted piece returns a value, owns state, or gives behavior to data before planning around it.
 
 Before writing the plan, identify any genuinely ambiguous design choices.
 If there are 1–2 such choices (breaking-vs-non-breaking, result-shape change, fallback semantics, etc.), use the `ask-user` skill once to surface them with a short context summary and concrete options.
