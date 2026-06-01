@@ -496,7 +496,7 @@ src/
 │   ├── index.ts              Barrel re-exports
 │   ├── lifecycle.ts          SessionLifecycleHandler (session + cleanupRpc)
 │   ├── before-agent-start.ts AgentPrepHandler (session + toolRegistry); shouldExposeTool pure helper
-│   ├── permission-gate-handler.ts PermissionGateHandler (session + events + toolRegistry); validateRequestedTool + getEventInput + extractSkillNameFromInput pure helpers
+│   ├── permission-gate-handler.ts PermissionGateHandler (session + events + toolRegistry); parses the bash command once per `tool_call` and injects the shared `BashProgram` into the three bash gates (#308); validateRequestedTool + getEventInput + extractSkillNameFromInput pure helpers
 │   └── gates/               Pure descriptor factories + runner
 │       ├── types.ts          GateOutcome, ToolCallContext
 │       ├── descriptor.ts     GateDescriptor (with DenialContext), GateBypass, GateResult, GateRunnerDeps types
@@ -505,13 +505,13 @@ src/
 │       ├── skill-read.ts     describeSkillReadGate — pure descriptor factory
 │       ├── external-directory.ts describeExternalDirectoryGate — pure descriptor/bypass factory
 │       ├── external-directory-messages.ts External-directory ask-prompt formatting (denial messages moved to denial-messages.ts)
-│       ├── bash-external-directory.ts describeBashExternalDirectoryGate — pure descriptor/bypass factory; selects the worst uncovered path via `pickMostRestrictive`
-│       ├── bash-path.ts      describeBashPathGate — async descriptor/bypass factory for bash path rules; selects the worst uncovered token via `pickMostRestrictive`
+│       ├── bash-external-directory.ts describeBashExternalDirectoryGate — pure descriptor/bypass factory over the injected `BashProgram` (`externalPaths(cwd)`); selects the worst uncovered path via `pickMostRestrictive`
+│       ├── bash-path.ts      describeBashPathGate — pure descriptor/bypass factory for bash path rules over the injected `BashProgram` (`pathTokens()`); selects the worst uncovered token via `pickMostRestrictive`
 │       ├── candidate-check.ts `pickMostRestrictive` — pure deny > ask > allow selection over PermissionCheckResults (first-wins on ties); shared by the bash gates
 │       ├── bash-token-classification.ts Pure token classifiers — `classifyTokenAsPathCandidate` (strict: `/`, `~/`, `..`) and `classifyTokenAsRuleCandidate` (broader: also dot-files and relative paths); shared `rejectNonPathToken` predicate
-│       ├── bash-program.ts   `BashProgram` value object — parses a bash command once (tree-sitter-bash) and exposes typed slices (`pathTokens()`, cd-aware `externalPaths(cwd)`, chain-splitting `topLevelCommands()`); owns the AST walker and `cd`-target detection; classifiers imported from `bash-token-classification.ts`
+│       ├── bash-program.ts   `BashProgram` value object — parses a bash command once (tree-sitter-bash) and exposes typed slices (`pathTokens()`, cd-aware `externalPaths(cwd)`, chain-splitting `commands(): BashCommand[]`); owns the AST walker and `cd`-target detection; classifiers imported from `bash-token-classification.ts`
 │       ├── bash-path-extractor.ts Thin facades (`extractTokensForPathRules`, `extractExternalPathsFromBashCommand`) over `BashProgram`
-│       ├── bash-command.ts   `resolveBashCommandCheck` — decomposes a bash chain via `BashProgram.topLevelCommands()`, checks each command on the `bash` surface, and selects via `pickMostRestrictive` (#301)
+│       ├── bash-command.ts   `resolveBashCommandCheck` — pure combiner over caller-supplied top-level command units (the handler decomposes via `BashProgram.commands()`), checks each unit on the `bash` surface, selects via `pickMostRestrictive`, and falls back to the whole command when empty (#301)
 │       ├── path.ts           describePathGate — pure descriptor factory for cross-cutting path rules
 │       ├── tool.ts           describeToolGate — pure descriptor factory
 │       └── index.ts          Barrel re-exports
