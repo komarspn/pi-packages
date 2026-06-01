@@ -60,12 +60,15 @@ export interface SubagentSessionInfo {
 /**
  * Registry of active in-process subagent sessions.
  *
- * Owned by `ExtensionRuntime`; written exclusively by `subscribeSubagentLifecycle`
- * via the `subagents:child:session-created` / `subagents:child:disposed` event
- * subscription (ADR 0002 — the core publishes, consumers observe).
+ * A process-global singleton — obtain it via `getSubagentSessionRegistry()`,
+ * never `new` (see that accessor for why). Written exclusively by
+ * `subscribeSubagentLifecycle` via the `subagents:child:session-created` /
+ * `subagents:child:disposed` event subscription (ADR 0002 — the core
+ * publishes, consumers observe).
  *
- * Concurrent background agents are safe because each session has a unique
- * directory path as its key — no scalar global flag is needed.
+ * Keyed by session directory path. Note: concurrent sibling children of one
+ * parent currently share a key (`<parent>/<basename>/tasks`); keying by child
+ * session id is tracked in #298.
  */
 export class SubagentSessionRegistry {
   private readonly sessions = new Map<string, SubagentSessionInfo>();

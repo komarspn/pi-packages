@@ -62,6 +62,7 @@ Then use `issue_close` with issue number `$1` and the summary as the comment.
 1. Use `release_pr_find` to locate an open release-please PR.
 2. If none is found (timeout), skip to step 7.
 3. If one exists, check which packages/versions the PR bumps.
+   Read the **full** PR body — release-please collapses each package in a separate `<details>` block, so a truncated view hides sibling bumps.
    If it bumps a package unrelated to the issue being shipped, note it to the user before merging.
 4. Use `release_pr_merge` with the PR number.
    - Note: release-please PRs typically have **no CI runs** because PRs created by the default `GITHUB_TOKEN` do not trigger workflows.
