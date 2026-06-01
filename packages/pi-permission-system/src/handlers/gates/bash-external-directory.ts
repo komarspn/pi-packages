@@ -4,6 +4,7 @@ import { SessionApproval } from "#src/session-approval";
 import { deriveApprovalPattern } from "#src/session-rules";
 import type { PermissionCheckResult } from "#src/types";
 import { extractExternalPathsFromBashCommand } from "./bash-path-extractor";
+import { pickMostRestrictive } from "./candidate-check";
 import type { GateResult } from "./descriptor";
 import { formatBashExternalDirectoryAskPrompt } from "./external-directory-messages";
 import type { ToolCallContext } from "./types";
@@ -85,7 +86,7 @@ export async function describeBashExternalDirectoryGate(
   // This ensures a config-level "deny" rule is not downgraded to "ask" by the
   // generic "*" catch-all that the old path-less checkPermission call returned.
   const worstCheck =
-    uncoveredEntries.find(({ check }) => check.state === "deny")?.check ??
+    pickMostRestrictive(uncoveredEntries.map(({ check }) => check)) ??
     uncoveredEntries[0].check;
 
   const bashExtMessage = formatBashExternalDirectoryAskPrompt(
