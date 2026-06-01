@@ -30,3 +30,25 @@ The owner chose Beck-style "refactor first, then a trivial fix", so #304 capture
 ### Diagnostic details
 
 - **Feedback-loop gap analysis** — Two steps (path-gate refactor; cross-module primitive move) are explicitly paired with `pnpm run check` in the plan because they are behavior-preserving moves that the type checker, not the test suite alone, will catch first.
+
+## Stage: Implementation — TDD (2026-06-01T20:46:09Z)
+
+### Session summary
+
+Executed all four planned steps as behavior-preserving refactors: extracted `pickMostRestrictive` (`candidate-check.ts`) and migrated both bash gates onto it, introduced the `BashProgram` value object (`bash-program.ts`) owning the tree-sitter primitives with the old extractors reduced to thin facades, and updated the architecture directory listing.
+Test count went from 1674 to 1686 (+12: six `pickMostRestrictive` cases, six `BashProgram` cases); the 900-line extractor suite and both bash-gate suites stayed green unchanged, confirming behavior preservation.
+
+### Observations
+
+- Pre-completion reviewer: PASS.
+- Reviewer warnings (all non-blocking, left as-is):
+  - `bash-path.ts` recovers the worst token by reference identity (`uncovered.find(({ check }) => check === worstCheck)`) after `pickMostRestrictive(uncovered.map(({ check }) => check))`.
+    Correct because `.map()` does not clone; kept the helper checks-only since that is the shared seam with the external-directory gate.
+  - `bash-external-directory.ts` ends with `pickMostRestrictive(...) ?? uncoveredEntries[0].check`; the fallback is logically unreachable (the empty case returns earlier) but is required because `pickMostRestrictive` returns `PermissionCheckResult | undefined` and the type checker needs the narrowing.
+  - `bash-program.ts` places the tree-sitter bootstrap (`getParser` etc.) above the exported `BashProgram` class; all declarations hoist so ordering is safe.
+- Baseline was not clean: a pre-existing `MD053` lint failure in the `0301` plan (a self-referential `[#301]:` link definition left by the prior planning session) was fixed first as `docs: remove self-referential issue link from #301 plan`.
+- Fallow false positive: `BashProgram`'s private constructor + static `parse()` factory defeats fallow's syntactic-only analysis (no compiler), so it reports `pathTokens`/`externalPaths` as unused class members.
+  Suppressed with `// fallow-ignore-next-line unused-class-member` (note: the inline issue kind is singular `unused-class-member`, even though the `.fallowrc.json` rule key is plural `unused-class-members`; the suppression line must contain only the kind — trailing prose is parsed as bogus issue kinds).
+  This suppression landed as its own `refactor:` commit rather than in the trailing `docs:` commit.
+- No deviations from the plan's Module-Level Changes; `v3-architecture.md` was reviewed and correctly left unchanged (historical pre-refactor narrative, does not enumerate current gate modules).
+- This unblocks #301, which can now add `BashProgram.topLevelCommands()` plus a bash command gate selecting with `pickMostRestrictive`.
