@@ -98,12 +98,22 @@ export function getPermissionsService(): PermissionsService | undefined {
 }
 
 /**
- * Remove the service from `globalThis`.
+ * Remove `service` from `globalThis`, but only when the current slot still
+ * holds it (identity compare-and-delete).
  *
  * Called during `session_shutdown` to avoid stale references after the
- * extension is torn down.
+ * extension is torn down. Scoping the delete to the publishing instance keeps
+ * two cases correct:
+ *
+ * - An in-process subagent child never published the parent's service, so its
+ *   shutdown is a no-op and the parent's slot survives.
+ * - A superseded `/reload` generation no longer owns the slot, so its late
+ *   shutdown cannot wipe the new generation's freshly published service.
  */
-export function unpublishPermissionsService(): void {
+export function unpublishPermissionsService(service: PermissionsService): void {
+  if (getPermissionsService() !== service) {
+    return;
+  }
   // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- Symbol-keyed global property; Map.delete() is not applicable
   delete (globalThis as Record<symbol, unknown>)[SERVICE_KEY];
 }

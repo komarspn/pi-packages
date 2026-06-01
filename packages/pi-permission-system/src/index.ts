@@ -149,7 +149,7 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
     rpcHandles.unsubCheck();
     rpcHandles.unsubPrompt();
     unsubSubagentLifecycle();
-    unpublishPermissionsService();
+    unpublishPermissionsService(permissionsService);
   });
   const agentPrep = new AgentPrepHandler(session, toolRegistry);
   const gates = new PermissionGateHandler(

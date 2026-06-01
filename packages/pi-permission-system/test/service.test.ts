@@ -26,7 +26,10 @@ function makeService(
 
 describe("globalThis accessor", () => {
   afterEach(() => {
-    unpublishPermissionsService();
+    const current = getPermissionsService();
+    if (current) {
+      unpublishPermissionsService(current);
+    }
   });
 
   it("returns undefined when nothing has been published", () => {
@@ -47,15 +50,25 @@ describe("globalThis accessor", () => {
     expect(getPermissionsService()).toBe(second);
   });
 
-  it("returns undefined after unpublish", () => {
+  it("removes the slot when it still holds the given service", () => {
     const service = makeService();
     publishPermissionsService(service);
-    unpublishPermissionsService();
+    unpublishPermissionsService(service);
     expect(getPermissionsService()).toBeUndefined();
   });
 
+  it("does not remove the slot when a different service occupies it", () => {
+    const parent = makeService();
+    const child = makeService();
+    publishPermissionsService(parent);
+    // A child instance never published `parent`; unpublishing its own service
+    // must be a no-op that leaves the parent's slot intact.
+    unpublishPermissionsService(child);
+    expect(getPermissionsService()).toBe(parent);
+  });
+
   it("unpublish is safe to call when nothing was published", () => {
-    expect(() => unpublishPermissionsService()).not.toThrow();
+    expect(() => unpublishPermissionsService(makeService())).not.toThrow();
     expect(getPermissionsService()).toBeUndefined();
   });
 });
@@ -64,7 +77,10 @@ describe("globalThis accessor", () => {
 
 describe("service adapter delegation", () => {
   afterEach(() => {
-    unpublishPermissionsService();
+    const current = getPermissionsService();
+    if (current) {
+      unpublishPermissionsService(current);
+    }
   });
 
   const fakeResult: PermissionCheckResult = {
@@ -191,7 +207,10 @@ describe("service adapter delegation", () => {
 
 describe("registerToolInputFormatter delegation", () => {
   afterEach(() => {
-    unpublishPermissionsService();
+    const current = getPermissionsService();
+    if (current) {
+      unpublishPermissionsService(current);
+    }
   });
 
   it("delegates to the registry and returns its disposer", () => {
