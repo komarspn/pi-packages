@@ -34,5 +34,9 @@ The plan adds one accessor (`getSubagentSessionRegistry`) and changes one line i
   The chosen fix keeps per-session buses and shares only the cross-session state; the child reads the registry rather than receiving the event.
 - Decided **not** to add an in-package cross-bus integration test to #296 (keeps the fix tight).
   Instead filed [#297] to track a `makeFakePi()` composition-root harness plus backfill tests for the broader wiring-fault class this regression exemplifies (registry sharing, handler-registration completeness, shutdown teardown, service/registry shared-instance wiring, `ready` ordering). #297 also records a suspected latent bug to verify: each instance runs `publishPermissionsService` at init and `unpublishPermissionsService` on shutdown, so a child instance may overwrite the parent's published service and then delete the global slot on child shutdown.
+- Filed [#298] for the concurrent-sibling key collision: children of one parent share the `.../tasks` `getSessionDir()` key, so a finishing sibling's `unregister` deletes the shared entry and blocks still-running siblings' `ask` forwarding.
+  Latent today (forwarding is broken end-to-end) but becomes live once #296 lands.
+  Decided direction lean: key the registry by the child's session id (add `sessionId` to the `session-created` / `disposed` event payloads), rather than refcounting the shared key or giving each child a unique directory.
 
 [#297]: https://github.com/gotgenes/pi-packages/issues/297
+[#298]: https://github.com/gotgenes/pi-packages/issues/298

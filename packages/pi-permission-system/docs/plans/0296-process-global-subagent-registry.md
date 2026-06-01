@@ -200,7 +200,7 @@ No changes to `service.ts`, `subagent-context.ts`, `permission-forwarding.ts`, `
 
 - Concurrent sibling children of the same parent share the `<parent-session-dir>/<basename>/tasks` `getSessionDir()` key, so they collide on one registry entry; when one sibling is disposed, `unregister` removes the shared entry and detection breaks for still-running siblings.
   This pre-dates the regression (the old bridge keyed on the same path) and is independent of the event-bus split, so it is out of scope here.
-  Fixing it would require `@gotgenes/pi-subagents` to derive a unique per-child session directory — a separate, likely cross-package follow-up issue.
+  It is latent today (forwarding is broken end-to-end) but becomes live the moment this fix lands, and is tracked in [#298] (leaning toward keying the registry by the child's session id).
 - This regression is an instance of a broader gap: the composition root (`index.ts`) has no test coverage, so wiring faults (a collaborator instantiated instead of shared, a dropped handler, a leaked teardown) slip past the unit suite.
   The practical coverage for *this* fix is the accessor unit test (TDD step 1) plus the existing injected-registry tests; a `makeFakePi()` composition-root harness and the backfill tests that would have caught this class of fault are tracked separately in [#297] and intentionally out of scope here.
 
@@ -210,3 +210,4 @@ No changes to `service.ts`, `subagent-context.ts`, `permission-forwarding.ts`, `
 [#261]: https://github.com/gotgenes/pi-packages/issues/261
 [#267]: https://github.com/gotgenes/pi-packages/issues/267
 [#297]: https://github.com/gotgenes/pi-packages/issues/297
+[#298]: https://github.com/gotgenes/pi-packages/issues/298
