@@ -29,6 +29,7 @@ import {
 import { resolveBashCommandCheck } from "./gates/bash-command";
 import { describeBashExternalDirectoryGate } from "./gates/bash-external-directory";
 import { describeBashPathGate } from "./gates/bash-path";
+import { BashProgram } from "./gates/bash-program";
 import type { GateResult, GateRunnerDeps } from "./gates/descriptor";
 import { isGateBypass } from "./gates/descriptor";
 import { describeExternalDirectoryGate } from "./gates/external-directory";
@@ -86,6 +87,14 @@ export class PermissionGateHandler {
       toolCallId,
       cwd: ctx.cwd,
     };
+
+    // Parse the bash command exactly once per tool_call; the three bash gates
+    // share this single BashProgram instead of each re-parsing (#308).
+    const command = getNonEmptyString(toRecord(tcc.input).command);
+    const bashProgram =
+      tcc.toolName === "bash" && command
+        ? await BashProgram.parse(command)
+        : null;
 
     // ── Shared gate adapter closures ─────────────────────────────────────
     const canConfirm = () => this.session.canPrompt(ctx);
@@ -166,10 +175,17 @@ export class PermissionGateHandler {
       () =>
         describeBashExternalDirectoryGate(
           tcc,
+          bashProgram,
           checkPermission,
           getSessionRuleset,
         ),
-      () => describeBashPathGate(tcc, checkPermission, getSessionRuleset),
+      () =>
+        describeBashPathGate(
+          tcc,
+          bashProgram,
+          checkPermission,
+          getSessionRuleset,
+        ),
       async () => {
         // Bash commands may chain several sub-commands (`a && b`, `a | b`, …);
         // evaluate each on the bash surface and select the most restrictive,

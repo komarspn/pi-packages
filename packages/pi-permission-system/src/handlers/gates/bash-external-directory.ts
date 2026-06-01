@@ -3,7 +3,7 @@ import type { Rule } from "#src/rule";
 import { SessionApproval } from "#src/session-approval";
 import { deriveApprovalPattern } from "#src/session-rules";
 import type { PermissionCheckResult } from "#src/types";
-import { extractExternalPathsFromBashCommand } from "./bash-path-extractor";
+import type { BashProgram } from "./bash-program";
 import { pickMostRestrictive } from "./candidate-check";
 import type { GateResult } from "./descriptor";
 import { formatBashExternalDirectoryAskPrompt } from "./external-directory-messages";
@@ -20,26 +20,26 @@ type CheckPermissionFn = (
 /**
  * Build a pure descriptor for the bash external-directory permission gate.
  *
- * Extracts paths from a bash command and checks whether any reference
- * directories outside the working directory. Returns `null` when the gate
+ * Reads the external paths from the injected `BashProgram` and checks whether
+ * any reference directories outside the working directory. Returns `null` when the gate
  * does not apply (tool is not bash, no CWD, or no external paths found).
  * Returns a `GateBypass` when all paths are allowed (by config or session rule).
  * Returns a `GateDescriptor` with multi-pattern sessionApproval for uncovered paths.
  */
-export async function describeBashExternalDirectoryGate(
+export function describeBashExternalDirectoryGate(
   tcc: ToolCallContext,
+  bashProgram: BashProgram | null,
   checkPermission: CheckPermissionFn,
   getSessionRuleset: () => Rule[],
-): Promise<GateResult> {
+): GateResult {
   if (tcc.toolName !== "bash" || !tcc.cwd) return null;
 
   const command = getNonEmptyString(toRecord(tcc.input).command);
   if (!command) return null;
 
-  const externalPaths = await extractExternalPathsFromBashCommand(
-    command,
-    tcc.cwd,
-  );
+  if (!bashProgram) return null;
+
+  const externalPaths = bashProgram.externalPaths(tcc.cwd);
   if (externalPaths.length === 0) return null;
 
   const bashSessionRules = getSessionRuleset();

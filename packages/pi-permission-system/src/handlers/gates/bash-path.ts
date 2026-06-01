@@ -3,7 +3,7 @@ import type { Rule } from "#src/rule";
 import { SessionApproval } from "#src/session-approval";
 import { deriveApprovalPattern } from "#src/session-rules";
 import type { PermissionCheckResult } from "#src/types";
-import { extractTokensForPathRules } from "./bash-path-extractor";
+import type { BashProgram } from "./bash-program";
 import { pickMostRestrictive } from "./candidate-check";
 import type { GateResult } from "./descriptor";
 import { formatPathAskPrompt } from "./path";
@@ -20,8 +20,8 @@ type CheckPermissionFn = (
 /**
  * Build a pure descriptor for the cross-cutting path permission gate (bash).
  *
- * Extracts path-candidate tokens from a bash command using tree-sitter with
- * the broader filter (accepts dot-files, relative paths). Evaluates each
+ * Reads path-candidate tokens from the injected `BashProgram` (the broader
+ * `path`-rule filter, accepting dot-files and relative paths). Evaluates each
  * token against the `path` permission surface and returns the most
  * restrictive result.
  *
@@ -30,17 +30,20 @@ type CheckPermissionFn = (
  * Returns a `GateBypass` when all tokens are session-covered.
  * Returns a `GateDescriptor` for the most restrictive token needing a check.
  */
-export async function describeBashPathGate(
+export function describeBashPathGate(
   tcc: ToolCallContext,
+  bashProgram: BashProgram | null,
   checkPermission: CheckPermissionFn,
   getSessionRuleset: () => Rule[],
-): Promise<GateResult> {
+): GateResult {
   if (tcc.toolName !== "bash") return null;
 
   const command = getNonEmptyString(toRecord(tcc.input).command);
   if (!command) return null;
 
-  const tokens = await extractTokensForPathRules(command);
+  if (!bashProgram) return null;
+
+  const tokens = bashProgram.pathTokens();
   if (tokens.length === 0) return null;
 
   // Check each token against path rules with session rules appended.

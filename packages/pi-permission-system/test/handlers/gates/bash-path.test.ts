@@ -9,12 +9,16 @@ vi.mock("node:os", () => {
   };
 });
 
+import { getNonEmptyString, toRecord } from "#src/common";
 import { describeBashPathGate } from "#src/handlers/gates/bash-path";
+import { BashProgram } from "#src/handlers/gates/bash-program";
 import type {
   GateBypass,
   GateDescriptor,
+  GateResult,
 } from "#src/handlers/gates/descriptor";
 import { isGateBypass, isGateDescriptor } from "#src/handlers/gates/descriptor";
+import type { ToolCallContext } from "#src/handlers/gates/types";
 import type { Rule } from "#src/rule";
 import type { PermissionCheckResult } from "#src/types";
 
@@ -34,13 +38,36 @@ type CheckPermissionFn = (
   sessionRules?: Rule[],
 ) => PermissionCheckResult;
 
+/**
+ * Mirror the handler's parse-once derivation: parse the bash command into a
+ * shared `BashProgram` and inject it, exactly as `permission-gate-handler.ts`
+ * does, so the gate is exercised through the production wiring.
+ */
+async function describeGate(
+  tcc: ToolCallContext,
+  checkPermission: CheckPermissionFn,
+  getSessionRuleset: () => Rule[],
+): Promise<GateResult> {
+  const command = getNonEmptyString(toRecord(tcc.input).command);
+  const bashProgram =
+    tcc.toolName === "bash" && command
+      ? await BashProgram.parse(command)
+      : null;
+  return describeBashPathGate(
+    tcc,
+    bashProgram,
+    checkPermission,
+    getSessionRuleset,
+  );
+}
+
 // ── tests ──────────────────────────────────────────────────────────────────
 
 describe("describeBashPathGate", () => {
   it("returns null for non-bash tools", async () => {
     const checkPermission = vi.fn<CheckPermissionFn>();
     const getSessionRuleset = vi.fn<() => Rule[]>().mockReturnValue([]);
-    const result = await describeBashPathGate(
+    const result = await describeGate(
       makeTcc({ toolName: "read", input: { path: ".env" } }),
       checkPermission,
       getSessionRuleset,
@@ -51,7 +78,7 @@ describe("describeBashPathGate", () => {
   it("returns null when no tokens are extracted", async () => {
     const checkPermission = vi.fn<CheckPermissionFn>();
     const getSessionRuleset = vi.fn<() => Rule[]>().mockReturnValue([]);
-    const result = await describeBashPathGate(
+    const result = await describeGate(
       makeTcc({ input: { command: "echo hello" } }),
       checkPermission,
       getSessionRuleset,
@@ -64,7 +91,7 @@ describe("describeBashPathGate", () => {
       .fn<CheckPermissionFn>()
       .mockReturnValue(makeCheckResult({ state: "allow" }));
     const getSessionRuleset = vi.fn<() => Rule[]>().mockReturnValue([]);
-    const result = await describeBashPathGate(
+    const result = await describeGate(
       makeTcc({ input: { command: "cat .env" } }),
       checkPermission,
       getSessionRuleset,
@@ -80,7 +107,7 @@ describe("describeBashPathGate", () => {
       }),
     );
     const getSessionRuleset = vi.fn<() => Rule[]>().mockReturnValue([]);
-    const result = await describeBashPathGate(
+    const result = await describeGate(
       makeTcc({ input: { command: "cat .env" } }),
       checkPermission,
       getSessionRuleset,
@@ -97,7 +124,7 @@ describe("describeBashPathGate", () => {
       .fn<CheckPermissionFn>()
       .mockReturnValue(makeCheckResult({ state: "ask", matchedPattern: "*" }));
     const getSessionRuleset = vi.fn<() => Rule[]>().mockReturnValue([]);
-    const result = await describeBashPathGate(
+    const result = await describeGate(
       makeTcc({ input: { command: "cat .env" } }),
       checkPermission,
       getSessionRuleset,
@@ -115,7 +142,7 @@ describe("describeBashPathGate", () => {
         makeCheckResult({ state: "deny", matchedPattern: "*.env" }),
       );
     const getSessionRuleset = vi.fn<() => Rule[]>().mockReturnValue([]);
-    const result = (await describeBashPathGate(
+    const result = (await describeGate(
       makeTcc({ input: { command: "cat .env" } }),
       checkPermission,
       getSessionRuleset,
@@ -135,7 +162,7 @@ describe("describeBashPathGate", () => {
         makeCheckResult({ state: "deny", matchedPattern: "*.env" }),
       );
     const getSessionRuleset = vi.fn<() => Rule[]>().mockReturnValue([]);
-    const result = (await describeBashPathGate(
+    const result = (await describeGate(
       makeTcc({ input: { command: "cat .env" } }),
       checkPermission,
       getSessionRuleset,
@@ -156,7 +183,7 @@ describe("describeBashPathGate", () => {
         origin: "session",
       },
     ]);
-    const result = await describeBashPathGate(
+    const result = await describeGate(
       makeTcc({ input: { command: "cat .env" } }),
       checkPermission,
       getSessionRuleset,
@@ -169,7 +196,7 @@ describe("describeBashPathGate", () => {
   it("returns null when command is missing", async () => {
     const checkPermission = vi.fn<CheckPermissionFn>();
     const getSessionRuleset = vi.fn<() => Rule[]>().mockReturnValue([]);
-    const result = await describeBashPathGate(
+    const result = await describeGate(
       makeTcc({ input: {} }),
       checkPermission,
       getSessionRuleset,
@@ -188,7 +215,7 @@ describe("describeBashPathGate", () => {
         return makeCheckResult({ state: "deny", matchedPattern: "*.env" });
       });
     const getSessionRuleset = vi.fn<() => Rule[]>().mockReturnValue([]);
-    const result = await describeBashPathGate(
+    const result = await describeGate(
       makeTcc({ input: { command: "cat src/foo.ts .env" } }),
       checkPermission,
       getSessionRuleset,
@@ -209,7 +236,7 @@ describe("describeBashPathGate", () => {
         return makeCheckResult({ state: "allow" });
       });
     const getSessionRuleset = vi.fn<() => Rule[]>().mockReturnValue([]);
-    const result = await describeBashPathGate(
+    const result = await describeGate(
       makeTcc({ input: { command: "cp .env README.md" } }),
       checkPermission,
       getSessionRuleset,
@@ -232,7 +259,7 @@ describe("describeBashPathGate", () => {
         return makeCheckResult({ state: "allow" });
       });
     const getSessionRuleset = vi.fn<() => Rule[]>().mockReturnValue([]);
-    const result = await describeBashPathGate(
+    const result = await describeGate(
       makeTcc({ input: { command: "echo test > .env" } }),
       checkPermission,
       getSessionRuleset,
@@ -252,7 +279,7 @@ describe("describeBashPathGate", () => {
       }),
     );
     const getSessionRuleset = vi.fn<() => Rule[]>().mockReturnValue([]);
-    const result = await describeBashPathGate(
+    const result = await describeGate(
       makeTcc({ input: { command: "cat .env" } }),
       checkPermission,
       getSessionRuleset,
@@ -280,7 +307,7 @@ describe("describeBashPathGate", () => {
         });
       });
     const getSessionRuleset = vi.fn<() => Rule[]>().mockReturnValue([]);
-    const result = await describeBashPathGate(
+    const result = await describeGate(
       makeTcc({ input: { command: "cat src/foo.ts .env" } }),
       checkPermission,
       getSessionRuleset,
