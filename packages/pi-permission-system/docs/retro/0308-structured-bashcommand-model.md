@@ -39,3 +39,28 @@ This issue captures the behavior-preserving enabler (a `BashCommand` model for t
 
 - **Feedback-loop gap analysis** — Steps 1–3 are each paired with `pnpm run check` in the plan because they are behavior-preserving signature changes the type checker catches before the suite; step 3 additionally runs the full suite because `resolveBashCommandCheck` is a shared helper.
 - **Escalation-delay tracking** — The "single flat `commands()` for all slices" design was abandoned once the `compound_statement`/`subshell` whole-emit parity issue surfaced during AST verification, before any plan text committed to it.
+
+## Stage: Implementation — TDD (2026-06-01T23:37:13Z)
+
+### Session summary
+
+Implemented the structured `BashCommand` model and parse-once injection across four TDD steps (three `refactor:` code commits + one `docs:` commit), plus a follow-up `refactor:` cleanup of stale fallow suppressions.
+`BashProgram.topLevelCommands(): string[]` became `commands(): BashCommand[]`; `PermissionGateHandler` now parses the bash command once per `tool_call` and injects the shared `BashProgram` into all three bash gates; `resolveBashCommandCheck` became a pure combiner over caller-supplied `units`.
+Test count unchanged (1704 → 1704 — the renamed/reshaped suites assert the same coverage); `pnpm run check`, `pnpm run lint`, `pnpm run test`, and `pnpm fallow dead-code` all green; no permission decision changed.
+
+### Observations
+
+- Deviation from the plan: the plan kept the two bash path gates and `resolveBashCommandCheck` `async` (returning `Promise<...>`) "to keep the handler's `await` call site and the gate-producer signature unchanged."
+  Once parsing moved into the handler, none of these three functions performs async work, and eslint `@typescript-eslint/require-await` (on for `src/`, off for `test/` per the root `eslint.config.js` override) rejected an `async` function with no `await`.
+  So `describeBashPathGate`, `describeBashExternalDirectoryGate`, and `resolveBashCommandCheck` were made **synchronous** (`GateResult` / `PermissionCheckResult`), and the handler's bash tool-gate producer is synchronous too.
+  This is the honest, lint-clean outcome and aligns the two bash path gates with their already-synchronous siblings (`describePathGate`, `describeExternalDirectoryGate`); the `gateProducers` array type `Array<() => GateResult | Promise<GateResult>>` and the `await produce()` loop accept both shapes with no call-site change.
+  The plan's note that the resolver "stays async" did not anticipate the `require-await` rule.
+- The gate suites construct a real `BashProgram` via a local `describeGate` helper that mirrors the handler's parse-once derivation exactly (`tcc.toolName === "bash" && command ? await BashProgram.parse(command) : null`), so the gates are exercised through the production wiring rather than a hand-built token list.
+- Fallow surfaced two stale suppressions after step 2/3: with the gates calling `pathTokens()` / `externalPaths(cwd)` directly on the injected `BashProgram` **parameter**, fallow resolves both methods as used, so their `unused-class-member` suppressions became stale.
+  `commands()` keeps its suppression because it is only ever called on an **inferred-type** value (the handler's `const bashProgram = … ? await BashProgram.parse(command) : null`), which fallow cannot resolve through.
+  The fallow gate runs from the repo root (203 entry points); the suppression cleanup also relocated the `externalPaths` JSDoc, which had drifted above `commands()` (pre-existing jumble from #301/#304).
+- The empty/missing-command bash edge changed routing shape but not the decision: the old code always routed bash through `resolveBashCommandCheck("", …)`, which fell back to `checkPermission("bash", { command: "" })`; the new handler routes a null `bashProgram` (empty command) to the else branch `checkPermission("bash", tcc.input, …)`.
+  The full suite (including `tool-call.test.ts`) stayed green, confirming no observable decision change.
+- The extractor facades (`extractTokensForPathRules`, `extractExternalPathsFromBashCommand`) are untouched and remain live via the 1027-line `test/bash-external-directory.test.ts` characterization suite (the #304 lift-and-shift seam); they are now a test-only seam in production terms.
+- Pre-completion reviewer verdict: **PASS** (all deterministic checks green; deviation to sync gates verified behavior-preserving; Mermaid diagrams parsed clean; dead-code clean).
+- Ship-time warning still applies: this is a `refactor:`-heavy enabler; release-please omits `refactor:` commits from the changelog, so if #308 ships stacked under #306 it must be closed explicitly.
