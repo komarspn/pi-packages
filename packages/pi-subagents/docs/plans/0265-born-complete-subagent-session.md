@@ -7,7 +7,7 @@ issue_title: "Born-complete child execution; dissolve the runner"
 
 ## Problem Statement
 
-Phase 16, Step 5 of ADR 0002.
+Phase 16, Step 5 of [ADR-0002].
 Today a subagent run is assembled by a monolithic `runAgent()` (the "runner") in `src/lifecycle/agent-runner.ts`: it creates the child session, binds extensions, drives the turn loop, collects the result, and emits the child-execution lifecycle events.
 `Agent` then sequences workspace teardown and status transitions around it through an injected `AgentRunner` interface.
 With the cwd now resolved through the `WorkspaceProvider` seam (Step 2) and worktrees evicted to a sibling package (Step 3), there is nothing left for a separate runner layer to assemble.
@@ -72,7 +72,7 @@ The workspace therefore stays a separate `Agent`-sequenced resource (prepare at 
 
 AGENTS.md constraints that apply:
 
-- Ship-source package with a public type bundle (ADR 0003): none of the dissolved types (`RunOptions`, `RunResult`, `AgentRunner`) are part of `service.ts`, so `public.d.ts` is unaffected.
+- Ship-source package with a public type bundle ([ADR-0003]): none of the dissolved types (`RunOptions`, `RunResult`, `AgentRunner`) are part of `service.ts`, so `public.d.ts` is unaffected.
   Run `pnpm run verify:public-types` is **not** required (no public-surface change), but `pnpm run check` is.
 - fallow dead-code: new exports (`SubagentSession`, `createSubagentSession`) must have a production consumer by the end of the work; transient intermediate commits where they are consumed only by tests are acceptable because fallow runs at pre-completion, against the final state.
 - `#src/` path-alias imports only; ES2024 target.
@@ -328,3 +328,6 @@ Each step compiles and the suite passes; run `pnpm run check` after every step t
   This needs `WorkspaceProvider` support for resume and is out of scope; capture as a follow-up if it becomes a real need.
 - Whether `completed` should also fire on resume (it does not today).
   Deferred — preserve current behavior; revisit only with a concrete consumer.
+
+[ADR-0002]: ../decisions/0002-extensions-on-a-minimal-core.md
+[ADR-0003]: ../decisions/0003-publish-bundled-type-declarations.md

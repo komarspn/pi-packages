@@ -7,7 +7,7 @@ issue_title: "Finish the inversion: retire inbound subagent-registration surface
 
 ## Problem Statement
 
-Phase 16 inverted the dependency between `@gotgenes/pi-subagents` and `@gotgenes/pi-permission-system` ([#261], ADR 0002).
+Phase 16 inverted the dependency between `@gotgenes/pi-subagents` and `@gotgenes/pi-permission-system` ([#261], [ADR-0002]).
 The core now *publishes* its child-execution lifecycle on `pi.events`; the permission system *subscribes* (`subscribeSubagentLifecycle`) and registers/unregisters child sessions on `subagents:child:session-created` / `subagents:child:disposed`.
 The core no longer reaches out to the permission system's published service.
 
@@ -97,7 +97,7 @@ publishPermissionsService(permissionsService);
 `subagentRegistry` stays alive — it is still passed to `PermissionPrompter`, `forwardingDeps`, `isSubagentExecutionContext`, and `subscribeSubagentLifecycle`.
 Only the two object-literal delegation methods disappear.
 
-Separation of concerns is unchanged: the registry remains owned by the permission system's runtime; the only external write path is now the event subscriber, exactly as ADR 0002 intends.
+Separation of concerns is unchanged: the registry remains owned by the permission system's runtime; the only external write path is now the event subscriber, exactly as [ADR-0002] intends.
 
 Edge cases:
 
@@ -183,3 +183,4 @@ This is a removal/refactor, not a feature.
 [#261]: https://github.com/gotgenes/pi-packages/issues/261
 [#263]: https://github.com/gotgenes/pi-packages/issues/263
 [#265]: https://github.com/gotgenes/pi-packages/issues/265
+[ADR-0002]: https://github.com/gotgenes/pi-packages/blob/main/packages/pi-subagents/docs/decisions/0002-extensions-on-a-minimal-core.md

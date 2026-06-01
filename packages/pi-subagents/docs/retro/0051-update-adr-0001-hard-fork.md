@@ -3,13 +3,13 @@ issue: 51
 issue_title: "docs: update ADR 0001 to reflect hard-fork decision"
 ---
 
-# Retro: #51 — docs: update ADR 0001 to reflect hard-fork decision
+# Retro: #51 — docs: update ADR-0001 to reflect hard-fork decision
 
 ## Final Retrospective (2026-05-16)
 
 ### Session summary
 
-Updated ADR 0001 (`docs/decisions/0001-deferred-patches.md`) to reflect the hard-fork decision documented in `docs/architecture/architecture.md`.
+Updated [ADR-0001] to reflect the hard-fork decision documented in `docs/architecture/architecture.md`.
 The change was planned, implemented, shipped, and released as `pi-subagents-v1.0.2` in a single clean pass with no rework.
 
 ### Observations
@@ -35,3 +35,5 @@ The change was planned, implemented, shipped, and released as `pi-subagents-v1.0
 - The `package-pi-subagents` skill (`.pi/skills/package-pi-subagents/SKILL.md`) still frames the fork as "a friendly fork… carrying a small number of patches" with priorities like "stays as close to upstream as possible."
   This framing is now stale given the hard-fork commitment.
   A separate issue should update the skill to reflect the architecture document's posture.
+
+[ADR-0001]: ../decisions/0001-deferred-patches.md

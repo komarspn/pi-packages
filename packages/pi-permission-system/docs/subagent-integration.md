@@ -3,18 +3,18 @@
 ## Native integration with `@gotgenes/pi-subagents`
 
 [`@gotgenes/pi-subagents`](https://github.com/gotgenes/pi-subagents) is the only subagent extension with native permission-system integration.
-It publishes a child-execution lifecycle on `pi.events`; this package subscribes (see `src/subagent-lifecycle-events.ts`) and registers every in-process child session with the `SubagentSessionRegistry` on the `subagents:child:session-created` event — emitted before `bindExtensions()` fires — and unregisters it on `subagents:child:disposed`.
+It publishes a child-execution lifecycle on `pi.events`; this package subscribes (see `src/subagent-lifecycle-events.ts`) and registers every in-process child session with the `SubagentSessionRegistry` on the `subagents:child:session-created` event - emitted before `bindExtensions()` fires - and unregisters it on `subagents:child:disposed`.
 Because the event bus dispatches synchronously, the synchronous registration completes before binding proceeds.
-This inverts the former dependency direction: the core no longer looks up this package's service (ADR 0002 / pi-subagents #261).
+This inverts the former dependency direction: the core no longer looks up this package’s service ([ADR-0002] / pi-subagents #261).
 The integration enables:
 
-1. **Deterministic child detection** — `isSubagentExecutionContext()` hits the registry on the first check, no env-var or filesystem heuristics needed.
-2. **Per-agent policy enforcement** — the permission system's `before_agent_start` handler resolves the agent name from the `<active_agent>` system-prompt tag and applies per-agent `permission:` frontmatter overrides.
-3. **`ask`-state forwarding** — when a child triggers an `ask` permission, the request forwards to the parent session's UI through the existing polling mechanism.
+1. **Deterministic child detection** - `isSubagentExecutionContext()` hits the registry on the first check, no env-var or filesystem heuristics needed.
+2. **Per-agent policy enforcement** - the permission system's `before_agent_start` handler resolves the agent name from the `<active_agent>` system-prompt tag and applies per-agent `permission:` frontmatter overrides.
+3. **`ask`-state forwarding** - when a child triggers an `ask` permission, the request forwards to the parent session's UI through the existing polling mechanism.
    The parent approves or denies, and the child resumes.
 
-No configuration is required — the integration is automatic when both extensions are installed.
-When `@gotgenes/pi-permission-system` is not installed, `@gotgenes/pi-subagents` emits its lifecycle events with no subscriber — a harmless no-op.
+No configuration is required - the integration is automatic when both extensions are installed.
+When `@gotgenes/pi-permission-system` is not installed, `@gotgenes/pi-subagents` emits its lifecycle events with no subscriber - a harmless no-op.
 
 ## Permission Forwarding
 
@@ -37,11 +37,11 @@ These compose correctly with the permission system because the two operate at di
 
 ```text
 ┌─────────────────────────────────────────────────────┐
-│  Layer 1 – Visibility  (subagent extension)          │
+│  Layer 1 - Visibility  (subagent extension)          │
 │  Controls which tools are registered / active        │
 │  before the agent session starts.                    │
 ├─────────────────────────────────────────────────────┤
-│  Layer 2 – Policy  (pi-permission-system)            │
+│  Layer 2 - Policy  (pi-permission-system)            │
 │  Controls allow / ask / deny decisions on every      │
 │  tool call, bash command, MCP operation, etc.        │
 └─────────────────────────────────────────────────────┘
@@ -66,7 +66,7 @@ The upstream `tintinweb/pi-subagents` (which `@gotgenes/pi-subagents` forks) doe
 
 1. **Hidden tool → permission system never sees it.**
    If a subagent extension removes a tool from the active set, the permission system receives no registration or call event for that tool.
-   The permission policy for that tool is irrelevant — it is already gone.
+   The permission policy for that tool is irrelevant - it is already gone.
 
 2. **Denied tool → hidden regardless of the subagent extension's allowlist.**
    If the permission system denies a tool (via `deny` policy or tool filtering), it is removed from the active set before the agent starts.
@@ -92,4 +92,6 @@ permission:
 ---
 ```
 
-In this example the subagent extension restricts visibility to `bash` and `read`, and the permission system then gates every `bash` call with an `ask` prompt — both rules apply independently.
+In this example the subagent extension restricts visibility to `bash` and `read`, and the permission system then gates every `bash` call with an `ask` prompt - both rules apply independently.
+
+[ADR-0002]: https://github.com/gotgenes/pi-packages/blob/main/packages/pi-subagents/docs/decisions/0002-extensions-on-a-minimal-core.md

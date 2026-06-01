@@ -9,7 +9,7 @@ issue_title: "Remove isolated / extensions:false / noSkills from core"
 
 ### Session summary
 
-Planned Phase 16, Step 4: removing the extension-lifecycle-control axis (`isolated`, `extensions: false`, `noSkills`) from the pi-subagents core per ADR 0002.
+Planned Phase 16, Step 4: removing the extension-lifecycle-control axis (`isolated`, `extensions: false`, `noSkills`) from the pi-subagents core per [ADR-0002].
 Confirmed all three prerequisite Phase 16 steps (#261, #262, #263) are closed, so the explicit "deny-at-use" dependency is satisfied.
 Produced a four-cycle TDD plan (`isolated` → `extensions` → `skills`/`noSkills`/preload → docs) and committed it.
 
@@ -87,3 +87,5 @@ The run had zero rework and a PASS pre-completion review; test count moved 1016 
 1. Appended this Final Retrospective stage entry to `packages/pi-subagents/docs/retro/0264-remove-extension-lifecycle-control.md`.
 2. Considered but **declined** (user: "too narrow") a removal-coupling detection rule for `.pi/prompts/plan-issue.md` — the heuristic that a field named for removal may be the mechanism behind a separate surviving feature.
    No prompt or `AGENTS.md` changes were made this retro.
+
+[ADR-0002]: ../decisions/0002-extensions-on-a-minimal-core.md

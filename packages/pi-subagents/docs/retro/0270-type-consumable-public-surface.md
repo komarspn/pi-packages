@@ -34,7 +34,7 @@ The plan adds a `rollup-plugin-dts` build that bundles `src/service/service.ts` 
 
 ### Session summary
 
-Executed all four build-order steps: added `rollup` + `rollup-plugin-dts` and a `build:types` script that bundles `src/service/service.ts` into a self-contained `dist/public.d.ts`; wired conditional `exports` (`types` + `default`, fixing the stale path) with a `prepack` hook and a `files` allowlist; added a `pnpm pack` → throwaway-consumer → `tsc` verification harness (`scripts/verify-public-types.sh`) plus a CI step; and recorded ADR 0003.
+Executed all four build-order steps: added `rollup` + `rollup-plugin-dts` and a `build:types` script that bundles `src/service/service.ts` into a self-contained `dist/public.d.ts`; wired conditional `exports` (`types` + `default`, fixing the stale path) with a `prepack` hook and a `files` allowlist; added a `pnpm pack` → throwaway-consumer → `tsc` verification harness (`scripts/verify-public-types.sh`) plus a CI step; and recorded [ADR-0003].
 A fifth commit documented the new build step in the `package-pi-subagents` skill (reviewer WARN).
 Root `pnpm run check`, root `pnpm run lint`, and `verify:public-types` all pass.
 
@@ -91,7 +91,7 @@ Two CI failures during the ship stage — a pre-existing `pnpm fallow dead-code`
 - The "pi-subagents-* extensions should use the released, npm-installed version, no workspace trickery" directive arrived mid-planning, after initial exploration.
   Surfacing the consumption-model constraint at kickoff would have framed the scope question earlier.
   Opportunity, not criticism — the same exchange produced the high-value chicken-and-egg catch (the registry version with the fix cannot exist until #270 publishes) that correctly deferred the worktrees flip to #263.
-- A brief "there is no ADR 0003" → "My mistake" exchange; no rework.
+- A brief "there is no [ADR-0003]" → "My mistake" exchange; no rework.
 
 ### Diagnostic details
 
@@ -104,3 +104,5 @@ Two CI failures during the ship stage — a pre-existing `pnpm fallow dead-code`
 
 1. `.pi/prompts/ship-issue.md` — renamed Step 2 to "Pre-push checks" and added `pnpm fallow dead-code` alongside `pnpm run lint`, with a one-line note that the gate is `main`-only and blocks pushes regardless of who introduced the failure.
 2. `AGENTS.md` (§ Code Style pnpm rules) — added a rule to run `pnpm install` and commit the updated `pnpm-lock.yaml` in the same commit when a `package.json` dependency changes, since CI installs with `--frozen-lockfile`.
+
+[ADR-0003]: ../decisions/0003-publish-bundled-type-declarations.md

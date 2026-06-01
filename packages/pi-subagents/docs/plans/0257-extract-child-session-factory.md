@@ -6,7 +6,7 @@ issue_title: "Extract ChildSessionFactory from runner"
 # Extract ChildSessionFactory from runner
 
 > Superseded — issue #257 was closed `not_planned`.
-> Planning this extraction exposed that worktree isolation does not belong in the core; see [ADR 0002](../decisions/0002-extensions-on-a-minimal-core.md) and the reclaimed Phase 16 roadmap in [`docs/architecture/architecture.md`](../architecture/architecture.md).
+> Planning this extraction exposed that worktree isolation does not belong in the core; see [ADR-0002] and the reclaimed Phase 16 roadmap in [`docs/architecture/architecture.md`](../architecture/architecture.md).
 > The structural goal is recovered by #265.
 > This plan is retained for historical context only.
 
@@ -281,3 +281,5 @@ After all steps: `pnpm run check`, `pnpm run lint`, `pnpm -r run test`, `pnpm fa
   Deferred to Step 4, when the runner dissolves and the natural home for these creation contracts is the factory module.
 - Whether `ConcreteAgentRunner.createFactory()` lands in Step 3 (when `AgentManager` consumes it) exactly as the issue describes.
   Deferred to Step 3 per the Design Overview rationale.
+
+[ADR-0002]: ../decisions/0002-extensions-on-a-minimal-core.md

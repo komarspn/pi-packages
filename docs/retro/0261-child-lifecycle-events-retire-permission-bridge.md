@@ -9,7 +9,7 @@ issue_title: "Emit child-execution lifecycle events; retire permission-bridge"
 
 ### Session summary
 
-Produced the cross-package plan (`docs/plans/0261-child-lifecycle-events-retire-permission-bridge.md`) for Phase 16, Step 1 of ADR 0002: the core publishes a `subagents:child:*` lifecycle and `@gotgenes/pi-permission-system` subscribes to `session-created` / `disposed`, retiring `permission-bridge.ts`.
+Produced the cross-package plan (`docs/plans/0261-child-lifecycle-events-retire-permission-bridge.md`) for Phase 16, Step 1 of [ADR-0002]: the core publishes a `subagents:child:*` lifecycle and `@gotgenes/pi-permission-system` subscribes to `session-created` / `disposed`, retiring `permission-bridge.ts`.
 Resolved the issue's "blocking investigation" by reading the SDK event bus implementation, and recorded two deferral decisions in GitHub.
 
 ### Observations
@@ -20,7 +20,7 @@ Resolved the issue's "blocking investigation" by reading the SDK event bus imple
   So registering in a synchronous `session-created` handler, emitted immediately before `await session.bindExtensions({})`, guarantees the registry entry exists pre-bind — identical timing to today's `registerChildSession()`.
   Encoded as a tested invariant against the real `createEventBus()`.
 
-- **Decision: emit the full four-event lifecycle** (`spawning`, `session-created`, `completed`, `disposed`), per ADR 0002, even though only `session-created` / `disposed` have a consumer.
+- **Decision: emit the full four-event lifecycle** (`spawning`, `session-created`, `completed`, `disposed`), per [ADR-0002], even though only `session-created` / `disposed` have a consumer.
   Rationale: observational events are unlimited and never modify the core; the "no vacant hooks" rule constrains *provider seams*, not events.
 
 - **Decision: defer removing the inbound `registerSubagentSession` / `unregisterSubagentSession`** from `PermissionsService` to a broader "finish the inversion" follow-up.
@@ -73,7 +73,7 @@ Full suite (3065 tests), `check`, `lint`, and `fallow dead-code` all green.
 
 ### Session summary
 
-Shipped Phase 16, Step 1 of ADR 0002 across three stages (plan, TDD, ship) with no rework and no failed CI: the core publishes a `subagents:child:*` lifecycle, `@gotgenes/pi-permission-system` subscribes, and `permission-bridge.ts` is gone.
+Shipped Phase 16, Step 1 of [ADR-0002] across three stages (plan, TDD, ship) with no rework and no failed CI: the core publishes a `subagents:child:*` lifecycle, `@gotgenes/pi-permission-system` subscribes, and `permission-bridge.ts` is gone.
 Released `@gotgenes/pi-subagents` v11.4.0 and `@gotgenes/pi-permission-system` v7.4.0; closed #261; opened #267 and amended #265 for deferred work.
 The session was notably clean — friction was low-impact and self-corrected.
 
@@ -115,3 +115,5 @@ The session was notably clean — friction was low-impact and self-corrected.
 
 1. `.pi/skills/code-design/SKILL.md` — added a one-line rule under TypeScript conventions: import sibling modules via the `#src/` / `#test/` path aliases, not relative paths (eslint enforces and rewrites).
    Addresses agent-side friction 2.
+
+[ADR-0002]: https://github.com/gotgenes/pi-packages/blob/main/packages/pi-subagents/docs/decisions/0002-extensions-on-a-minimal-core.md

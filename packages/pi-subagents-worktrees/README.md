@@ -3,7 +3,7 @@
 Git worktree isolation for [`@gotgenes/pi-subagents`](https://github.com/gotgenes/pi-packages/tree/main/packages/pi-subagents).
 
 This extension registers a `WorkspaceProvider` with the subagents core: opted-in agents run in a temporary git worktree (an isolated copy of the repo), and any changes they make are saved to a branch when they finish.
-Worktrees are one *workspace strategy*, not core behavior — so the git plumbing lives here, outside the minimal subagents core (see ADR 0002 in the pi-subagents package).
+Worktrees are one *workspace strategy*, not core behavior — so the git plumbing lives here, outside the minimal subagents core (see [ADR-0002] in the pi-subagents package).
 
 ## Install
 
@@ -48,3 +48,5 @@ An agent type not in `worktreeAgents` runs in the parent working directory, exac
 
 Earlier versions of `@gotgenes/pi-subagents` accepted an `isolation: "worktree"` spawn flag.
 That flag was removed from the core; install this package and list the agent types you want isolated in `worktreeAgents` instead.
+
+[ADR-0002]: https://github.com/gotgenes/pi-packages/blob/main/packages/pi-subagents/docs/decisions/0002-extensions-on-a-minimal-core.md

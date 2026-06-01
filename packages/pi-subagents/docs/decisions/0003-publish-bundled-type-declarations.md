@@ -27,7 +27,7 @@ A `tsc --traceResolution` of a sibling consuming the package surfaced two compou
 The public entry's type closure is deeply entangled: `WorkspaceProvider` (in `lifecycle/workspace.ts`) reaches `AgentStatus` in the 510-line `lifecycle/agent.ts`, plus `SubagentType`/`AgentInvocation` from `types.ts` (which itself re-exports the `Agent` class).
 A shallow alias-free entry is therefore not achievable without a substantial source restructure.
 
-This collides with the ship-source model (ADR 0002): every package ships raw `.ts` executed directly by Pi, with no build step.
+This collides with the ship-source model ([ADR-0002]): every package ships raw `.ts` executed directly by Pi, with no build step.
 
 ## Decision
 
@@ -67,3 +67,5 @@ It is deliberately narrow: it produces type declarations only and changes nothin
 - The `types` condition points at a build-time artifact; an in-repo workspace-linked consumer that imported the package would need `dist/public.d.ts` present.
   This is acceptable because no in-repo package imports the surface yet; #263 consumes the built artifact from the published tarball.
 - Sequencing: #270 must be published (its release-please PR merged) before #263 edits `pi-subagents` core, so #263's changes do not batch into the same `pi-subagents` release.
+
+[ADR-0002]: ./0002-extensions-on-a-minimal-core.md

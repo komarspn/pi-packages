@@ -3,14 +3,14 @@ issue: 51
 issue_title: "docs: update ADR 0001 to reflect hard-fork decision"
 ---
 
-# Update ADR 0001 to reflect hard-fork decision
+# Update ADR-0001 to reflect hard-fork decision
 
 ## Problem Statement
 
-ADR 0001 (`docs/decisions/0001-deferred-patches.md`) was written when the fork was a thin-patch layer over `tintinweb/pi-subagents`.
+[ADR-0001] was written when the fork was a thin-patch layer over `tintinweb/pi-subagents`.
 The new architecture document (`docs/architecture/architecture.md`) commits to a hard fork with material scope reduction — scheduling removal, a `SubagentsAPI` boundary, `index.ts` decomposition, and more.
 
-Several claims in ADR 0001 are now outdated:
+Several claims in [ADR-0001] are now outdated:
 
 1. The status is "accepted" but the decision has been superseded by the architecture doc.
 2. The Upstream PRs section states "the fork's divergence reduces to package naming and tooling," which is no longer true.
@@ -18,7 +18,7 @@ Several claims in ADR 0001 are now outdated:
 
 ## Goals
 
-- Add a supersession note to ADR 0001 pointing to `docs/architecture/architecture.md`.
+- Add a supersession note to [ADR-0001] pointing to `docs/architecture/architecture.md`.
 - Update the "Upstream PRs are open" subsection so the "divergence reduces to…" claim reflects reality.
 - Update the Consequences → Operational section to note intentional divergence per the architecture document.
 - Preserve all existing rationale — no information is removed.
@@ -31,7 +31,7 @@ Several claims in ADR 0001 are now outdated:
 
 ## Background
 
-ADR 0001 has YAML frontmatter (`status: accepted`, `date: 2026-05-11`) and follows a standard ADR structure: Status, Context, Decision, Consequences.
+[ADR-0001] has YAML frontmatter (`status: accepted`, `date: 2026-05-11`) and follows a standard ADR structure: Status, Context, Decision, Consequences.
 
 The architecture document (`docs/architecture/architecture.md`) describes a six-phase plan that materially diverges from upstream: scheduling removal, ad-hoc RPC replacement, group-join and output-file removal, a typed `SubagentsAPI` boundary, and `index.ts` decomposition.
 
@@ -60,7 +60,7 @@ No tests are affected — this is a docs-only change.
 
 ## TDD Order
 
-1. Update ADR 0001 with all four edits described above.
+1. Update [ADR-0001] with all four edits described above.
    Commit: `docs: update ADR 0001 to reflect hard-fork decision (#51)`
 
 ## Risks and Mitigations
@@ -73,3 +73,5 @@ No tests are affected — this is a docs-only change.
 ## Open Questions
 
 None — the issue's acceptance criteria are unambiguous.
+
+[ADR-0001]: ../decisions/0001-deferred-patches.md

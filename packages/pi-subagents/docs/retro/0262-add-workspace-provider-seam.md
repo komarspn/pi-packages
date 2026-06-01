@@ -9,7 +9,7 @@ issue_title: "Add WorkspaceProvider extension seam"
 
 ### Session summary
 
-Produced a numbered implementation plan for the Phase 16, Step 2 `WorkspaceProvider` seam (ADR 0002).
+Produced a numbered implementation plan for the Phase 16, Step 2 `WorkspaceProvider` seam ([ADR-0002]).
 The plan adds the seam additively — `WorkspaceProvider` / `Workspace` interfaces, `SubagentsService.registerWorkspaceProvider`, run-start consultation, and `dispose` with a verbatim `resultAddendum` — while leaving the existing `isolation: "worktree"` path untouched for #263 to evict.
 Three TDD steps (two `feat`, one `docs`).
 
@@ -85,3 +85,5 @@ Across all stages the plan's risk predictions held and TDD verification was incr
 
 1. `AGENTS.md` (Pre-completion reviewer subsection) — added a one-line guardrail: agent `model:` frontmatter must use the `provider/id` alias form the Pi CLI/UI accepts, because an ID absent from the model registry silently falls back to the parent session model.
 2. `packages/pi-subagents/docs/retro/0262-add-workspace-provider-seam.md` — this Final Retrospective stage entry.
+
+[ADR-0002]: ../decisions/0002-extensions-on-a-minimal-core.md

@@ -364,8 +364,8 @@ They declare this package as an optional peer dependency and use dynamic import 
 - `SubagentSession` — the born-complete child session: drives the turn loop (`runTurnLoop`/`resumeTurnLoop`), steers, and disposes (firing `disposed` at true session disposal, so resume executions are registry-detected).
 - `child-lifecycle` — publishes the child-execution lifecycle (`spawning`, `session-created` before `bindExtensions()`, `completed`, `disposed`) on `pi.events`.
   Reactive consumers subscribe: `@gotgenes/pi-permission-system` registers each child session on `session-created` and unregisters it on `disposed`.
-  This replaced the former outbound `permission-bridge` (#261, ADR 0002) — the core no longer looks up a named consumer.
-- `workspace` — the single generative seam (#262, ADR 0002): a registered `WorkspaceProvider` supplies a child's cwd plus bracketed `dispose()` at run-start.
+  This replaced the former outbound `permission-bridge` (#261, [ADR-0002]) — the core no longer looks up a named consumer.
+- `workspace` — the single generative seam (#262, [ADR-0002]): a registered `WorkspaceProvider` supplies a child's cwd plus bracketed `dispose()` at run-start.
   With no provider, children run in the parent cwd (default unchanged); the git worktree strategy lives behind this seam in `@gotgenes/pi-subagents-worktrees` (#263, the seam's first consumer).
 - `session-config` — pure configuration assembler (called by `createSubagentSession`).
 - `SubagentRuntime` — session-scoped state bag with methods.
@@ -373,7 +373,7 @@ They declare this package as an optional peer dependency and use dynamic import 
 - `record-observer` — session-event observer that updates record statistics without callback threading.
 - Agent type registry — default agents, custom `.md` file loading.
 - Prompt assembly, context extraction, skills, environment.
-- Worktree isolation — evicted to `@gotgenes/pi-subagents-worktrees` via the workspace provider seam in Phase 16 (#263, ADR 0002); `git` no longer appears in the core.
+- Worktree isolation — evicted to `@gotgenes/pi-subagents-worktrees` via the workspace provider seam in Phase 16 (#263, [ADR-0002]); `git` no longer appears in the core.
 - Token usage tracking.
 - Session directory derivation and persisted `SessionManager` for subagent transcripts.
 - Settings persistence.
@@ -760,7 +760,7 @@ See [phase-15-domain-model-evolution.md](history/phase-15-domain-model-evolution
 Phase 16 inverted the core's outbound dependencies: worktree isolation joined permissions as an _extension_ on a minimal core, leaving pi-subagents a pure child-session orchestrator.
 The core now attaches extensions through exactly two surfaces — observational lifecycle events (unlimited) and rationed generative provider seams (today only the workspace provider) — and has zero knowledge of its consumers.
 The "runner" concept is gone: `createSubagentSession()` returns a born-complete `SubagentSession` that owns turn driving, steering, and disposal, and `Subagent.run()` is coordination, not assembly.
-The decision and the full reasoning chain are recorded in [ADR 0002](../decisions/0002-extensions-on-a-minimal-core.md); the two-surface extension model is described under [Target architecture](#target-architecture).
+The decision and the full reasoning chain are recorded in [ADR-0002]; the two-surface extension model is described under [Target architecture](#target-architecture).
 All five steps are closed: [#261], [#262], [#263], [#264], [#265].
 The earlier "agent collaborator architecture" framing (#256 superseded, #257 parked, #258 and #259 closed not-planned) was abandoned; its structural win was reached cleanly via the workspace seam.
 See [phase-16-invert-dependencies.md](history/phase-16-invert-dependencies.md) for details.
@@ -816,7 +816,7 @@ Detailed records are preserved in per-phase history files:
 | Phase 14             | #237, #238, #239, #242                                     | Remove disallowed_tools, remove extensions filtering, collapse filterActiveTools, rename Agent to subagent                                                 |
 | Phase 15             | #227, #228, #231, #229, #230, #232                         | Agent domain model, async startAgent, runner self-contained, Agent.run(), ConcurrencyQueue, Agent.resume()                                                 |
 | Phase 16             | #261, #262, #263, #264, #265                               | Lifecycle events (retire permission-bridge), WorkspaceProvider seam, extract worktrees package, remove isolated, born-complete execution / dissolve runner |
-| Phase 16 (abandoned) | #256 (superseded), #257 (parked), #258, #259 (not planned) | Agent collaborator architecture — replaced by the inversion approach above (ADR 0002)                                                                      |
+| Phase 16 (abandoned) | #256 (superseded), #257 (parked), #258, #259 (not planned) | Agent collaborator architecture — replaced by the inversion approach above ([ADR-0002])                                                                    |
 
 The remaining open issue is #22 (parent-session resolution), a cross-extension track that does not gate the structural work.
 
@@ -861,3 +861,4 @@ The upstream test suite is run periodically as a regression canary for the sessi
 [#264]: https://github.com/gotgenes/pi-packages/issues/264
 [#265]: https://github.com/gotgenes/pi-packages/issues/265
 [#277]: https://github.com/gotgenes/pi-packages/issues/277
+[ADR-0002]: ../decisions/0002-extensions-on-a-minimal-core.md

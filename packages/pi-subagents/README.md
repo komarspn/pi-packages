@@ -494,7 +494,7 @@ Each has a corresponding upstream PR:
    Upstream PR: [tintinweb/pi-subagents#73](https://github.com/tintinweb/pi-subagents/pull/73).
 4. **Child-execution lifecycle events** (`src/lifecycle/child-lifecycle.ts`) — the child-session execution lifecycle is published as ordered events on `pi.events` (`subagents:child:spawning`, `session-created`, `completed`, `disposed`).
    `session-created` fires synchronously before `bindExtensions()` so consumers (e.g. `@gotgenes/pi-permission-system`) can register the child session before binding proceeds.
-   This inverts the former outbound `permission-bridge` pattern (ADR 0002 / [#261]) — the core publishes, consumers subscribe.
+   This inverts the former outbound `permission-bridge` pattern ([ADR-0002] / [#261]) — the core publishes, consumers subscribe.
    No upstream equivalent — this feature is specific to the `@gotgenes` fork.
 
 The upstream `vitest` suite plus tests added for each patch all pass on every commit.
@@ -502,3 +502,5 @@ The upstream `vitest` suite plus tests added for each patch all pass on every co
 ## License
 
 MIT — [tintinweb](https://github.com/tintinweb) (upstream) and [Chris Lasher](https://github.com/gotgenes) (fork)
+
+[ADR-0002]: docs/decisions/0002-extensions-on-a-minimal-core.md

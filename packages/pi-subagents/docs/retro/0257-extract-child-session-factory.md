@@ -5,7 +5,7 @@ issue_title: "Extract ChildSessionFactory from runner"
 
 # Retro: #257 — Extract ChildSessionFactory from runner
 
-> Superseded — #257 closed `not_planned`; the work was reframed as Phase 16 "invert dependencies" (ADR 0002, issues #261–#265).
+> Superseded — #257 closed `not_planned`; the work was reframed as Phase 16 "invert dependencies" ([ADR-0002], issues #261–#265).
 
 ## Stage: Planning (2026-05-29T00:32:12Z)
 
@@ -29,3 +29,5 @@ The plan is a lift-and-shift: `runAgent()` keeps its `(snapshot, type, prompt, o
 - `RunResult.sessionFile` shifts from a late `sessionManager.getSessionFile()` to the factory's `outputFile` — same value (stable after `newSession()`); the existing `/sessions/child.jsonl` assertion is the guard.
 - Did not invoke `ask_user`: the issue's "Proposed change" is prescriptive, and the two deviations are forced/justified rather than open-ended.
 - IO interfaces (`RunnerIO`, `RunnerDeps`, etc.) intentionally stay in `agent-runner.ts` for this step to minimize churn; their relocation to the factory module is flagged as an Open Question for Step 4 when the runner dissolves.
+
+[ADR-0002]: ../decisions/0002-extensions-on-a-minimal-core.md

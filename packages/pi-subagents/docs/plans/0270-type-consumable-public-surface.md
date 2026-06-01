@@ -57,7 +57,7 @@ Relevant modules and facts:
 Constraints from `AGENTS.md` and the package skill:
 
 - Ship-source model: every package ships raw `.ts` executed directly by Pi; there is no build step today.
-  ADR 0002 frames pi-subagents as a minimal core.
+  [ADR-0002] frames pi-subagents as a minimal core.
   Introducing the repo's **first build step** is a deliberate decision and warrants an ADR.
 - `eslint`'s `no-parent-relative-imports` rule forbids `../` imports inside `packages/*/src`; same-directory `./` is allowed.
   This (plus the deep type entanglement above) is why the alias-free-entry alternative was rejected.
@@ -200,3 +200,5 @@ This is a tooling/config change with a verification harness (not red→green→r
 - Whether to add a fast vitest self-containment assertion in addition to the shell harness, or keep the guard inside the script only — defer to the build stage.
 - Whether the ADR should add a short "build process" subsection to `docs/architecture/architecture.md` — defer; the ADR is sufficient.
 - Exact `files` allowlist entries — finalize against `pnpm pack --dry-run` in Step 2.
+
+[ADR-0002]: ../decisions/0002-extensions-on-a-minimal-core.md

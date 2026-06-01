@@ -45,7 +45,7 @@ The key phases are:
 
 - **Phase 14** — Strip policy from core: remove `disallowed_tools`, `extensions` filtering, collapse `filterActiveTools` (#237, #238, #239). ✅ Complete
 - **Phase 15** — Domain model evolution: `AgentRecord` → `Agent` with behavior, async `startAgent`, observer pattern, `ConcurrencyQueue` (#227–#232).
-- **Phase 16** — Invert dependencies (extensions on a minimal core, ADR 0002): emit child-session lifecycle events and retire `permission-bridge.ts` (#261); add the `WorkspaceProvider` seam (#262); extract worktrees to `@gotgenes/pi-subagents-worktrees` (#263, supersedes #256); remove `isolated`/`extensions: false`/`noSkills` (#264); born-complete child execution, dissolve the runner (#265).
+- **Phase 16** — Invert dependencies (extensions on a minimal core, [ADR-0002]): emit child-session lifecycle events and retire `permission-bridge.ts` (#261); add the `WorkspaceProvider` seam (#262); extract worktrees to `@gotgenes/pi-subagents-worktrees` (#263, supersedes #256); remove `isolated`/`extensions: false`/`noSkills` (#264); born-complete child execution, dissolve the runner (#265).
   The earlier "agent collaborator architecture" framing was abandoned.
 - **Phase 17** — Extract UI to a separate package.
 
@@ -56,7 +56,7 @@ The repo intentionally does not use Prettier — a top-level `.prettierignore` b
 
 ## Build
 
-This package is otherwise ship-source (Pi runs `./src/index.ts` directly), but it carries the repo's only build step: a type-declaration bundle for the public API surface (ADR 0003).
+This package is otherwise ship-source (Pi runs `./src/index.ts` directly), but it carries the repo's only build step: a type-declaration bundle for the public API surface ([ADR-0003]).
 `pnpm run build:types` runs `rollup -c rollup.dts.config.mjs` (`rollup-plugin-dts`) to roll `src/service/service.ts` into a single self-contained `dist/public.d.ts` — internal `#src/*` types inlined, peer-dep types kept external.
 The bundle is gitignored, regenerated at `prepack`, and shipped via the `package.json` `files` allowlist; `exports["."].types` points at it while `exports["."].default` serves the `.ts` source.
 Never commit `dist/`.
@@ -111,3 +111,6 @@ record-observer ─subscribes─→ AgentSession ←─subscribes─ ui-observer
 widget ─polls─→ AgentActivityTracker map
 service-adapter ─wraps─→ SubagentManager
 ```
+
+[ADR-0002]: https://github.com/gotgenes/pi-packages/blob/main/packages/pi-subagents/docs/decisions/0002-extensions-on-a-minimal-core.md
+[ADR-0003]: https://github.com/gotgenes/pi-packages/blob/main/packages/pi-subagents/docs/decisions/0003-publish-bundled-type-declarations.md

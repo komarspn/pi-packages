@@ -3,7 +3,7 @@
 ## Summary
 
 Phase 16 reclaimed its original intent — invert the core's outbound dependencies — and extended it: worktree isolation joined permissions as an *extension* on a minimal core, leaving pi-subagents a pure child-session orchestrator.
-The decision and the full reasoning chain are recorded in [ADR 0002](../../decisions/0002-extensions-on-a-minimal-core.md); the two-surface extension model is described under [Target architecture](../architecture.md#target-architecture).
+The decision and the full reasoning chain are recorded in [ADR-0002]; the two-surface extension model is described under [Target architecture](../architecture.md#target-architecture).
 
 All five steps are closed: [#261], [#262], [#263], [#264], [#265].
 
@@ -141,3 +141,4 @@ Composition test: install neither extension, only permissions, only workspaces, 
 [#263]: https://github.com/gotgenes/pi-packages/issues/263
 [#264]: https://github.com/gotgenes/pi-packages/issues/264
 [#265]: https://github.com/gotgenes/pi-packages/issues/265
+[ADR-0002]: ../../decisions/0002-extensions-on-a-minimal-core.md

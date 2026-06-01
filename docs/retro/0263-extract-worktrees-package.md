@@ -9,7 +9,7 @@ issue_title: "Extract worktree isolation to @gotgenes/pi-subagents-worktrees"
 
 ### Session summary
 
-Produced a cross-package plan (`docs/plans/0263-extract-worktrees-package.md`) for Phase 16 Step 3 of ADR 0002: create `@gotgenes/pi-subagents-worktrees` implementing the `WorkspaceProvider` seam (#262, already landed and wired provider-first in `Agent.run()`), then evict the legacy worktree path and the `isolation` axis from the core.
+Produced a cross-package plan (`docs/plans/0263-extract-worktrees-package.md`) for Phase 16 Step 3 of [ADR-0002]: create `@gotgenes/pi-subagents-worktrees` implementing the `WorkspaceProvider` seam (#262, already landed and wired provider-first in `Agent.run()`), then evict the legacy worktree path and the `isolation` axis from the core.
 The plan has nine TDD cycles split into Track A (build the new package) and Track B (two `feat!` core-eviction commits), plus root-config registration and docs.
 
 ### Observations
@@ -141,3 +141,5 @@ The dominant story was a cross-package *consumability* blocker that was flagged 
 1. `AGENTS.md` (Code Style, pnpm bullets) — added a rule that pnpm settings (`catalog`, `allowBuilds`, `linkWorkspacePackages`) live in `pnpm-workspace.yaml`, not `.npmrc`.
 2. `.pi/skills/package-pi-subagents/SKILL.md` (Build section) — added a note that sibling packages consume the published registry release (`linkWorkspacePackages: false`), not a workspace symlink, with `@gotgenes/pi-subagents-worktrees` as the reference.
 3. Declined proposal B (`.pi/settings.json` registration timing) and the `plan-issue` "probe first-of-its-kind integrations" note — the `settings.json` `npm:`-entry caveat remains captured in this retro's stage notes only.
+
+[ADR-0002]: https://github.com/gotgenes/pi-packages/blob/main/packages/pi-subagents/docs/decisions/0002-extensions-on-a-minimal-core.md
