@@ -1,5 +1,6 @@
 import { getNonEmptyString, toRecord } from "./common";
 import type { PermissionSystemExtensionConfig } from "./extension-config";
+import type { ToolInputFormatterLookup } from "./tool-input-formatter-registry";
 import {
   formatEditInputForPrompt,
   formatReadInputForPrompt,
@@ -47,7 +48,10 @@ export function resolveToolPreviewLimits(
  * point for preview-length configuration (#266).
  */
 export class ToolPreviewFormatter {
-  constructor(private readonly options: ToolPreviewFormatterOptions) {}
+  constructor(
+    private readonly options: ToolPreviewFormatterOptions,
+    private readonly customFormatters?: ToolInputFormatterLookup,
+  ) {}
 
   // ── Prompt formatting ───────────────────────────────────────────────────
 
@@ -106,6 +110,14 @@ export class ToolPreviewFormatter {
    */
   formatToolInputForPrompt(toolName: string, input: unknown): string {
     const inputRecord = toRecord(input);
+
+    const custom = this.customFormatters?.get(toolName);
+    if (custom) {
+      const rendered = custom(inputRecord);
+      if (rendered !== undefined) {
+        return rendered;
+      }
+    }
 
     switch (toolName) {
       case "edit":

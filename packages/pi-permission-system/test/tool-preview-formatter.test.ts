@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import type { ToolInputFormatterLookup } from "#src/tool-input-formatter-registry";
+
 // Mock logging collaborator before importing the module under test.
 vi.mock("../src/logging.js", () => ({
   safeJsonStringify: vi.fn((value: unknown) => JSON.stringify(value)),
@@ -198,6 +200,77 @@ describe("ToolPreviewFormatter.formatToolInputForPrompt", () => {
     const preview = result.slice("with input ".length);
     expect(preview.endsWith("…")).toBe(true);
     expect(preview.length).toBe(11); // 10 + "…"
+  });
+});
+
+// ── formatToolInputForPrompt (custom formatter seam) ───────────────────────
+
+describe("ToolPreviewFormatter.formatToolInputForPrompt — custom formatter seam", () => {
+  function makeLookup(
+    toolName: string,
+    result: string | undefined,
+  ): ToolInputFormatterLookup {
+    return {
+      get: (name) => (name === toolName ? () => result : undefined),
+    };
+  }
+
+  test("uses a custom formatter's string result verbatim, bypassing the switch", () => {
+    const lookup = makeLookup("my-tool", "custom preview");
+    const f = new ToolPreviewFormatter(
+      {
+        toolInputPreviewMaxLength: TOOL_INPUT_PREVIEW_MAX_LENGTH,
+        toolTextSummaryMaxLength: TOOL_TEXT_SUMMARY_MAX_LENGTH,
+        toolInputLogPreviewMaxLength: TOOL_INPUT_LOG_PREVIEW_MAX_LENGTH,
+      },
+      lookup,
+    );
+    expect(f.formatToolInputForPrompt("my-tool", {})).toBe("custom preview");
+  });
+
+  test("falls through to the built-in switch when custom formatter returns undefined", () => {
+    mockedStringify.mockReturnValue('{"x":1}');
+    const lookup = makeLookup("unknown-tool", undefined);
+    const f = new ToolPreviewFormatter(
+      {
+        toolInputPreviewMaxLength: TOOL_INPUT_PREVIEW_MAX_LENGTH,
+        toolTextSummaryMaxLength: TOOL_TEXT_SUMMARY_MAX_LENGTH,
+        toolInputLogPreviewMaxLength: TOOL_INPUT_LOG_PREVIEW_MAX_LENGTH,
+      },
+      lookup,
+    );
+    // Falls through to JSON default for unknown tools
+    expect(f.formatToolInputForPrompt("unknown-tool", { x: 1 })).toContain(
+      '{"x":1}',
+    );
+  });
+
+  test("custom formatter for a built-in tool overrides the built-in preview", () => {
+    const lookup = makeLookup("read", "custom read summary");
+    const f = new ToolPreviewFormatter(
+      {
+        toolInputPreviewMaxLength: TOOL_INPUT_PREVIEW_MAX_LENGTH,
+        toolTextSummaryMaxLength: TOOL_TEXT_SUMMARY_MAX_LENGTH,
+        toolInputLogPreviewMaxLength: TOOL_INPUT_LOG_PREVIEW_MAX_LENGTH,
+      },
+      lookup,
+    );
+    // Would normally use formatReadInputForPrompt; custom overrides it
+    expect(f.formatToolInputForPrompt("read", { path: "/foo.ts" })).toBe(
+      "custom read summary",
+    );
+  });
+
+  test("absent lookup preserves current behaviour for all tool types", () => {
+    const f = new ToolPreviewFormatter({
+      toolInputPreviewMaxLength: TOOL_INPUT_PREVIEW_MAX_LENGTH,
+      toolTextSummaryMaxLength: TOOL_TEXT_SUMMARY_MAX_LENGTH,
+      toolInputLogPreviewMaxLength: TOOL_INPUT_LOG_PREVIEW_MAX_LENGTH,
+    });
+    // Built-in path still works
+    expect(f.formatToolInputForPrompt("read", { path: "/foo.ts" })).toContain(
+      "/foo.ts",
+    );
   });
 });
 
