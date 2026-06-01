@@ -415,7 +415,8 @@ This requires two detections:
 `isSubagentExecutionContext()` checks three sources in priority order:
 
 1. **Explicit registry** — `@gotgenes/pi-subagents` emits `subagents:child:session-created` before `bindExtensions()`; the permission system's subscriber writes the entry into `SubagentSessionRegistry` synchronously.
-   The registry (keyed by session directory path) is checked first.
+   The registry (keyed by **child session id**) is checked first.
+   Each concurrent sibling child of the same parent receives a unique session id from `sessionManager.newSession()`, so siblings occupy distinct keys — one sibling's `disposed` event cannot evict another's entry (fixes #298).
    The registry is a process-global singleton (via `getSubagentSessionRegistry()`, backed by `globalThis` + `Symbol.for()`) because each session's `ResourceLoader` creates its own `pi.events` bus: the parent's instance registers the child over the parent bus, while the child's separate jiti instance reads the same global store to detect itself and resolve its forwarding target.
 2. **Env vars** (`SUBAGENT_ENV_HINT_KEYS`) — returns `true` when any key is set to a non-empty, non-whitespace value.
    Used by process-based subagent extensions.
@@ -425,7 +426,7 @@ This requires two detections:
 
 `resolvePermissionForwardingTargetSessionId()` checks two sources in priority order:
 
-1. **Explicit registry** — if the caller provides a `sessionDir` and `registry`, the registry entry's `parentSessionId` is returned when present.
+1. **Explicit registry** — if the caller provides a `sessionId` and `registry`, the registry entry's `parentSessionId` is returned when present.
    Used by in-process subagent extensions.
 2. **Env vars** (`SUBAGENT_PARENT_SESSION_ENV_CANDIDATES`) — iterates candidates and returns the first non-empty, non-`"unknown"` value.
    Used by process-based subagent extensions.
