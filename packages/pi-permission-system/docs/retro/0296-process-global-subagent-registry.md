@@ -40,3 +40,23 @@ The plan adds one accessor (`getSubagentSessionRegistry`) and changes one line i
 
 [#297]: https://github.com/gotgenes/pi-packages/issues/297
 [#298]: https://github.com/gotgenes/pi-packages/issues/298
+
+## Stage: Implementation — TDD (2026-06-01T14:15:00Z)
+
+### Session summary
+
+Completed all 3 TDD cycles from the plan: added the `getSubagentSessionRegistry()` process-global accessor with 4 new tests (step 1, `fix:`), wired `index.ts` to call the accessor instead of `new SubagentSessionRegistry()` — the actual regression fix (step 2, `fix:`), and updated `docs/subagent-integration.md`, `docs/architecture/architecture.md`, and `.pi/skills/package-pi-permission-system/SKILL.md` (step 3, `docs:`).
+Test count: 1656 → 1660 (+4 accessor tests).
+Pre-completion reviewer: PASS.
+
+### Observations
+
+- No deviations from the plan.
+  The two-line `index.ts` change (import swap + construction swap) was exactly as designed; all downstream wiring already received the registry by reference and required no changes.
+- The eslint `no-dynamic-delete` rule required the standard `// eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- Symbol-keyed global property; Map.delete() is not applicable` comment in the test `afterEach` cleanup, matching the pattern already used in `service.ts` and `test/service.test.ts`.
+  This is not a deviation — the plan noted the `service.test.ts` pattern as the model to follow.
+- `pnpm fallow dead-code` passes: `getSubagentSessionRegistry` is consumed by `index.ts` (the composition root, a plugin entry point), so there is no dead-export window between the two `fix:` commits.
+- Pre-completion reviewer: PASS with no WARN findings.
+  All four named doc targets verified (SKILL.md, `architecture.md`, `subagent-integration.md`, Mermaid diagrams).
+  The `SubagentSessionRegistry` class comment in `subagent-registry.ts` still refers to "Owned by `ExtensionRuntime`" (a stale doc artefact predating the process-global change); the reviewer did not flag this as a blocking issue.
+  Filed as a note here for the `/retro` pass.
