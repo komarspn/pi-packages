@@ -100,6 +100,47 @@ describe("BashProgram", () => {
         const program = await BashProgram.parse("echo $(cd q && cat ../r)");
         expect(program.externalPaths(cwd)).toContain("/projects/r");
       });
+
+      it("flags relative paths conservatively after a non-literal cd", async () => {
+        // cd "$DIR" makes the effective dir unknowable; ../x could be anywhere,
+        // so it is flagged (least-privilege).
+        const program = await BashProgram.parse('cd "$DIR" && cat ../x');
+        expect(program.externalPaths(cwd)).toContain("/projects/x");
+      });
+
+      it("flags even a within-cwd relative path after a non-literal cd", async () => {
+        // Conservative cost: src/../within.txt resolves inside cwd but is still
+        // flagged because the effective dir is unknown.
+        const program = await BashProgram.parse(
+          'cd "$DIR" && cat src/../within.txt',
+        );
+        expect(program.externalPaths(cwd)).toContain(
+          "/projects/my-app/within.txt",
+        );
+      });
+
+      it("still resolves an absolute path normally after a non-literal cd", async () => {
+        // Absolute paths are base-independent; one inside cwd is not flagged
+        // even when the effective dir is unknown.
+        const program = await BashProgram.parse(
+          'cd "$DIR" && cat /projects/my-app/x.txt',
+        );
+        expect(program.externalPaths(cwd)).toHaveLength(0);
+      });
+
+      it("treats `cd -` as an unknown effective directory", async () => {
+        const program = await BashProgram.parse("cd - && cat ../x");
+        expect(program.externalPaths(cwd)).toContain("/projects/x");
+      });
+
+      it("recovers a known base when a later cd is absolute", async () => {
+        // cd "$DIR" → unknown, then cd /projects/my-app/src → known again, so
+        // ../x resolves to cwd and is not flagged.
+        const program = await BashProgram.parse(
+          'cd "$DIR" && cd /projects/my-app/src && cat ../x',
+        );
+        expect(program.externalPaths(cwd)).toHaveLength(0);
+      });
     });
   });
 

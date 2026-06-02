@@ -76,17 +76,18 @@ export interface BashCommand {
 }
 
 /**
- * The working directory in force where a path candidate appears, expressed as
- * an offset to be joined with `cwd` at resolution time (the parse-time walk
- * never sees `cwd`).
+ * The working directory in force where a path candidate appears.
  *
- * `offset` is a relative-or-absolute path string built by folding the literal
- * targets of current-shell `cd` commands (`""` = `cwd`); an absolute offset
- * (from `cd /abs`) ignores `cwd` at resolution time.
+ * A `known` base carries an `offset` to be joined with `cwd` at resolution time
+ * (the parse-time walk never sees `cwd`): a relative-or-absolute path string
+ * built by folding the literal targets of current-shell `cd` commands (`""` =
+ * `cwd`); an absolute offset (from `cd /abs`) ignores `cwd` at resolution time.
+ * An `unknown` base marks a non-literal `cd` target (`cd "$DIR"`, `cd $(…)`,
+ * `cd -`, bare `cd`, `cd ~…`) that made the effective directory unresolvable.
  */
-interface EffectiveBase {
-  readonly offset: string;
-}
+type EffectiveBase =
+  | { readonly kind: "known"; readonly offset: string }
+  | { readonly kind: "unknown" };
 
 /**
  * A path-candidate token paired with the effective working directory projected
@@ -194,7 +195,26 @@ export class BashProgram {
       const candidate = classifyTokenAsPathCandidate(token);
       if (!candidate) continue;
 
-      const resolveBase = resolve(cwd, base.offset);
+      // Unknown effective directory: a relative candidate could resolve
+      // anywhere, so flag it conservatively (resolving against `cwd` only for a
+      // display path). Absolute / `~` candidates are base-independent and
+      // resolve normally below.
+      if (base.kind === "unknown" && isRelativeCandidate(candidate)) {
+        const normalized = normalizePathForComparison(candidate, cwd);
+        if (
+          normalized &&
+          normalizedCwd !== "" &&
+          !isSafeSystemPath(normalized) &&
+          !seen.has(normalized)
+        ) {
+          seen.add(normalized);
+          externalPaths.push(normalized);
+        }
+        continue;
+      }
+
+      const resolveBase =
+        base.kind === "known" ? resolve(cwd, base.offset) : cwd;
       const normalized = normalizePathForComparison(candidate, resolveBase);
       if (!normalized) continue;
 
@@ -760,7 +780,10 @@ function collectSubstitutionCommands(node: TSNode, out: BashCommand[]): void {
 // ── Effective working directory projection ─────────────────────────────────
 
 /** The working directory in force at the start of a program (`cwd`). */
-const CWD_BASE: EffectiveBase = { offset: "" };
+const CWD_BASE: EffectiveBase = { kind: "known", offset: "" };
+
+/** The effective directory after a non-literal or unresolvable `cd`. */
+const UNKNOWN_BASE: EffectiveBase = { kind: "unknown" };
 
 /**
  * Walk the AST once, collecting every path-candidate token tagged with the
@@ -857,19 +880,32 @@ function tagTokens(
 }
 
 /**
+ * True when a path candidate is relative (resolved against the effective
+ * directory) rather than absolute (`/…`) or home-relative (`~…`), which are
+ * base-independent. Used to decide which candidates an unknown base affects.
+ */
+function isRelativeCandidate(candidate: string): boolean {
+  return !candidate.startsWith("/") && !candidate.startsWith("~");
+}
+
+/**
  * Compute the effective base after a command runs. Returns `base` unchanged
- * unless the command is `cd <literal>`, in which case the literal target folds
- * into the running offset (an absolute target replaces it). A non-literal `cd`
- * target (`cd "$DIR"`, `cd $(…)`, `cd -`, bare `cd`, `cd ~…`) leaves the base
- * unchanged for now.
+ * unless the command is `cd`:
+ *
+ * - `cd /abs` (absolute literal) → a fresh known base, recovering from an
+ *   earlier unknown base.
+ * - `cd rel` (relative literal) → fold into a known base, or stay unknown if the
+ *   base was already unknown.
+ * - `cd "$DIR"` / `cd $(…)` / `cd -` / bare `cd` / `cd ~…` (non-literal) →
+ *   unknown.
  */
 function foldCd(commandNode: TSNode, base: EffectiveBase): EffectiveBase {
   if (extractCommandName(commandNode) !== "cd") return base;
   const target = cdLiteralTarget(commandNode);
-  if (target === null) return base;
-  return {
-    offset: isAbsolute(target) ? target : join(base.offset, target),
-  };
+  if (target === null) return UNKNOWN_BASE;
+  if (isAbsolute(target)) return { kind: "known", offset: target };
+  if (base.kind === "unknown") return UNKNOWN_BASE;
+  return { kind: "known", offset: join(base.offset, target) };
 }
 
 /**
