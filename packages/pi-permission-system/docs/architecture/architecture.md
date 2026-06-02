@@ -787,14 +787,14 @@ The headline findings are coupling smells (Category C) — anemic behavior, muta
 
 ### Steps
 
-1. **Split `tool-input-preview.ts` into cohesive modules**
+1. **Split `tool-input-preview.ts` into cohesive modules** ([#314])
    - Target: `src/tool-input-preview.ts` (the sole `fallow` refactoring target).
    - Extract the three prompt formatters plus `getPromptPath` into a new `src/tool-input-prompt-formatters.ts`; leave the text utilities (`truncateInlineText`, `countTextLines`, `formatCount`), `serializeToolInputPreview`, and the three limit constants in `tool-input-preview.ts`.
    - Update the 6 dependents (`builtin-tool-input-formatters.ts`, `tool-preview-formatter.ts`, and the test files) to import from the new boundary; verify a consumer imports each new export.
    - Smell category: B (oversized) / E (cohesion).
    - Outcome: `tool-input-preview.ts` drops below the 0.3 density threshold and off the refactoring-target list; refactoring targets 1 → 0.
 
-2. **Introduce a `PermissionForwarder` collaborator (own the state)**
+2. **Introduce a `PermissionForwarder` collaborator (own the state)** ([#315])
    - Target: new `src/forwarded-permissions/permission-forwarder.ts`; `forwarding-manager.ts`; `index.ts`.
    - Create a `PermissionForwarder` class that owns `forwardingDir`, `subagentSessionsDir`, `registry`, `events`, `logger`, and `shouldAutoApprove` (a constructor-supplied policy, not a re-set bag field), exposing two methods: `requestApproval(ctx, message, options?, forwarded?)` and `processInbox(ctx)`.
    - Lift-and-shift: the methods initially delegate to the existing `polling.ts` free functions, so behavior is unchanged.
@@ -802,40 +802,40 @@ The headline findings are coupling smells (Category C) — anemic behavior, muta
    - Smell category: C (anemic domain model — give the forwarding behavior an owner).
    - Outcome: one forwarder instance replaces the `index.ts` forwarding bag; `ForwardingManager` tells the forwarder instead of threading a deps bag.
 
-3. **Fold `PermissionPrompter.buildForwardingDeps()` into the injected forwarder**
+3. **Fold `PermissionPrompter.buildForwardingDeps()` into the injected forwarder** ([#316])
    - Target: `src/permission-prompter.ts`; `index.ts` (sequence after Step 2).
    - Inject the `PermissionForwarder` (via a narrow `ApprovalRequester` interface exposing only `requestApproval`) into `PermissionPrompter`; delete `buildForwardingDeps()`, the second `PermissionForwardingDeps` synthesis, and its `eslint-disable unbound-method` cluster.
    - Smell category: C (relay-only deps / duplicated bag construction).
    - Outcome: the forwarding dependency set is constructed exactly once; the prompter depends on a one-method interface instead of re-deriving a bag.
 
-4. **Remove `PermissionForwardingDeps`; inline the polling logic as forwarder methods**
+4. **Remove `PermissionForwardingDeps`; inline the polling logic as forwarder methods** ([#317])
    - Target: `src/forwarded-permissions/polling.ts` → `permission-forwarder.ts` (sequence after Steps 2–3).
    - Move the bodies of `waitForForwardedPermissionApproval` and `processForwardedPermissionRequests` into the forwarder as private methods reading `this` state; extract `processSingleForwardedRequest`, `buildForwardedRequest`, and `pollForForwardedResponse` as private methods.
      Delete the `PermissionForwardingDeps` interface once no caller threads it.
    - Smell category: C + B (the two god functions decompose as a consequence of the state having an owner).
    - Outcome: the 144-line and 132-line free functions become focused methods; `PermissionForwardingDeps` is gone; the forwarding subsystem is fully class-based.
 
-5. **Introduce an `McpTargetList` value object**
+5. **Introduce an `McpTargetList` value object** ([#318])
    - Target: `src/mcp-targets.ts`.
    - Replace the `pushTarget` closure and local array with a small `McpTargetList` value object (`add(value)` dedups internally, `toArray()` returns the ordered result); the per-mode branches tell the list to add rather than asking `includes`.
    - Smell category: C (mutable closure state → value object).
    - Outcome: `createMcpPermissionTargets` cognitive complexity drops below 15; dedup logic lives in one place; `mcp-targets.ts` leaves the CRAP-risk top of the src list.
 
-6. **Replace `GateRunnerDeps` with a narrow `GateRunnerContext` interface**
+6. **Replace `GateRunnerDeps` with a narrow `GateRunnerContext` interface** ([#319])
    - Target: `src/handlers/gates/descriptor.ts`; `handlers/permission-gate-handler.ts`; `handlers/gates/runner.ts`.
    - Define a narrow `GateRunnerContext` interface (the operations the runner actually needs) that `PermissionSession` implements directly; pass the session (typed as the interface) plus the event bus instead of hand-assembling 7 relay closures in `handleToolCall`.
    - Keep the seam narrow (interface, not the concrete class) so gate unit tests still inject a plain mock.
    - Smell category: C (relay-only dependencies).
    - Outcome: the 7-closure bag in `handleToolCall` collapses to one interface reference; the runner tells the session instead of relaying through closures.
 
-7. **Reframe the `index.ts` composition root as collaborator injection**
+7. **Reframe the `index.ts` composition root as collaborator injection** ([#320])
    - Target: `src/index.ts` (sequence after Steps 2–4 and 6).
    - With the forwarder and gate-context collaborators in place, the remaining factory work is constructing collaborators and injecting them; group what is left into a small number of construction sites and keep only genuine SDK-boundary glue (tool registry, `pi.on` arrows) as closures.
    - Verify wiring with `test/composition-root.test.ts` (`make-fake-pi.ts` harness): handler registration, the `session_start`-gated service publish, and the synchronous lifecycle subscription must be unchanged.
    - Smell category: C (adapter closure density) / E (wiring overhead).
    - Outcome: `piPermissionSystemExtension` falls well under 100 lines; new wiring touches a collaborator, not a 149-line factory, cooling the `index.ts` hotspot.
 
-8. **Continue shared test-fixture extraction**
+8. **Continue shared test-fixture extraction** ([#321])
    - Target: the four largest remaining clone families — `external-directory-integration.test.ts`, `bash-path.test.ts`, `runner.test.ts`, `tool-call.test.ts`.
    - Migrate them onto the existing `test/helpers/` fixtures (`handler-fixtures.ts`, `gate-fixtures.ts`, `manager-harness.ts`), extending those helpers where a shape is not yet covered rather than redefining factories inline.
    - Smell category: D (test duplication).
@@ -849,14 +849,14 @@ Step 8 is best sequenced after the production refactors whose tested call sites 
 
 ```mermaid
 flowchart TD
-    S1["Step 1: Split tool-input-preview.ts"]
-    S2["Step 2: Introduce PermissionForwarder"]
-    S3["Step 3: Fold buildForwardingDeps into forwarder"]
-    S4["Step 4: Remove PermissionForwardingDeps bag"]
-    S5["Step 5: McpTargetList value object"]
-    S6["Step 6: GateRunnerContext narrow interface"]
-    S7["Step 7: Composition root as collaborator injection"]
-    S8["Step 8: Continue test-fixture extraction"]
+    S1["Step 1: Split tool-input-preview.ts (#314)"]
+    S2["Step 2: Introduce PermissionForwarder (#315)"]
+    S3["Step 3: Fold buildForwardingDeps into forwarder (#316)"]
+    S4["Step 4: Remove PermissionForwardingDeps bag (#317)"]
+    S5["Step 5: McpTargetList value object (#318)"]
+    S6["Step 6: GateRunnerContext narrow interface (#319)"]
+    S7["Step 7: Composition root as collaborator injection (#320)"]
+    S8["Step 8: Continue test-fixture extraction (#321)"]
 
     S2 --> S3
     S3 --> S4
@@ -887,3 +887,11 @@ flowchart TD
 [#288]: https://github.com/gotgenes/pi-packages/issues/288
 [#289]: https://github.com/gotgenes/pi-packages/issues/289
 [#290]: https://github.com/gotgenes/pi-packages/issues/290
+[#314]: https://github.com/gotgenes/pi-packages/issues/314
+[#315]: https://github.com/gotgenes/pi-packages/issues/315
+[#316]: https://github.com/gotgenes/pi-packages/issues/316
+[#317]: https://github.com/gotgenes/pi-packages/issues/317
+[#318]: https://github.com/gotgenes/pi-packages/issues/318
+[#319]: https://github.com/gotgenes/pi-packages/issues/319
+[#320]: https://github.com/gotgenes/pi-packages/issues/320
+[#321]: https://github.com/gotgenes/pi-packages/issues/321
