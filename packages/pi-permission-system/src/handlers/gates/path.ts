@@ -1,18 +1,9 @@
 import { getPathBearingToolPath } from "#src/path-utils";
-import type { Rule } from "#src/rule";
+import type { PermissionResolver } from "#src/permission-resolver";
 import { SessionApproval } from "#src/session-approval";
 import { deriveApprovalPattern } from "#src/session-rules";
-import type { PermissionCheckResult } from "#src/types";
 import type { GateDescriptor, GateResult } from "./descriptor";
 import type { ToolCallContext } from "./types";
-
-/** Function type for checkPermission used by the descriptor factory. */
-type CheckPermissionFn = (
-  surface: string,
-  input: unknown,
-  agentName?: string,
-  sessionRules?: Rule[],
-) => PermissionCheckResult;
 
 /**
  * Build a pure descriptor for the cross-cutting path permission gate (tools).
@@ -24,18 +15,15 @@ type CheckPermissionFn = (
  */
 export function describePathGate(
   tcc: ToolCallContext,
-  checkPermission: CheckPermissionFn,
-  getSessionRuleset: () => Rule[],
+  resolver: PermissionResolver,
 ): GateResult {
   const filePath = getPathBearingToolPath(tcc.toolName, tcc.input);
   if (!filePath) return null;
 
-  const sessionRules = getSessionRuleset();
-  const check = checkPermission(
+  const check = resolver.resolve(
     "path",
     { path: filePath },
     tcc.agentName ?? undefined,
-    sessionRules,
   );
 
   if (check.state === "allow") return null;

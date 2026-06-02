@@ -8,9 +8,24 @@ import type {
   GateRunnerDeps,
 } from "#src/handlers/gates/descriptor";
 import type { ToolCallContext } from "#src/handlers/gates/types";
+import type { PermissionResolver } from "#src/permission-resolver";
 import type { PermissionCheckResult } from "#src/types";
 
 import { makeCheckResult } from "#test/helpers/handler-fixtures";
+
+/**
+ * Permission resolver mock with an optional default check result.
+ *
+ * Returns a plain object whose `resolve` is a `vi.fn` so callers retain full
+ * mock access (`mockReturnValue`, `mockImplementation`, `mock.calls`).
+ */
+export function makeResolver(defaultCheck?: PermissionCheckResult) {
+  const resolve = vi.fn<PermissionResolver["resolve"]>();
+  if (defaultCheck) {
+    resolve.mockReturnValue(defaultCheck);
+  }
+  return { resolve };
+}
 
 /**
  * Gate descriptor factory with runner-test defaults.

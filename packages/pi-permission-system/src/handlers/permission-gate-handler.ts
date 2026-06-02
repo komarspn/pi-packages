@@ -15,6 +15,7 @@ import {
   formatSkillAskPrompt,
   formatUnknownToolReason,
 } from "#src/permission-prompts";
+import type { PermissionResolver } from "#src/permission-resolver";
 import type { PermissionSession } from "#src/permission-session";
 import type { ToolInputFormatterLookup } from "#src/tool-input-formatter-registry";
 import {
@@ -96,7 +97,9 @@ export class PermissionGateHandler {
         ? await BashProgram.parse(command)
         : null;
 
-    // ── Shared gate adapter closures ─────────────────────────────────────
+    // ── Shared gate collaborators ────────────────────────────────────────
+    // The session is the PermissionResolver; migrated gates use it directly.
+    const resolver: PermissionResolver = this.session;
     const canConfirm = () => this.session.canPrompt(ctx);
     const promptPermission = (details: PromptPermissionDetails) =>
       this.session.prompt(ctx, details);
@@ -170,7 +173,7 @@ export class PermissionGateHandler {
     const gateProducers: Array<() => GateResult | Promise<GateResult>> = [
       () =>
         describeSkillReadGate(tcc, () => this.session.getActiveSkillEntries()),
-      () => describePathGate(tcc, checkPermission, getSessionRuleset),
+      () => describePathGate(tcc, resolver),
       () => describeExternalDirectoryGate(tcc, infraDirs),
       () =>
         describeBashExternalDirectoryGate(
