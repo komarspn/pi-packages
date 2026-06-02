@@ -30,3 +30,26 @@ Two disposable `web-tree-sitter` AST probes de-risked every descent decision bef
 
 [#306]: https://github.com/gotgenes/pi-packages/issues/306
 [#308]: https://github.com/gotgenes/pi-packages/issues/308
+
+## Stage: Implementation — TDD (2026-06-01T21:40:00Z)
+
+### Session summary
+
+Implemented all four plan steps in four commits (three `feat:` + one `docs:`): Tier 1 sequential current-shell `cd` fold, Tier 2 subshell frame / brace-group persistence, conservative unknown-base bail, and the architecture-doc update.
+The package suite grew from 1716 to 1731 tests (+15: 14 new `externalPaths` projection cases plus 2 re-framed `bash-external-directory.test.ts` cases, minus a couple folded names).
+Pre-completion reviewer verdict: PASS (one non-blocking WARN).
+
+### Observations
+
+- Two deliberate deviations from the plan, both sanctioned and confirmed by the reviewer:
+  1. Command/process-substitution interiors do NOT fold their internal `cd`s (they inherit the enclosing base) — the explicit fallback offered by the plan's Open Question.
+     Subshell `( … )` (frame stack) and brace-group `{ … }` (persistence) ARE implemented because they are statement-level nodes the walk reaches directly; substitution interiors are collected inside `collectCommandTokens` (flat), so folding them would require refactoring the leaf collectors to emit `PathCandidate[]`.
+     The deferral is conservative (over-flags, never under-flags) and is documented with a code comment and the `conservatively flags a relative path inside a command substitution` test.
+  2. The plan said to keep `// fallow-ignore-next-line unused-class-member` on `pathTokens` / `externalPaths`; in reality only `commands()` ever carried that suppression, so none was added and `pnpm fallow dead-code` stays clean.
+- The load-bearing planning insight held up exactly: because the strict classifier only admits absolute / `~/` / `..` tokens, almost every step-3 unknown-base test passed under step-1 behavior already (a non-literal `cd` left the base at `cwd`, which resolves escaping relatives the same way).
+  Only the within-cwd relative case (`cd "$DIR" && cat src/../within.txt`) genuinely required the `unknown` variant — it was the single Red in step 3.
+- The two re-framed `bash-external-directory.test.ts` characterization tests passed by coincidence on loose `length > 0` assertions; strengthening them to exact resolved paths (`/projects/outside.txt`, `/etc/hosts` + `/tmp`) turned the coincidence into documentation of the faithful-tracking behavior.
+- Two minor lint nits during step 1 (`@typescript-eslint/prefer-optional-chain` on `next !== null && !next.isNamed` and on `!child || !child.isNamed`) — resolved by an early-return guard and `!child?.isNamed` respectively.
+- Reviewer warnings: WARN — `bash-program.ts` is now ~975 lines and carries two descent strategies (base-threading `walkForCandidates` and flat `collectPathCandidateTokens`) that share leaf collectors; `collectPathCandidateTokens` is dual-used (subordinate helper inside leaf collectors AND the `default:` branch strategy).
+  Accurate but mitigated by JSDoc; no structural change required.
+  A future cleanup could fold substitution-internal scoping in and unify the two walks (the plan's Open Question convergence).
