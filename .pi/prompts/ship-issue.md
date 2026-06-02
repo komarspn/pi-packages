@@ -38,6 +38,12 @@ If either fails, fix the issues and commit before pushing.
    Do not close the issue or merge anything.
 4. If it lands `success`, continue.
 
+## 4b. Check for a stacked release
+
+If the plan frames this issue as part of a multi-issue sequence (e.g. "step N of M", a phased roadmap, or a lift-and-shift with sibling `#M` issues sharing a release component), ask the user once whether to release now or batch the release until the sequence completes.
+If batching: stop here — the push and CI are done; leave the issue open and skip steps 5–6.
+Note the deferral in the final report.
+
 ## 5. Close the issue
 
 Build the close comment from the commits since the previous release:
