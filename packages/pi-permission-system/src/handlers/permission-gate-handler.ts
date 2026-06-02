@@ -175,13 +175,7 @@ export class PermissionGateHandler {
         describeSkillReadGate(tcc, () => this.session.getActiveSkillEntries()),
       () => describePathGate(tcc, resolver),
       () => describeExternalDirectoryGate(tcc, infraDirs),
-      () =>
-        describeBashExternalDirectoryGate(
-          tcc,
-          bashProgram,
-          checkPermission,
-          getSessionRuleset,
-        ),
+      () => describeBashExternalDirectoryGate(tcc, bashProgram, resolver),
       () =>
         describeBashPathGate(
           tcc,

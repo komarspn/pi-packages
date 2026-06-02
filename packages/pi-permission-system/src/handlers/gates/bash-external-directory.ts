@@ -1,5 +1,5 @@
 import { getNonEmptyString, toRecord } from "#src/common";
-import type { Rule } from "#src/rule";
+import type { PermissionResolver } from "#src/permission-resolver";
 import { SessionApproval } from "#src/session-approval";
 import { deriveApprovalPattern } from "#src/session-rules";
 import type { PermissionCheckResult } from "#src/types";
@@ -8,14 +8,6 @@ import { pickMostRestrictive } from "./candidate-check";
 import type { GateResult } from "./descriptor";
 import { formatBashExternalDirectoryAskPrompt } from "./external-directory-messages";
 import type { ToolCallContext } from "./types";
-
-/** Function type for checkPermission used by the descriptor factory. */
-type CheckPermissionFn = (
-  surface: string,
-  input: unknown,
-  agentName?: string,
-  sessionRules?: Rule[],
-) => PermissionCheckResult;
 
 /**
  * Build a pure descriptor for the bash external-directory permission gate.
@@ -29,8 +21,7 @@ type CheckPermissionFn = (
 export function describeBashExternalDirectoryGate(
   tcc: ToolCallContext,
   bashProgram: BashProgram | null,
-  checkPermission: CheckPermissionFn,
-  getSessionRuleset: () => Rule[],
+  resolver: PermissionResolver,
 ): GateResult {
   if (tcc.toolName !== "bash" || !tcc.cwd) return null;
 
@@ -42,8 +33,6 @@ export function describeBashExternalDirectoryGate(
   const externalPaths = bashProgram.externalPaths(tcc.cwd);
   if (externalPaths.length === 0) return null;
 
-  const bashSessionRules = getSessionRuleset();
-
   // Collect paths whose resolved state is not already "allow".
   // Checking state (not source) ensures config-level allow rules (source: "special")
   // suppress the prompt just as session-level allow rules (source: "session") do.
@@ -52,11 +41,10 @@ export function describeBashExternalDirectoryGate(
     check: PermissionCheckResult;
   }> = [];
   for (const p of externalPaths) {
-    const check = checkPermission(
+    const check = resolver.resolve(
       "external_directory",
       { path: p },
       tcc.agentName ?? undefined,
-      bashSessionRules,
     );
     if (check.state !== "allow") {
       uncoveredEntries.push({ path: p, check });
