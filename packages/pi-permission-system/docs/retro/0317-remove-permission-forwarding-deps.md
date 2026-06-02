@@ -39,3 +39,41 @@ Pre-completion reviewer returned **PASS**.
 - The `getContextSystemPrompt` helper passes `null` as logger to `logPermissionForwardingWarning`, swallowing the warning silently — the reviewer noted this as a deliberate trade-off documented in an inline comment, not a smell.
 - Pre-completion reviewer verdict: PASS.
   No WARN findings.
+
+## Stage: Final Retrospective (2026-06-02T17:00:00Z)
+
+### Session summary
+
+One continuous session carried issue #317 from planning through TDD, shipping, and this retrospective.
+The `refactor:` landed in a single commit (`80028585`) plus a `docs:` follow-up (`f03be193`), CI passed, and the ship stage closed the entire stacked sequence (#314–#317).
+The session ran end-to-end without user correction.
+
+### Observations
+
+#### What went well
+
+- Plan→execution fidelity: the plan predicted the exact type-coupling breakage set (`index.ts`, `permission-forwarder.test.ts`, `permission-forwarding.test.ts`, and the stale `runtime.test.ts` mock) and folded them into one `refactor:` commit; TDD reproduced it with zero rework and a clean pre-completion PASS.
+- The planning symbol-usage audit (grepping `getSessionId` and `formatForwardedPermissionPrompt`) correctly predicted they would become module-private with no `fallow` dead-code fallout — confirmed green at ship.
+- Ship cleanly closed the full stacked sequence #314–#317 with tailored per-issue comments, and correctly reasoned that no release-please PR would appear because every commit since `pi-permission-system-v10.0.0` is `refactor:`/`docs:`.
+
+#### What caused friction (agent side)
+
+- `other` (self-identified) — when removing the two migrated `describe` blocks from `permission-forwarding.test.ts`, I first renamed them to placeholder names (`_placeholder_to_be_removed`, `_confirmPermission_placeholder`) before realizing they needed wholesale deletion, then cut from a marker to EOF with a Python script.
+  Impact: ~2 wasted tool calls (the rename `Edit`); no rework to the final file.
+- `other` (self-identified) — the Python marker-to-EOF cut left a trailing blank line that failed Biome formatting; fixed with `pnpm exec biome check --write`.
+  Impact: one extra fix step, caught by the lint gate before commit; no rework.
+
+#### What caused friction (user side)
+
+- None — the workflow prompts and the pre-completion reviewer carried verification end-to-end with no user intervention needed.
+
+#### Process observation (not a friction point)
+
+- Issues #314, #315, #316 were still open when #317 shipped, so this ship session closed all four at once.
+  The mechanism is already in the `ship-issue` prompt (step 5 closes stacked issues because release-please omits `refactor:` from the changelog), and it worked as designed.
+  Worth confirming whether the earlier ship sessions left their own target issues open intentionally (batched closure for the lift-and-shift sequence) or by omission.
+
+### Changes made
+
+1. Appended this Final Retrospective stage entry to `packages/pi-permission-system/docs/retro/0317-remove-permission-forwarding-deps.md`.
+2. No `AGENTS.md` or prompt changes — the user confirmed retro-only; the two minor friction points were self-corrected by existing verification gates and do not generalize into rules.
