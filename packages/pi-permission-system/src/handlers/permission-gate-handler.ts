@@ -59,7 +59,7 @@ export class PermissionGateHandler {
 
   constructor(
     private readonly session: PermissionSession,
-    private readonly events: PermissionEventBus,
+    events: PermissionEventBus,
     private readonly toolRegistry: ToolRegistry,
     private readonly customFormatters?: ToolInputFormatterLookup,
   ) {
