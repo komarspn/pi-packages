@@ -7,10 +7,7 @@ import type { DecisionReporter } from "#src/decision-reporter";
 import type { GatePrompter } from "#src/gate-prompter";
 import type { GateDescriptor } from "#src/handlers/gates/descriptor";
 import { GateRunner } from "#src/handlers/gates/runner";
-import type {
-  GateNotifier,
-  SkillInputGateInputs,
-} from "#src/handlers/gates/skill-input-gate-pipeline";
+import type { SkillInputGateInputs } from "#src/handlers/gates/skill-input-gate-pipeline";
 import type { ToolCallGateInputs } from "#src/handlers/gates/tool-call-gate-pipeline";
 import type { ToolCallContext } from "#src/handlers/gates/types";
 import type { PermissionResolver } from "#src/permission-resolver";

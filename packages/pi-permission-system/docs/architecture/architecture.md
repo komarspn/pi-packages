@@ -492,19 +492,20 @@ src/
 ├── permission-dialog.ts      Dialog options (once / session / deny)
 ├── permission-resolver.ts    `PermissionResolver` interface - `resolve(surface, input, agentName)`; collapses the checkPermission + getSessionRuleset relay (#319). Implemented by `PermissionSession`
 ├── decision-reporter.ts      `DecisionReporter` interface + `GateDecisionReporter` class - owns `SessionLogger` and event bus; writes review-log entries and emits decision events (#322)
-├── gate-handler-session.ts   `GateHandlerSession` interface — the four-method session role `PermissionGateHandler` depends on: `activate`, `resolveAgentName`, `checkPermission`, `createPermissionRequestId` (#325). Transitional: shrinks to two methods when [#329] extracts `SkillInputGatePipeline`
+├── gate-handler-session.ts   `GateHandlerSession` interface — two-method context role `PermissionGateHandler` depends on: `activate`, `resolveAgentName` (#329). `checkPermission` + `createPermissionRequestId` moved out when `SkillInputGatePipeline` was extracted
 │
-├── permission-session.ts     `PermissionSession` class - encapsulates all mutable session state; implements `PermissionResolver`, `SessionApprovalRecorder`, `GatePrompter`, `GateHandlerSession`; exposes `getInfrastructureReadDirs()` and `getToolPreviewLimits()` for Tell-Don't-Ask gate inputs (#327)
+├── permission-session.ts     `PermissionSession` class - encapsulates all mutable session state; implements `PermissionResolver`, `SessionApprovalRecorder`, `GatePrompter`, `GateHandlerSession`; exposes `getInfrastructureReadDirs()` and `getToolPreviewLimits()` for Tell-Don't-Ask gate inputs (#327); `createPermissionRequestId` relocated to `SkillInputGatePipeline` (#329, absorbs #330)
 ├── handlers/                 Handler classes with narrow constructor injection
 │   ├── index.ts              Barrel re-exports
 │   ├── lifecycle.ts          SessionLifecycleHandler (session + cleanupRpc)
 │   ├── before-agent-start.ts AgentPrepHandler (session + toolRegistry); shouldExposeTool pure helper
-│   ├── permission-gate-handler.ts PermissionGateHandler (session: GateHandlerSession + toolRegistry + pipeline + runner); `GateRunner` and `GateDecisionReporter` are built in `index.ts` and injected (#325); validateRequestedTool + getEventInput + extractSkillNameFromInput pure helpers
+│   ├── permission-gate-handler.ts PermissionGateHandler (session: GateHandlerSession + toolRegistry + pipeline + skillInputPipeline + runner); `GateRunner` and `GateDecisionReporter` are built in `index.ts` and injected (#325, #329); validateRequestedTool + getEventInput + extractSkillNameFromInput pure helpers
 │   └── gates/               Pure descriptor factories + runner
 │       ├── types.ts          GateOutcome, ToolCallContext
 │       ├── descriptor.ts     GateDescriptor (with DenialContext), GateBypass, GateResult types
 │       ├── runner.ts         GateRunner class — constructed with `PermissionResolver`, `SessionApprovalRecorder`, `GatePrompter`, `DecisionReporter`; `run(gate, agentName, toolCallId)` dispatches null / bypass / descriptor
 │       ├── tool-call-gate-pipeline.ts `ToolCallGateInputs` interface + `ToolCallGatePipeline` class — constructed once in the composition root and injected into `PermissionGateHandler`; owns bash-command extraction + single `BashProgram.parse`, `ToolPreviewFormatter` construction, infra-dir list, the six gate producers, and the run loop; `evaluate(tcc, runner)` returns the first block outcome or allow (#327)
+│       ├── skill-input-gate-pipeline.ts `SkillInputGateInputs` + `GateNotifier` interfaces + `SkillInputGatePipeline` class — constructed once in the composition root and injected into `PermissionGateHandler`; owns raw `checkPermission` pre-check, deny notify, `describeSkillInputGate` descriptor, request-id mint (`createSkillInputRequestId`), and `runner.run`; `evaluate(skillName, agentName, notifier, runner)` makes the `input` path symmetric with the `tool_call` path (#329, absorbs #330)
 │       ├── helpers.ts        deriveDecisionValue, deriveResolution, buildDecisionEvent
 │       ├── skill-read.ts     describeSkillReadGate - pure descriptor factory
 │       ├── external-directory.ts describeExternalDirectoryGate - pure descriptor/bypass factory
@@ -881,18 +882,15 @@ The headline findings are coupling smells (Category C) - anemic behavior, mutabl
     - Smell category: C (concrete class dependency forces wide mocks; narrow interfaces enforce completeness at the type level).
     - Outcome: `as unknown as PermissionSession` casts are gone from the gate-handler mocks; the runner is injected, not built in the handler; a consumer calling a method the mock lacks fails at `pnpm run check`, not at runtime.
 
-12. **Extract a `SkillInputGatePipeline` collaborator** ([#329])
+12. **✅ Extract a `SkillInputGatePipeline` collaborator** ([#329])
     - Target: new `src/handlers/gates/skill-input-gate-pipeline.ts`; `src/handlers/permission-gate-handler.ts`; `src/index.ts`; `test/handlers/input*.test.ts`.
-    - `handleInput` still hand-assembles the skill-input gate (raw `checkPermission` pre-check, deny notify, `describeSkillInputGate`, request-id mint, `runner.run`) — gate-construction work with no owner, asymmetric with the `tool_call` path's `ToolCallGatePipeline` ([#327]).
-      Introduce a `SkillInputGatePipeline` (constructed in `index.ts`, injected into `PermissionGateHandler`) that owns it; reduce `handleInput` to activate → resolveAgentName → extract skill name → pipeline.evaluate → map outcome.
+    - `handleInput` hand-assembled the skill-input gate (raw `checkPermission` pre-check, deny notify, `describeSkillInputGate`, request-id mint, `runner.run`) — gate-construction work with no owner, asymmetric with the `tool_call` path's `ToolCallGatePipeline` ([#327]).
+      Extracted `SkillInputGatePipeline` (constructed in `index.ts`, injected into `PermissionGateHandler`); reduced `handleInput` to activate → resolveAgentName → extract skill name → pipeline.evaluate → map outcome.
     - Smell category: C (missing collaborator).
-    - Outcome: the `input` and `tool_call` paths are symmetric; `checkPermission` + `createPermissionRequestId` leave the handler's session surface; `GateHandlerSession` collapses to a two-method context role (`activate` + `resolveAgentName`).
+    - Outcome: the `input` and `tool_call` paths are symmetric; `checkPermission` + `createPermissionRequestId` left the handler's session surface; `GateHandlerSession` collapsed to a two-method context role (`activate` + `resolveAgentName`).
 
-13. **Relocate `createPermissionRequestId` onto the request-creation collaborator** ([#330])
-    - Target: `src/permission-session.ts`; the request-creation owner (likely the `SkillInputGatePipeline` from Step 12).
-    - `createPermissionRequestId` reads `Date.now()` / `Math.random()` / `process.pid` and touches zero session state — a misplaced utility on the session god-object.
-      Move it onto whatever collaborator owns permission-request creation and remove it from `PermissionSession`.
-    - Smell category: C (misplaced utility).
+13. **✅ Relocate `createPermissionRequestId` onto the request-creation collaborator** ([#330]) — folded into Step 12.
+    - `createPermissionRequestId` moved into `SkillInputGatePipeline` as the module-level `createSkillInputRequestId()` helper; removed from `PermissionSession`.
     - Outcome: `PermissionSession` sheds a stateless utility; request-id creation lives next to request creation.
 
 14. **Narrow `AgentPrepHandler` + `SessionLifecycleHandler` against role interfaces** ([#331])
