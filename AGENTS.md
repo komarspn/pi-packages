@@ -18,6 +18,12 @@ Commits that only touch excluded paths do not trigger releases.
 - Preserve intentional behavior unless there is a clear reason to change it.
 - Ask before removing functionality or changing defaults.
 
+### Tool-injected messages
+
+The `pi-autoformat` extension emits a `[pi-autoformat] Formatted N file(s)` message after `Edit`/`Write`.
+It is informational — not a turn boundary.
+Continue the current step (e.g. Red→Green→Commit) until it is complete.
+
 ### Multi-session issue lifecycle
 
 Larger issues span multiple sessions, each handling one stage.

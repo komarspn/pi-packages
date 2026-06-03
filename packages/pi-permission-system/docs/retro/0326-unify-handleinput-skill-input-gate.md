@@ -51,3 +51,47 @@ Test count went from 1781 to 1796 (+15).
 - **No dead-code window**: `describeSkillInputGate` was introduced in the same commit as the `handleInput` rewrite, satisfying the fallow constraint.
 - **`applyPermissionGate` and `formatSkillAskPrompt` cleanly removed** from `permission-gate-handler.ts`; lint passed on first run.
 - **Pre-completion reviewer: PASS** — one WARN note that `architecture.md` step 9 lacks the ✅ prefix; reviewer confirmed this is intentional (the project pattern defers ✅ updates to post-ship).
+
+## Stage: Final Retrospective (2026-06-02T23:45:00Z)
+
+### Session summary
+
+The TDD implementation landed both planned cycles cleanly — three commits (`feat: add skill_input denial context`, `refactor: route handleInput skill-input gate through GateRunner`, `docs(retro): add TDD stage notes`), +15 tests (1781 → 1796), pre-completion reviewer PASS, zero deviations from the plan.
+The only friction was behavioral, not technical: the agent repeatedly ended its turn after `Edit`/`Write` calls, requiring three user nudges to keep the cycle moving.
+
+### Observations
+
+#### What went well
+
+- **Plan-prediction discipline paid off end to end.**
+  The plan's single "Known test edit" note (retarget `input.test.ts`'s `expect.anything()` assertion to `session.promptPermission`) materialized exactly as written, and `input-events.test.ts` passed unchanged — confirming behavior preservation with no surprises across either cycle.
+  A notably clean plan→execution match: every red→green→commit step worked first try.
+
+#### What caused friction (agent side)
+
+- `other` — premature turn termination after `Edit`/`Write` tool calls.
+  Turns 19, 23, and 32 were empty assistant turns where the agent stopped instead of continuing the Red→Green→Commit cycle.
+  Root cause: the active `pi-autoformat` extension injects a `[pi-permission-system]`-style `[pi-autoformat] Formatted N file(s)` user-role message after each `Edit`/`Write`; the agent (running `anthropic/claude-sonnet-4-6`) interpreted that injected message as a turn boundary and yielded.
+  Impact: the user intervened three times — `Continue.` (turn 20), `Continue.` (turn 24), and the diagnostic `I would like you to continue until we've met the expectations of the plan. I'm not sure why we keep ending work at edits or writes.` (turn 33).
+  Added friction, no rework — the work itself was clean.
+  User-caught, not self-identified.
+
+#### What caused friction (user side)
+
+- The first two nudges (`Continue.`) were minimal; the third (turn 33) added the diagnostic framing that surfaced the real question.
+  Opportunity, not criticism: leading with `why are you stopping after edits?` after the first stall would have surfaced the `pi-autoformat`-injection root cause two turns earlier.
+
+### Diagnostic details
+
+- **Model-performance correlation** — TDD turns ran on `anthropic/claude-sonnet-4-6` (appropriate for mechanical TDD); the `pre-completion-reviewer` subagent ran judgment-heavy review (323.6s, 45 tool uses) under its own frontmatter model; this retro runs on `anthropic/claude-opus-4-8` (appropriate for synthesis).
+  A transient `model_change → opencode-go/deepseek-v4-flash` after the TDD summary had no assistant turn under it — it never ran and is not counted.
+  No mismatches.
+- **Feedback-loop gap analysis** — exemplary, no gap.
+  Tests ran after every Red and Green phase; the full `check` / `lint` / `test` / `fallow dead-code` gate ran after the last step.
+  Verification was incremental, not end-loaded.
+- Escalation-delay and unused-tool lenses found nothing notable (no rabbit-holes; all file reads front-loaded at turns 11–15 before editing).
+
+### Changes made
+
+1. `AGENTS.md` — added a `### Tool-injected messages` subsection under `## Workflow`: the `pi-autoformat` `Formatted N file(s)` message is informational, not a turn boundary, so the agent continues the current step instead of yielding.
+2. `packages/pi-permission-system/docs/retro/0326-unify-handleinput-skill-input-gate.md` — this Final Retrospective stage entry.
