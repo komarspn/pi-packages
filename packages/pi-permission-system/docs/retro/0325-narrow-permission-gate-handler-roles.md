@@ -45,3 +45,22 @@ Stepping back per the maintainer's prompt, I expanded the design to inject the p
 [#329]: https://github.com/gotgenes/pi-packages/issues/329
 [#330]: https://github.com/gotgenes/pi-packages/issues/330
 [#331]: https://github.com/gotgenes/pi-packages/issues/331
+
+## Stage: Implementation — TDD (2026-06-03T02:10:00Z)
+
+### Session summary
+
+Completed all three TDD cycles: (1) introduced `GateHandlerSession`, added it to `PermissionSession`'s `implements` list, rewired the handler constructor to accept `runner: GateRunner` and `session: GateHandlerSession`, updated all four call sites (`index.ts` + three test fixtures); (2) dropped the `as unknown as PermissionSession` casts by defining `MockGateHandlerSession` — an intersection of all required roles — and rewriting `makeSession` to use per-field `??` selection with `vi.fn<T>()` typed mocks; (3) updated `architecture.md` module-structure listing and marked Phase 3 Step 11 ✅.
+Test count was 1807 before and after (behavior-preserving refactor).
+
+### Observations
+
+- The plan described the cast-removal approach as "spread `...overrides` last" but this pattern caused TypeScript issues when used with a type annotation on the const (spread of `Partial<T>` into `T` makes required fields optional).
+  Resolved by switching to the per-field `??` selection pattern already established in `gate-fixtures.ts` (`makeGateInputs`), which lets TypeScript verify each field individually against `MockGateHandlerSession[K]`.
+- The `resolve` delegation calls `session.checkPermission(surface, input, agentName, session.getSessionRuleset())` with 4 arguments, but `GateHandlerSession.checkPermission` has only 3 params.
+  Resolved by adding a 4-arg `checkPermission` override in the inline type of `MockGateHandlerSession` (which overrides the 3-arg version from `GateHandlerSession` in the intersection); the handler's 3-arg call sites still compile because the 4th param is optional.
+- `vi.fn<Signature>()` with the exact method type (e.g., `vi.fn<MockGateHandlerSession["activate"]>()`) ensures TypeScript checks the mock against the interface at creation, eliminating the need for any cast.
+- `undefined as unknown as ExtensionContext` replaces the old `undefined as never` hack in the `canConfirm`/`promptPermission` delegations — cleaner and avoids the `never` TDZ issue.
+- The `external-directory-integration.test.ts` had an unused `PromptPermissionDetails` import after the refactor (the type is now inferred from the `vi.fn<T>()` generic); removed in the Step 2 commit.
+- Pre-completion reviewer verdict: WARN — one minor finding: the S11 Mermaid node in `architecture.md` was missing the ✅ marker carried by the completed S8/S9/S10 nodes.
+  Fixed in a follow-up `docs:` commit.
