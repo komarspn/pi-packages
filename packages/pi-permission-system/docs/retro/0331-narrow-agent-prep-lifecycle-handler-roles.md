@@ -24,3 +24,20 @@ The plan reuses the existing two-method `GateHandlerSession` context role for `A
 - No `index.ts` wiring change is needed — `PermissionSession` implements the new roles, so it stays assignable to the narrowed constructor parameters.
 - Architecture doc already lists this as Phase 3 Step 14; the plan only needs to mark it ✅ and record the role names plus the `resolveAgentName` widening.
 - Decided against extracting a shared `refreshConfig` micro-role (single shared method does not clear design-review check 7); declaring it on each role is cheaper than the wrong abstraction.
+
+## Stage: Implementation — TDD (2026-06-03T22:40:34Z)
+
+### Session summary
+
+Implemented all four TDD steps: introduced `AgentPrepSession` and `SessionLifecycleSession` role interfaces, widened `GateHandlerSession.resolveAgentName` to accept an optional `systemPrompt`, added both roles to `PermissionSession`'s `implements` list, retyped both handler constructors, and dropped the last two `as unknown as PermissionSession` casts in the handler test tree using the `vi.fn<T>()` per-field pattern.
+No new tests were added (behavior-preserving refactor; existing suite plus `pnpm run check` was the safety net).
+Test count held at 84 files / 1817 tests.
+
+### Observations
+
+- Plan deviation: the `before-agent-start.test.ts` mock's `checkPermission` default used `{ state: "allow" }` in the original, but `PermissionCheckResult` requires `toolName`, `source`, and `origin` too.
+  Fixed by importing `makeCheckResult` from the shared `handler-fixtures.ts` to build a complete default result — cleaner than duplicating the full shape inline.
+- The `vi.fn<AgentPrepSession["method"]>()` pattern worked cleanly for all 11 methods across the two mocks; no union-type erasure issues because the `??`-per-field approach (not spread) was used throughout.
+- Pre-completion reviewer: PASS.
+  Reviewer WARN: `SessionLifecycleHandler` accesses `session.logger.warn/debug` — a two-hop Law of Demeter reach-through — noted as a pre-existing pattern intentionally carried forward (the `SessionLifecycleSession` role exposes `readonly logger` by design).
+  No action required before `/ship-issue`.
