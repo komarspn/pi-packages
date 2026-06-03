@@ -33,6 +33,8 @@ Load this skill when writing, debugging, or planning tests.
   Either remove the `Partial<ProductionInterface>` annotation (let TypeScript infer from the spread) or drop the overrides parameter and configure mocks on the returned object directly.
 - When a test factory uses `??` to supply defaults from an overrides object, explicit `undefined` values are swallowed.
   Use `"key" in overrides` presence checks or `Object.hasOwn(overrides, "key")` for fields where `undefined` is a meaningful test value.
+- When dropping an `as unknown as X` cast from a mock, the type checker starts verifying `mockReturnValue` payloads too, not just method presence.
+  Incomplete return-value literals the cast used to mask (e.g. `{ state: "allow" }` for a full `PermissionCheckResult`) fail `pnpm run check`; build them with the shared `make*` fixture builder instead.
 - Prefer reading `process.env` inside functions rather than capturing it as a module-level constant — `vi.stubEnv()` alone cannot change a constant already evaluated at import time.
   If a module-level constant is unavoidable, test it with `vi.resetModules()` + `await import(...)` inside the test body, and call `vi.unstubAllEnvs()` + `vi.resetModules()` in `afterEach`.
 

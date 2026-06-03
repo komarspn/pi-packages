@@ -41,3 +41,45 @@ Test count held at 84 files / 1817 tests.
 - Pre-completion reviewer: PASS.
   Reviewer WARN: `SessionLifecycleHandler` accesses `session.logger.warn/debug` — a two-hop Law of Demeter reach-through — noted as a pre-existing pattern intentionally carried forward (the `SessionLifecycleSession` role exposes `readonly logger` by design).
   No action required before `/ship-issue`.
+
+## Stage: Final Retrospective (2026-06-03T22:55:00Z)
+
+### Session summary
+
+Completed issue #331 end-to-end across planning and TDD stages: introduced two narrow per-handler session role interfaces, widened `GateHandlerSession.resolveAgentName`, and dropped the last two `as unknown as PermissionSession` casts in the handler test tree.
+Seven commits, zero rework beyond one type-checker-caught mock-payload fix, and a PASS from the pre-completion reviewer.
+The session leaned heavily on the [#325] precedent (a nearly identical handler-narrowing refactor) as a template.
+
+### Observations
+
+#### What went well
+
+- Incremental verification was textbook: `pnpm run check` plus the per-file `vitest run` after every TDD step, then the full suite + `pnpm run lint` + `pnpm fallow dead-code` once at the end.
+  The mock-payload deviation surfaced at the `pnpm run check` immediately after the step-2 edit, not at the end — the feedback loop did exactly its job.
+- The [#325] precedent made planning fast and accurate: the plan reused the established `vi.fn<T>()` per-field mock pattern and the `MockGateHandlerSession` intersection idea verbatim, so the TDD stage hit no surprises in mock construction.
+- ISP judgment was applied deliberately rather than mechanically: `SessionLifecycleSession` omits `activate` (the handler never calls it) instead of reflexively reusing the full `GateHandlerSession` context role, and a one-method `refreshConfig` micro-role was explicitly rejected against design-review check 7.
+
+#### What caused friction (agent side)
+
+- `missing-context` (minor, self-identified) — the plan's mock sketch and the original test both used `checkPermission: …mockReturnValue({ state: "allow" })`.
+  The `as unknown as PermissionSession` cast had masked that `{ state: "allow" }` is an incomplete `PermissionCheckResult` (missing `toolName`, `source`, `origin`); dropping the cast in step 2 surfaced it.
+  Impact: ~2 extra tool calls (one `Edit` to import `makeCheckResult`, one re-run of `pnpm run check`); no rework beyond that, caught instantly by the type checker.
+  Root: the plan's risk note anticipated a missing mock *method* ("a member the mock lacks") but the de-cast actually surfaced an incomplete *return-value payload* — a subtly different failure mode that the same fix (shared `make*` builder) addresses.
+
+#### What caused friction (user side)
+
+- None.
+  The user ran `/plan-issue`, `/tdd-plan`, and `/retro` in sequence with no corrections.
+  For a well-scoped refactor with a strong sibling precedent, mechanical oversight was appropriate — there was no strategic-judgment gap to surface earlier.
+
+### Diagnostic details
+
+- **Model-performance correlation** — the `pre-completion-reviewer` subagent ran on `anthropic/claude-sonnet-4-6` (judgment-heavy code review — appropriate).
+  The parent session ran mostly on `claude-opus-4-8`; a transient `model_change` to `deepseek-v4-flash` appeared in the log, but the implementation completed cleanly and passed review, so no quality mismatch was observed.
+- **Escalation-delay tracking** — no rabbit-holes; the single deviation resolved in ~2 consecutive tool calls, well under the 5-call escalation threshold.
+- **Unused-tool detection** — none warranted; `grep` was the right tool for exact-symbol matching during exploration, and the planning read-through was complete (handlers, role files, tests, `index.ts`, architecture doc).
+- **Feedback-loop gap analysis** — no gap; verification ran incrementally after each change rather than only at the end.
+
+### Changes made
+
+1. `.pi/skills/testing/SKILL.md` — added a bullet under "Vitest mock patterns": dropping an `as unknown as X` cast makes the type checker verify `mockReturnValue` payloads, not just method presence; build incomplete return-value literals with the shared `make*` fixture builder.
