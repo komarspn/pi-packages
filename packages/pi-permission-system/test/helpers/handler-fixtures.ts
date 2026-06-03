@@ -118,6 +118,20 @@ export function makeSession(
         ),
     );
   }
+  // GateRunner calls canConfirm() / promptPermission() on the session.
+  // Delegate to the (possibly overridden) canPrompt / prompt so existing
+  // tests that override those stubs continue to drive gate outcomes.
+  if (!Object.hasOwn(overrides, "canConfirm")) {
+    (session as { canConfirm: unknown }).canConfirm = vi.fn(() =>
+      session.canPrompt(undefined as never),
+    );
+  }
+  if (!Object.hasOwn(overrides, "promptPermission")) {
+    (session as { promptPermission: unknown }).promptPermission = vi.fn(
+      (details: Parameters<typeof session.prompt>[1]) =>
+        session.prompt(undefined as never, details),
+    );
+  }
   return session;
 }
 

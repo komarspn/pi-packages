@@ -144,6 +144,19 @@ function makeStatefulSession(
         ),
     );
   }
+  // GateRunner calls canConfirm() / promptPermission() — delegate to the
+  // (possibly overridden) canPrompt / prompt stubs.
+  if (!Object.hasOwn(overrides, "canConfirm")) {
+    (session as { canConfirm: unknown }).canConfirm = vi.fn(() =>
+      session.canPrompt(undefined as never),
+    );
+  }
+  if (!Object.hasOwn(overrides, "promptPermission")) {
+    (session as { promptPermission: unknown }).promptPermission = vi.fn(
+      (details: Parameters<typeof session.prompt>[1]) =>
+        session.prompt(undefined as never, details),
+    );
+  }
   return session;
 }
 

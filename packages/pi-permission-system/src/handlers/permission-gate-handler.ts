@@ -10,13 +10,11 @@ import {
 } from "#src/decision-reporter";
 import type { PermissionEventBus } from "#src/permission-events";
 import { applyPermissionGate } from "#src/permission-gate";
-import type { PromptPermissionDetails } from "#src/permission-prompter";
 import {
   formatMissingToolNameReason,
   formatSkillAskPrompt,
   formatUnknownToolReason,
 } from "#src/permission-prompts";
-import type { PermissionResolver } from "#src/permission-resolver";
 import type { PermissionSession } from "#src/permission-session";
 import type { ToolInputFormatterLookup } from "#src/tool-input-formatter-registry";
 import {
@@ -32,11 +30,10 @@ import { resolveBashCommandCheck } from "./gates/bash-command";
 import { describeBashExternalDirectoryGate } from "./gates/bash-external-directory";
 import { describeBashPathGate } from "./gates/bash-path";
 import { BashProgram } from "./gates/bash-program";
-import type { GateResult, GateRunnerDeps } from "./gates/descriptor";
-import { isGateBypass } from "./gates/descriptor";
+import type { GateResult } from "./gates/descriptor";
 import { describeExternalDirectoryGate } from "./gates/external-directory";
 import { describePathGate } from "./gates/path";
-import { runGateCheck } from "./gates/runner";
+import { GateRunner } from "./gates/runner";
 import { describeSkillReadGate } from "./gates/skill-read";
 import { describeToolGate } from "./gates/tool";
 import type { ToolCallContext } from "./gates/types";
@@ -56,6 +53,7 @@ interface InputPayload {
  */
 export class PermissionGateHandler {
   private readonly reporter: DecisionReporter;
+  private readonly runner: GateRunner;
 
   constructor(
     private readonly session: PermissionSession,
@@ -64,6 +62,7 @@ export class PermissionGateHandler {
     private readonly customFormatters?: ToolInputFormatterLookup,
   ) {
     this.reporter = new GateDecisionReporter(session.logger, events);
+    this.runner = new GateRunner(session, session, session, this.reporter);
   }
 
   async handleToolCall(
@@ -102,54 +101,8 @@ export class PermissionGateHandler {
         ? await BashProgram.parse(command)
         : null;
 
-    // ── Shared gate collaborators ────────────────────────────────────────
-    // The session is the PermissionResolver; migrated gates use it directly.
-    const resolver: PermissionResolver = this.session;
-    const canConfirm = () => this.session.canPrompt(ctx);
-    const promptPermission = (details: PromptPermissionDetails) =>
-      this.session.prompt(ctx, details);
-    const recordSessionApproval: GateRunnerDeps["recordSessionApproval"] = (
-      approval,
-    ) => this.session.recordSessionApproval(approval);
-
-    // ── Shared runner deps (built once, reused for all gates) ────────────
-    const runnerDeps: GateRunnerDeps = {
-      resolve: (surface, input, agent) =>
-        resolver.resolve(surface, input, agent),
-      recordSessionApproval,
-      reporter: this.reporter,
-      canConfirm,
-      promptPermission,
-    };
-
-    // ── Unified gate executor ─────────────────────────────────────────────
-    // Handles the bypass log/emit branch, calls runGateCheck for descriptors,
-    // and returns a block result or undefined (allow / no-op).
-    const runGate = async (
-      gate: GateResult,
-    ): Promise<{ block: true; reason: string } | undefined> => {
-      if (!gate) {
-        return undefined;
-      }
-      if (isGateBypass(gate)) {
-        if (gate.log) {
-          this.reporter.writeReviewLog(gate.log.event, gate.log.details);
-        }
-        if (gate.decision) {
-          this.reporter.emitDecision(gate.decision);
-        }
-        return undefined;
-      }
-      const result = await runGateCheck(
-        gate,
-        tcc.agentName,
-        tcc.toolCallId,
-        runnerDeps,
-      );
-      return result.action === "block"
-        ? { block: true, reason: result.reason }
-        : undefined;
-    };
+    // ── Shared resolver (for gate producers that need it directly) ──────
+    const resolver = this.session;
 
     const formatter = new ToolPreviewFormatter(
       resolveToolPreviewLimits(this.session.config),
@@ -195,9 +148,13 @@ export class PermissionGateHandler {
     ];
 
     for (const produce of gateProducers) {
-      const blocked = await runGate(await produce());
-      if (blocked) {
-        return blocked;
+      const outcome = await this.runner.run(
+        await produce(),
+        tcc.agentName,
+        tcc.toolCallId,
+      );
+      if (outcome.action === "block") {
+        return { block: true, reason: outcome.reason };
       }
     }
 
