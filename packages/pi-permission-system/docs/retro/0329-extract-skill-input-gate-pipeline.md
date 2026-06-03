@@ -46,3 +46,45 @@ Final test count: 84 files, 1817 tests (+1 file, +10 tests from baseline).
   Fixed by using `vi.fn<(message: string) => void>()` with no return-type annotation on the factory itself.
 - Step 2's single-commit constraint worked cleanly: the constructor-arity change, `GateHandlerSession` shrink, `createPermissionRequestId` removal, and all four call-site updates compiled as one coherent change.
 - Pre-completion reviewer: PASS (all deterministic checks green, code design clean, docs complete, Mermaid diagrams validated).
+
+## Stage: Final Retrospective (2026-06-03T18:05:00Z)
+
+### Session summary
+
+A single continuous session carried #329 from planning through TDD implementation to this retro: extracted `SkillInputGatePipeline`, shrank `GateHandlerSession` to a two-method context role, and folded `createPermissionRequestId` into the pipeline (absorbing #330).
+Three TDD cycles landed across `feat`/`refactor`/`docs` commits; final suite 84 files / 1817 tests, pre-completion reviewer PASS.
+Ship is intentionally deferred until #321 — the six commits remain local and unpushed.
+
+### Observations
+
+#### What went well
+
+- The Step 2 atomic refactor — constructor-arity change, `GateHandlerSession` shrink, `PermissionSession.createPermissionRequestId` removal, and four call-site updates across `index.ts` plus three test files — compiled and passed the full suite on the first run.
+  The plan's deliberate "fold into one commit" call (forced by simultaneous type-level breakage) paid off: no intermediate broken state, no follow-up fixups on the production change itself.
+- The planning `ask_user` gate cleanly resolved the request-id boundary (absorb #330 vs. defer) before any code existed, and the implementation followed that decision without revisiting it.
+
+#### What caused friction (agent side)
+
+- `instruction-violation` (self-identified) — wrote `makeNotifier` in `gate-fixtures.ts` with the return-type annotation `GateNotifier & { warn: ReturnType<typeof vi.fn> }`, directly contradicting the `testing` skill's explicit rule "Do not use `ReturnType<typeof vi.fn>` — in Vitest v4 it expands to `Mock<Procedure | Constructable>`, a union that TypeScript cannot call."
+  Caught at `pnpm run check` after Step 1.
+  Impact: removed the annotation (left the factory return unannotated per the same skill's other rule), which then orphaned the `GateNotifier` import — caught only at the final `biome check`, requiring a second edit and a `--amend`.
+  Two corrective edits, no new commit; the governing rule already exists and is crisp, so this is a salience slip, not a doc gap.
+
+#### What caused friction (user side)
+
+- None.
+  The mid-retro "skipping ship-issue until #321" note arrived in time and changed nothing already done.
+
+### Diagnostic details
+
+- **Model-performance correlation** — TDD implementation ran on `anthropic/claude-sonnet-4-6` (appropriate for a behavior-preserving extraction); the retro runs on `anthropic/claude-opus-4-8` (judgment work).
+  The `pre-completion-reviewer` subagent returned a thorough multi-section PASS.
+  Two `opencode-go/deepseek-v4-flash` `model_change` entries appear with no assistant turn under them — transient selections that never ran; no judgment-heavy work landed on a weak model.
+- **Feedback-loop gap analysis** — verification was incremental (per-file `vitest` after Step 1, full suite after Step 2, then `check`/`lint`/`fallow` at the end).
+  The one gap: the `makeNotifier` type error surfaced only at `pnpm run check` (vitest does not typecheck) and the orphaned-import warning only at the final `biome check` — both are inherent to those tools' staging, not a missed earlier run.
+  Escalation-delay and unused-tool lenses found nothing (no rabbit-holes; the single friction resolved in two edits).
+
+### Changes made
+
+1. Appended this Final Retrospective stage entry to `packages/pi-permission-system/docs/retro/0329-extract-skill-input-gate-pipeline.md`.
+   No `AGENTS.md` or prompt changes — the single friction point is already covered by existing `testing`-skill rules (user-confirmed retro-file-only scope).
