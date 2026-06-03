@@ -1,3 +1,4 @@
+import type { DecisionReporter } from "#src/decision-reporter";
 import type { DenialContext } from "#src/denial-messages";
 import type { PermissionPromptDecision } from "#src/permission-dialog";
 import type { PermissionDecisionEvent } from "#src/permission-events";
@@ -81,8 +82,7 @@ export type GateResult = GateDescriptor | GateBypass | null;
  */
 export interface GateRunnerDeps extends PermissionResolver {
   recordSessionApproval(approval: SessionApproval): void;
-  writeReviewLog(event: string, details: Record<string, unknown>): void;
-  emitDecision(event: PermissionDecisionEvent): void;
+  reporter: DecisionReporter;
   canConfirm(): boolean;
   promptPermission(
     details: PromptPermissionDetails,

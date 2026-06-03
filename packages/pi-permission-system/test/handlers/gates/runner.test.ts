@@ -15,7 +15,7 @@ describe("runGateCheck", () => {
     const deps = makeRunnerDeps();
     const result = await runGateCheck(makeDescriptor(), null, "tc-1", deps);
     expect(result).toEqual({ action: "allow" });
-    expect(deps.emitDecision).toHaveBeenCalledWith(
+    expect(deps.reporter.emitDecision).toHaveBeenCalledWith(
       expect.objectContaining({
         surface: "read",
         value: "read",
@@ -35,13 +35,13 @@ describe("runGateCheck", () => {
     });
     const result = await runGateCheck(makeDescriptor(), null, "tc-1", deps);
     expect(result).toMatchObject({ action: "block" });
-    expect(deps.emitDecision).toHaveBeenCalledWith(
+    expect(deps.reporter.emitDecision).toHaveBeenCalledWith(
       expect.objectContaining({
         result: "deny",
         resolution: "policy_deny",
       }),
     );
-    expect(deps.writeReviewLog).toHaveBeenCalledWith(
+    expect(deps.reporter.writeReviewLog).toHaveBeenCalledWith(
       "permission_request.blocked",
       expect.objectContaining({ resolution: "policy_denied" }),
     );
@@ -66,14 +66,14 @@ describe("runGateCheck", () => {
       deps,
     );
     expect(result).toEqual({ action: "allow" });
-    expect(deps.writeReviewLog).toHaveBeenCalledWith(
+    expect(deps.reporter.writeReviewLog).toHaveBeenCalledWith(
       "permission_request.session_approved",
       expect.objectContaining({
         resolution: "session_approved",
         sessionApprovalPattern: "git *",
       }),
     );
-    expect(deps.emitDecision).toHaveBeenCalledWith(
+    expect(deps.reporter.emitDecision).toHaveBeenCalledWith(
       expect.objectContaining({
         resolution: "session_approved",
         matchedPattern: "git *",
@@ -94,7 +94,7 @@ describe("runGateCheck", () => {
     });
     const result = await runGateCheck(makeDescriptor(), null, "tc-1", deps);
     expect(result).toEqual({ action: "allow" });
-    expect(deps.emitDecision).toHaveBeenCalledWith(
+    expect(deps.reporter.emitDecision).toHaveBeenCalledWith(
       expect.objectContaining({
         result: "allow",
         resolution: "user_approved",
@@ -118,7 +118,7 @@ describe("runGateCheck", () => {
     });
     const result = await runGateCheck(descriptor, null, "tc-1", deps);
     expect(result).toEqual({ action: "allow" });
-    expect(deps.emitDecision).toHaveBeenCalledWith(
+    expect(deps.reporter.emitDecision).toHaveBeenCalledWith(
       expect.objectContaining({
         resolution: "user_approved_for_session",
       }),
@@ -163,7 +163,7 @@ describe("runGateCheck", () => {
     });
     const result = await runGateCheck(makeDescriptor(), null, "tc-1", deps);
     expect(result).toMatchObject({ action: "block" });
-    expect(deps.emitDecision).toHaveBeenCalledWith(
+    expect(deps.reporter.emitDecision).toHaveBeenCalledWith(
       expect.objectContaining({
         result: "deny",
         resolution: "user_denied",
@@ -182,7 +182,7 @@ describe("runGateCheck", () => {
     });
     const result = await runGateCheck(makeDescriptor(), null, "tc-1", deps);
     expect(result).toMatchObject({ action: "block" });
-    expect(deps.emitDecision).toHaveBeenCalledWith(
+    expect(deps.reporter.emitDecision).toHaveBeenCalledWith(
       expect.objectContaining({
         result: "deny",
         resolution: "confirmation_unavailable",
@@ -205,7 +205,7 @@ describe("runGateCheck", () => {
     });
     const result = await runGateCheck(makeDescriptor(), null, "tc-1", deps);
     expect(result).toEqual({ action: "allow" });
-    expect(deps.emitDecision).toHaveBeenCalledWith(
+    expect(deps.reporter.emitDecision).toHaveBeenCalledWith(
       expect.objectContaining({
         resolution: "auto_approved",
       }),
@@ -220,7 +220,7 @@ describe("runGateCheck", () => {
     const result = await runGateCheck(descriptor, null, "tc-1", deps);
     expect(result).toMatchObject({ action: "block" });
     expect(deps.resolve).not.toHaveBeenCalled();
-    expect(deps.emitDecision).toHaveBeenCalledWith(
+    expect(deps.reporter.emitDecision).toHaveBeenCalledWith(
       expect.objectContaining({
         resolution: "policy_deny",
       }),
@@ -235,7 +235,7 @@ describe("runGateCheck", () => {
     const result = await runGateCheck(descriptor, null, "tc-1", deps);
     expect(result).toEqual({ action: "allow" });
     expect(deps.resolve).not.toHaveBeenCalled();
-    expect(deps.emitDecision).toHaveBeenCalledWith(
+    expect(deps.reporter.emitDecision).toHaveBeenCalledWith(
       expect.objectContaining({
         resolution: "policy_allow",
       }),
@@ -252,7 +252,7 @@ describe("runGateCheck", () => {
     );
     expect(result).toEqual({ action: "allow" });
     expect(deps.resolve).toHaveBeenCalledWith("read", {}, "test-agent");
-    expect(deps.emitDecision).toHaveBeenCalledWith(
+    expect(deps.reporter.emitDecision).toHaveBeenCalledWith(
       expect.objectContaining({
         agentName: "test-agent",
       }),
@@ -300,7 +300,7 @@ describe("runGateCheck", () => {
     const result = await runGateCheck(descriptor, null, "tc-1", deps);
     expect(result).toMatchObject({ action: "block" });
     expect(deps.resolve).not.toHaveBeenCalled();
-    expect(deps.emitDecision).toHaveBeenCalledWith(
+    expect(deps.reporter.emitDecision).toHaveBeenCalledWith(
       expect.objectContaining({
         resolution: "policy_deny",
         origin: "global",

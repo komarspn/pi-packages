@@ -49,13 +49,13 @@ export async function runGateCheck(
 
   // 2. Session-hit fast path
   if (check.source === "session") {
-    deps.writeReviewLog("permission_request.session_approved", {
+    deps.reporter.writeReviewLog("permission_request.session_approved", {
       ...descriptor.logContext,
       agentName,
       resolution: "session_approved",
       sessionApprovalPattern: check.matchedPattern,
     });
-    deps.emitDecision(
+    deps.reporter.emitDecision(
       buildDecisionEvent(
         descriptor.decision,
         check,
@@ -91,8 +91,7 @@ export async function runGateCheck(
       autoApproved = decision.autoApproved === true;
       return decision;
     },
-    // eslint-disable-next-line @typescript-eslint/unbound-method -- logger methods are plain functions; no this-binding issue
-    writeLog: deps.writeReviewLog,
+    writeLog: (event, details) => deps.reporter.writeReviewLog(event, details),
     logContext: { ...descriptor.logContext, agentName },
     messages,
   });
@@ -102,7 +101,7 @@ export async function runGateCheck(
     gateResult.action === "allow" && gateResult.sessionApproval !== undefined;
 
   // 5. Emit decision event
-  deps.emitDecision(
+  deps.reporter.emitDecision(
     buildDecisionEvent(
       descriptor.decision,
       check,

@@ -3,6 +3,7 @@
  */
 import { vi } from "vitest";
 
+import type { DecisionReporter } from "#src/decision-reporter";
 import type {
   GateDescriptor,
   GateRunnerDeps,
@@ -63,14 +64,26 @@ export function makeDescriptor(
   };
 }
 
+/**
+ * Reporter mock with independently inspectable vi.fn() stubs.
+ */
+export function makeReporter(
+  overrides: Partial<DecisionReporter> = {},
+): DecisionReporter {
+  return {
+    writeReviewLog: vi.fn(),
+    emitDecision: vi.fn(),
+    ...overrides,
+  };
+}
+
 export function makeRunnerDeps(
   overrides: Partial<GateRunnerDeps> = {},
 ): GateRunnerDeps {
   return {
     resolve: vi.fn().mockReturnValue(makeCheckResult({ matchedPattern: "*" })),
     recordSessionApproval: vi.fn(),
-    writeReviewLog: vi.fn(),
-    emitDecision: vi.fn(),
+    reporter: makeReporter(),
     canConfirm: vi.fn().mockReturnValue(true),
     promptPermission: vi
       .fn()

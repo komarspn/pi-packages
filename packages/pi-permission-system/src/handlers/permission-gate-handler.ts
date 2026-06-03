@@ -5,6 +5,10 @@ import type {
 
 import { getNonEmptyString, toRecord } from "#src/common";
 import {
+  type DecisionReporter,
+  GateDecisionReporter,
+} from "#src/decision-reporter";
+import {
   emitDecisionEvent,
   type PermissionEventBus,
 } from "#src/permission-events";
@@ -54,12 +58,16 @@ interface InputPayload {
  * - `toolRegistry` — Pi tool API subset (getAll + setActive)
  */
 export class PermissionGateHandler {
+  private readonly reporter: DecisionReporter;
+
   constructor(
     private readonly session: PermissionSession,
     private readonly events: PermissionEventBus,
     private readonly toolRegistry: ToolRegistry,
     private readonly customFormatters?: ToolInputFormatterLookup,
-  ) {}
+  ) {
+    this.reporter = new GateDecisionReporter(session.logger, events);
+  }
 
   async handleToolCall(
     event: unknown,
@@ -103,10 +111,6 @@ export class PermissionGateHandler {
     const canConfirm = () => this.session.canPrompt(ctx);
     const promptPermission = (details: PromptPermissionDetails) =>
       this.session.prompt(ctx, details);
-    const emitDecision: GateRunnerDeps["emitDecision"] = (e) =>
-      emitDecisionEvent(this.events, e);
-    // eslint-disable-next-line @typescript-eslint/unbound-method -- logger.review is a plain function closure; no this-binding issue
-    const writeReviewLog = this.session.logger.review;
     const recordSessionApproval: GateRunnerDeps["recordSessionApproval"] = (
       approval,
     ) => this.session.recordSessionApproval(approval);
@@ -116,8 +120,7 @@ export class PermissionGateHandler {
       resolve: (surface, input, agent) =>
         resolver.resolve(surface, input, agent),
       recordSessionApproval,
-      writeReviewLog,
-      emitDecision,
+      reporter: this.reporter,
       canConfirm,
       promptPermission,
     };
@@ -133,10 +136,10 @@ export class PermissionGateHandler {
       }
       if (isGateBypass(gate)) {
         if (gate.log) {
-          writeReviewLog(gate.log.event, gate.log.details);
+          this.reporter.writeReviewLog(gate.log.event, gate.log.details);
         }
         if (gate.decision) {
-          emitDecision(gate.decision);
+          this.reporter.emitDecision(gate.decision);
         }
         return undefined;
       }
