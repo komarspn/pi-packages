@@ -1,7 +1,4 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerBuiltinToolInputFormatters } from "./builtin-tool-input-formatters";
 import { registerPermissionSystemCommand } from "./config-modal";
 import { getGlobalConfigPath } from "./config-paths";
@@ -31,15 +28,9 @@ import {
   refreshExtensionConfig,
   saveExtensionConfig,
 } from "./runtime";
-import {
-  publishPermissionsService,
-  unpublishPermissionsService,
-} from "./service";
+import { PermissionServiceLifecycle } from "./service-lifecycle";
 import { createSessionLogger } from "./session-logger";
-import {
-  isRegisteredSubagentChild,
-  isSubagentExecutionContext,
-} from "./subagent-context";
+import { isSubagentExecutionContext } from "./subagent-context";
 import { subscribeSubagentLifecycle } from "./subagent-lifecycle-events";
 import { getSubagentSessionRegistry } from "./subagent-registry";
 import { ToolInputFormatterRegistry } from "./tool-input-formatter-registry";
@@ -129,18 +120,6 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
     formatterRegistry,
   );
 
-  // Publish the service to the process-global slot only when this instance is
-  // not an in-process subagent child, then emit ready. Deferred to
-  // session_start (vs. factory init) because identifying a child requires the
-  // session id from ctx, which the factory body does not have. A registered
-  // child therefore never clobbers the parent's published service. See #302.
-  const activateServiceForSession = (ctx: ExtensionContext): void => {
-    if (!isRegisteredSubagentChild(ctx, subagentRegistry)) {
-      publishPermissionsService(permissionsService);
-    }
-    emitReadyEvent(pi.events);
-  };
-
   // Subscribe to @gotgenes/pi-subagents' child lifecycle events so child
   // sessions register/unregister without the core calling us (ADR 0002).
   const unsubSubagentLifecycle = subscribeSubagentLifecycle(
@@ -148,21 +127,24 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
     subagentRegistry,
   );
 
+  // PermissionServiceLifecycle owns the process-global service publication:
+  // activate() publishes (skipped for registered subagent children — see #302)
+  // and emits ready; teardown() unsubscribes all session listeners and
+  // unpublishes. Deferred to session_start because identifying a child
+  // requires the session id from ctx, unavailable at factory-init time.
+  const serviceLifecycle = new PermissionServiceLifecycle(
+    permissionsService,
+    subagentRegistry,
+    pi.events,
+    [rpcHandles.unsubCheck, rpcHandles.unsubPrompt, unsubSubagentLifecycle],
+  );
+
   const toolRegistry = {
     getAll: () => pi.getAllTools(),
     setActive: (names: string[]) => pi.setActiveTools(names),
   };
 
-  const lifecycle = new SessionLifecycleHandler(
-    session,
-    activateServiceForSession,
-    () => {
-      rpcHandles.unsubCheck();
-      rpcHandles.unsubPrompt();
-      unsubSubagentLifecycle();
-      unpublishPermissionsService(permissionsService);
-    },
-  );
+  const lifecycle = new SessionLifecycleHandler(session, serviceLifecycle);
   const agentPrep = new AgentPrepHandler(session, toolRegistry);
   const reporter = new GateDecisionReporter(session.logger, pi.events);
   const gateRunner = new GateRunner(session, session, session, reporter);

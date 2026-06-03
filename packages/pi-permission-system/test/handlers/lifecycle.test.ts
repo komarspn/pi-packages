@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { SessionLifecycleHandler } from "#src/handlers/lifecycle";
+import type { ServiceLifecycle } from "#src/service-lifecycle";
 import type { SessionLifecycleSession } from "#src/session-lifecycle-session";
 
 import { makeCtx } from "#test/helpers/handler-fixtures";
@@ -54,18 +55,15 @@ function makeSession(
 function makeHandler(overrides?: Partial<SessionLifecycleSession>): {
   handler: SessionLifecycleHandler;
   session: SessionLifecycleSession;
-  activateService: ReturnType<typeof vi.fn>;
-  cleanupRpc: ReturnType<typeof vi.fn>;
+  serviceLifecycle: ServiceLifecycle;
 } {
   const session = makeSession(overrides);
-  const activateService = vi.fn();
-  const cleanupRpc = vi.fn();
-  const handler = new SessionLifecycleHandler(
-    session,
-    activateService,
-    cleanupRpc,
-  );
-  return { handler, session, activateService, cleanupRpc };
+  const serviceLifecycle: ServiceLifecycle = {
+    activate: vi.fn<ServiceLifecycle["activate"]>(),
+    teardown: vi.fn<ServiceLifecycle["teardown"]>(),
+  };
+  const handler = new SessionLifecycleHandler(session, serviceLifecycle);
+  return { handler, session, serviceLifecycle };
 }
 
 // ── handleSessionStart ─────────────────────────────────────────────────────
@@ -132,9 +130,9 @@ describe("handleSessionStart", () => {
 
   it("activates the service for the session with ctx", async () => {
     const ctx = makeCtx();
-    const { handler, activateService } = makeHandler();
+    const { handler, serviceLifecycle } = makeHandler();
     await handler.handleSessionStart({ reason: "startup" }, ctx);
-    expect(activateService).toHaveBeenCalledWith(ctx);
+    expect(serviceLifecycle.activate).toHaveBeenCalledWith(ctx);
   });
 
   it("calls refreshConfig before resetForNewSession", async () => {
@@ -213,9 +211,9 @@ describe("handleSessionShutdown", () => {
     expect(session.shutdown).toHaveBeenCalledOnce();
   });
 
-  it("calls cleanupRpc", async () => {
-    const { handler, cleanupRpc } = makeHandler();
+  it("calls serviceLifecycle.teardown", async () => {
+    const { handler, serviceLifecycle } = makeHandler();
     await handler.handleSessionShutdown();
-    expect(cleanupRpc).toHaveBeenCalledOnce();
+    expect(serviceLifecycle.teardown).toHaveBeenCalledOnce();
   });
 });

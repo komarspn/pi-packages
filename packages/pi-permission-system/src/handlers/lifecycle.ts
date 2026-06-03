@@ -1,5 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
+import type { ServiceLifecycle } from "#src/service-lifecycle";
 import type { SessionLifecycleSession } from "#src/session-lifecycle-session";
 import { PERMISSION_SYSTEM_STATUS_KEY } from "#src/status";
 
@@ -18,15 +19,14 @@ interface ResourcesDiscoverPayload {
  *
  * Constructor deps:
  * - `session` — encapsulates all mutable session state
- * - `activateService` — publishes the process-global service for this session
- *   (skipped for in-process subagent children) and emits the ready event
- * - `cleanupRpc` — unsubscribes RPC handlers on shutdown
+ * - `serviceLifecycle` — owns the process-global service publication;
+ *   `activate` publishes (skipped for registered subagent children) and emits
+ *   the ready event; `teardown` unsubscribes all session listeners and unpublishes
  */
 export class SessionLifecycleHandler {
   constructor(
     private readonly session: SessionLifecycleSession,
-    private readonly activateService: (ctx: ExtensionContext) => void,
-    private readonly cleanupRpc: () => void,
+    private readonly serviceLifecycle: ServiceLifecycle,
   ) {}
 
   handleSessionStart(
@@ -55,7 +55,7 @@ export class SessionLifecycleHandler {
     // session id) is available, so an in-process subagent child can be
     // identified and excluded. Emitting ready here keeps the
     // service-resolvable-when-ready ordering contract.
-    this.activateService(ctx);
+    this.serviceLifecycle.activate(ctx);
     return Promise.resolve();
   }
 
@@ -79,7 +79,7 @@ export class SessionLifecycleHandler {
       ctx.ui.setStatus(PERMISSION_SYSTEM_STATUS_KEY, undefined);
     }
     this.session.shutdown();
-    this.cleanupRpc();
+    this.serviceLifecycle.teardown();
     return Promise.resolve();
   }
 }
