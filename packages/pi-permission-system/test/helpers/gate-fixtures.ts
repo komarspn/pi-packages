@@ -4,12 +4,15 @@
 import { vi } from "vitest";
 
 import type { DecisionReporter } from "#src/decision-reporter";
+import type { GatePrompter } from "#src/gate-prompter";
 import type {
   GateDescriptor,
   GateRunnerDeps,
 } from "#src/handlers/gates/descriptor";
+import { GateRunner } from "#src/handlers/gates/runner";
 import type { ToolCallContext } from "#src/handlers/gates/types";
 import type { PermissionResolver } from "#src/permission-resolver";
+import type { SessionApprovalRecorder } from "#src/session-approval-recorder";
 import type { PermissionCheckResult } from "#src/types";
 
 import { makeCheckResult } from "#test/helpers/handler-fixtures";
@@ -74,6 +77,57 @@ export function makeReporter(
     writeReviewLog: vi.fn(),
     emitDecision: vi.fn(),
     ...overrides,
+  };
+}
+
+/**
+ * Gate runner factory for `GateRunner` unit tests.
+ *
+ * Builds one `GateRunner` from four role mocks and returns `{ runner, deps }`
+ * so tests can both invoke `runner.run(...)` and assert on the individual
+ * mock call records (`deps.reporter.*`, `deps.resolve`, etc.).
+ */
+export function makeGateRunner(
+  overrides: {
+    resolve?: PermissionResolver["resolve"];
+    recordSessionApproval?: SessionApprovalRecorder["recordSessionApproval"];
+    canConfirm?: GatePrompter["canConfirm"];
+    promptPermission?: GatePrompter["promptPermission"];
+    reporter?: Partial<DecisionReporter>;
+  } = {},
+) {
+  const reporter = makeReporter(overrides.reporter);
+  const resolve =
+    overrides.resolve ??
+    vi
+      .fn<PermissionResolver["resolve"]>()
+      .mockReturnValue(makeCheckResult({ matchedPattern: "*" }));
+  const recordSessionApproval =
+    overrides.recordSessionApproval ??
+    (vi.fn() as SessionApprovalRecorder["recordSessionApproval"]);
+  const canConfirm =
+    overrides.canConfirm ??
+    (vi.fn().mockReturnValue(true) as GatePrompter["canConfirm"]);
+  const promptPermission =
+    overrides.promptPermission ??
+    vi
+      .fn<GatePrompter["promptPermission"]>()
+      .mockResolvedValue({ approved: true, state: "approved" });
+  const runner = new GateRunner(
+    { resolve },
+    { recordSessionApproval },
+    { canConfirm, promptPermission },
+    reporter,
+  );
+  return {
+    runner,
+    deps: {
+      resolve,
+      recordSessionApproval,
+      canConfirm,
+      promptPermission,
+      reporter,
+    },
   };
 }
 

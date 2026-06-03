@@ -2,10 +2,17 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { DenialContext } from "#src/denial-messages";
 import { EXTENSION_TAG } from "#src/denial-messages";
-import type { GateDescriptor } from "#src/handlers/gates/descriptor";
+import type {
+  GateBypass,
+  GateDescriptor,
+} from "#src/handlers/gates/descriptor";
 import { runGateCheck } from "#src/handlers/gates/runner";
 import { SessionApproval } from "#src/session-approval";
-import { makeDescriptor, makeRunnerDeps } from "#test/helpers/gate-fixtures";
+import {
+  makeDescriptor,
+  makeGateRunner,
+  makeRunnerDeps,
+} from "#test/helpers/gate-fixtures";
 import { makeCheckResult } from "#test/helpers/handler-fixtures";
 
 // ── tests ──────────────────────────────────────────────────────────────────
@@ -435,5 +442,74 @@ describe("runGateCheck", () => {
         expect(result.reason).toContain("too risky");
       }
     });
+  });
+});
+
+// ── GateRunner.run dispatch tests ──────────────────────────────────────────
+
+describe("GateRunner.run", () => {
+  it("returns allow for a null gate", async () => {
+    const { runner, deps } = makeGateRunner();
+    const result = await runner.run(null, null, "tc-1");
+    expect(result).toEqual({ action: "allow" });
+    expect(deps.reporter.writeReviewLog).not.toHaveBeenCalled();
+    expect(deps.reporter.emitDecision).not.toHaveBeenCalled();
+  });
+
+  it("returns allow for a bypass with no log or decision", async () => {
+    const { runner, deps } = makeGateRunner();
+    const bypass: GateBypass = { action: "allow" };
+    const result = await runner.run(bypass, null, "tc-1");
+    expect(result).toEqual({ action: "allow" });
+    expect(deps.reporter.writeReviewLog).not.toHaveBeenCalled();
+    expect(deps.reporter.emitDecision).not.toHaveBeenCalled();
+  });
+
+  it("fires writeReviewLog for a bypass with a log entry", async () => {
+    const { runner, deps } = makeGateRunner();
+    const bypass: GateBypass = {
+      action: "allow",
+      log: { event: "infra.bypass", details: { path: "/x" } },
+    };
+    await runner.run(bypass, null, "tc-1");
+    expect(deps.reporter.writeReviewLog).toHaveBeenCalledWith("infra.bypass", {
+      path: "/x",
+    });
+    expect(deps.reporter.emitDecision).not.toHaveBeenCalled();
+  });
+
+  it("fires emitDecision for a bypass with a decision", async () => {
+    const { runner, deps } = makeGateRunner();
+    const decision = {
+      surface: "path",
+      value: "/x",
+      result: "allow" as const,
+      resolution: "policy_allow" as const,
+      origin: null,
+      agentName: null,
+      matchedPattern: null,
+    };
+    const bypass: GateBypass = { action: "allow", decision };
+    await runner.run(bypass, null, "tc-1");
+    expect(deps.reporter.emitDecision).toHaveBeenCalledWith(decision);
+    expect(deps.reporter.writeReviewLog).not.toHaveBeenCalled();
+  });
+
+  it("routes a descriptor to the gate check logic and returns allow", async () => {
+    const { runner } = makeGateRunner();
+    const result = await runner.run(makeDescriptor(), null, "tc-1");
+    expect(result).toEqual({ action: "allow" });
+  });
+
+  it("routes a descriptor to the gate check logic and returns block", async () => {
+    const { runner } = makeGateRunner({
+      resolve: vi
+        .fn()
+        .mockReturnValue(
+          makeCheckResult({ state: "deny", matchedPattern: "*" }),
+        ),
+    });
+    const result = await runner.run(makeDescriptor(), null, "tc-1");
+    expect(result).toMatchObject({ action: "block" });
   });
 });
