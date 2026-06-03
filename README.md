@@ -49,7 +49,7 @@ pi remove npm:@gotgenes/<package-name>
 
 ### Prerequisites
 
-- Node.js ≥ 20
+- Node.js ≥ 22
 - [pnpm](https://pnpm.io/) 11
 
 ### Setup
@@ -121,7 +121,7 @@ Load the relevant skill before working on a package:
 - `package-pi-permission-system` — for `packages/pi-permission-system/`
 - `package-pi-subagents` — for `packages/pi-subagents/`
 
-The one exception is pi-autoformat: because it hooks into file mutations made by the agent, you typically test it by installing it into a separate target project rather than running it against itself.
+The remaining packages (`pi-colgrep`, `pi-session-tools`, `pi-subagents-worktrees`) have no dedicated skill — their READMEs cover everything you need.
 
 ## License
 

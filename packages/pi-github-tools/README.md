@@ -1,25 +1,29 @@
-[![npm version](https://img.shields.io/npm/v/@gotgenes/pi-github-tools?style=flat&logo=npm&logoColor=white)](https://www.npmjs.com/package/@gotgenes/pi-github-tools) [![CI](https://img.shields.io/github/actions/workflow/status/gotgenes/pi-github-tools/ci.yml?style=flat&logo=github&label=CI)](https://github.com/gotgenes/pi-github-tools/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat)](https://opensource.org/licenses/MIT) [![TypeScript](https://img.shields.io/badge/TypeScript-6.x-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/) [![pnpm](https://img.shields.io/badge/pnpm-%3E%3D11-F69220?style=flat&logo=pnpm&logoColor=white)](https://pnpm.io/) [![Pi Package](https://img.shields.io/badge/Pi-Package-6366F1?style=flat)](https://pi.mariozechner.at/)
+# @gotgenes/pi-github-tools
 
-# pi-github-tools
+[![npm version](https://img.shields.io/npm/v/@gotgenes/pi-github-tools?style=flat&logo=npm&logoColor=white)](https://www.npmjs.com/package/@gotgenes/pi-github-tools) [![CI](https://img.shields.io/github/actions/workflow/status/gotgenes/pi-packages/ci.yml?style=flat&logo=github&label=CI)](https://github.com/gotgenes/pi-packages/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat)](https://opensource.org/licenses/MIT) [![TypeScript](https://img.shields.io/badge/TypeScript-6.x-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/) [![pnpm](https://img.shields.io/badge/pnpm-%3E%3D11-F69220?style=flat&logo=pnpm&logoColor=white)](https://pnpm.io/) [![Pi Package](https://img.shields.io/badge/Pi-Package-6366F1?style=flat)](https://pi.mariozechner.at/)
 
 Pi extension providing deterministic GitHub CI, release, and issue tools.
 
 Replaces ad-hoc `gh` CLI polling with structured tools that have exponential backoff, progress streaming, and structured success/timeout returns.
 
-## Installation
+## Install
 
-Add to your Pi settings (`~/.pi/agent/settings.json`):
+```bash
+pi install npm:@gotgenes/pi-github-tools
+```
+
+Alternatively, add it to your Pi settings (`~/.pi/agent/settings.json`):
 
 ```json
 {
-  "packages": ["@gotgenes/pi-github-tools"]
+  "packages": ["npm:@gotgenes/pi-github-tools"]
 }
 ```
 
 ## Prerequisites
 
 - [GitHub CLI (`gh`)](https://cli.github.com/) installed and authenticated (`gh auth login`)
-- Node.js ≥ 20
+- Node.js ≥ 22
 
 ## Tools
 
