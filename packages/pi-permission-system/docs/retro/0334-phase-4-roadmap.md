@@ -55,3 +55,8 @@ Committed as `docs(pi-permission-system): propose Phase 4 improvement roadmap` (
 1. Added `.pi/prompts/plan-improvements.md` Step 4 "Read the tests as evidence of constructibility" (tests-as-evidence, no doc-self-justification at face value, load `design-review` for handler-wiring/shared-interface plans); renumbered the later steps.
 2. Added two lessons to `.pi/skills/improvement-discovery/SKILL.md` ("Test setup is a production-design signal" and "Audit the architecture doc against the code").
 3. Created this retro file, `packages/pi-permission-system/docs/retro/0334-phase-4-roadmap.md`.
+4. Filed Phase 4 Steps 1-9 as issues [#334]-[#342] and linked the architecture roadmap back to them (step headings, Mermaid nodes, reference definitions).
+5. Added a "File the issues" section to `.pi/prompts/plan-improvements.md` so the roadmap workflow files one issue per step and links the doc back — the step this session forgot until prompted.
+
+[#334]: https://github.com/gotgenes/pi-packages/issues/334
+[#342]: https://github.com/gotgenes/pi-packages/issues/342

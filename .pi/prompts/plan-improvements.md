@@ -100,4 +100,15 @@ git commit -m "docs($1): propose Phase N improvement roadmap"
 git push
 ```
 
+## File the issues
+
+The roadmap is not done until each step has a GitHub issue and the document links back to it.
+After the plan is committed, ask whether to file the issues now; if confirmed:
+
+1. Load the `github-voice` skill, then file one issue per step with `gh issue create --label "enhancement,pkg:$1"`, using the repo's `## What` / `## Why` / `## Proposed change` / `## Context` sections.
+   Reference cross-step dependencies as "Phase N Step M" prose, not hardcoded numbers (the issue numbers are not known until filed).
+2. Verify each created issue's title matches its body before continuing — a shell array/index slip can shift one relative to the other.
+3. Link the doc back: append `([#N])` to each step heading, add `(#N)` to each Mermaid node, and add reference-link definitions at the end of the file.
+4. Commit with `docs($1): link Phase N roadmap steps to issues #A-#B` and push.
+
 Then call `set_session_name` with `$1 — Phase N Planning` and stop.
