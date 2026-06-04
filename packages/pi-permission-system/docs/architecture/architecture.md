@@ -913,11 +913,12 @@ The headline findings are coupling smells (Category C) - anemic behavior, mutabl
     - Outcome: `LocalPermissionsService` and `PermissionServiceLifecycle` provide testable homes for the two anemic inline constructs; `SessionLifecycleHandler` depends on a narrow two-method interface instead of raw callbacks; `index.ts` ~206 → ~170 lines.
       The "< 100 lines" target was explicitly deferred as procedure-splitting.
 
-16. **Continue shared test-fixture extraction** ([#321])
+16. ✅ **Continue shared test-fixture extraction** ([#321]) — **completed**
     - Target: the four largest remaining clone families - `external-directory-integration.test.ts`, `bash-path.test.ts`, `runner.test.ts`, `tool-call.test.ts`.
-    - Migrate them onto the existing `test/helpers/` fixtures (`handler-fixtures.ts`, `gate-fixtures.ts`, `manager-harness.ts`), extending those helpers where a shape is not yet covered rather than redefining factories inline.
+    - Migrated all four families onto the existing `test/helpers/` fixtures; extended `gate-fixtures.ts` with `resolveResult` option on `makeGateRunner`, `makeDenialDescriptor`, and `makePathDispatchResolver`; extended `handler-fixtures.ts` with `makeSurfaceCheck`, `makeBashCommandCheck`, and the `tools` shortcut on `makeHandler`.
     - Smell category: D (test duplication).
-    - Outcome: duplication 7.6% → target < 6%; the test-duplication health deduction shrinks below -2.0.
+    - Outcome: duplication 7.6% → 6.6%; clone groups 133 → 122.
+      The <6% target was not fully reached; `external-directory-session-dedup.test.ts` carries a residual local-`makeSession` clone family that is outside the four-file scope — a follow-up issue will address it.
 
 ### Step dependency diagram
 
@@ -944,7 +945,7 @@ flowchart TD
     S13["Step 13: Relocate createPermissionRequestId (#330)"]
     S14["Step 14: Narrow remaining handlers (#331)"]
     S15["Step 15: ✅ Composition root as collaborator injection (#320)"]
-    S16["Step 16: Continue test-fixture extraction (#321)"]
+    S16["Step 16: ✅ Continue test-fixture extraction (#321)"]
 
     S2 --> S3
     S3 --> S4
