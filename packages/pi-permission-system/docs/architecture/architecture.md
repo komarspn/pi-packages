@@ -629,60 +629,60 @@ Each is grounded in the specific test pain it forces.
 
 ### Steps
 
-Issue numbers are assigned when each step is filed (the highest existing issue is #333; Phase 4 steps become #334+).
+The nine steps are filed as [#334]–[#342].
 Production first (Steps 1-8), then the test-cleanup tail (Step 9).
 Each step is a behavior-preserving refactor that leaves the suite green; the success metric is the constructibility table above moving toward zero, observed as fewer `vi.mock` module stubs, smaller fixtures, and dropped casts.
 
-1. **Inject a `PermissionManagerFactory` into `PermissionSession`**
+1. **Inject a `PermissionManagerFactory` into `PermissionSession`** ([#334])
    - Target: new `src/permission-manager-factory.ts` (`forCwd(cwd): PermissionManager` wrapping `createPermissionManagerForCwd`); `permission-session.ts` constructor + `resetForNewSession` + `reload`; `index.ts`.
    - `PermissionSession` stops calling the free function and asks the injected factory; tests pass a stub factory instead of mocking the `../src/runtime` module.
    - Smell category: C (DIP violation — addresses Finding 1).
    - Outcome: `vi.mock("../src/runtime")` and `as unknown as PermissionManager` leave `permission-session.test.ts`; the manager is substitutable.
 
-2. **Extract a `ConfigStore` from the runtime free-functions**
+2. **Extract a `ConfigStore` from the runtime free-functions** ([#335])
    - Target: new `src/config-store.ts` class owning `config` + `lastConfigWarning` with `current()` / `refresh(ctx?)` / `save(next, ctx)` / `logResolvedPaths()`; convert `refreshExtensionConfig` / `saveExtensionConfig` / `logResolvedConfigPaths` from `(runtime, …)` free functions into methods.
    - Consumers hold the store and call `store.current()` instead of capturing `() => runtime.config`.
    - Smell category: C (mutable shared state → owner — addresses Finding 3, part 1).
    - Outcome: 4× `() => runtime.config` closures and 3× runtime-arg config free-functions are gone; config has one owner.
 
-3. **Make the logger injectable; drop `createSessionLogger(runtime)`**
+3. **Make the logger injectable; drop `createSessionLogger(runtime)`** ([#336])
    - Target: `src/session-logger.ts`, `src/logging.ts`, `index.ts`.
    - Construct the logger from `ExtensionPaths` + the `ConfigStore` (debug toggle) + a narrow notify sink — not the whole runtime; remove the `runtime.writeDebugLog` / `runtime.runtimeContext?.ui.notify` reach-through.
    - Smell category: C (Law-of-Demeter reach-through — addresses Finding 3, part 2).
    - Outcome: no module takes the whole `ExtensionRuntime` for logging; the duplicated `.bind(runtime)` logging adapters disappear.
 
-4. **Dissolve `ExtensionRuntime`; one source of truth for session state**
+4. **Dissolve `ExtensionRuntime`; one source of truth for session state** ([#337])
    - Target: `runtime.ts`, `index.ts`, `permission-event-rpc.ts`, `config-modal.ts`.
    - Remove the god runtime object; point the config-modal and RPC handlers at the *same* `PermissionManager` / `SessionRules` the gate handlers use (fixing the stale-manager / empty-session-rules split-brain), backed by the `ConfigStore` + `ExtensionPaths` + `PermissionSession`.
    - Smell category: C (split-brain state — addresses Finding 3, part 3).
    - Outcome: `as unknown as ExtensionRuntime` is gone; the deprecated RPC check and the gate path read the same session rules.
 
-5. **Collapse the `index.ts` closure bags into object references**
+5. **Collapse the `index.ts` closure bags into object references** ([#338])
    - Target: `index.ts`; the deps interfaces on `PermissionPrompter`, `PermissionSession`, the command, and the RPC handlers.
    - With Steps 2-4 done, replace the remaining `() =>`/`.bind` adapters with direct collaborator references and shrink the deps bags; verify via `test/composition-root.test.ts`.
    - Smell category: C/E (adapter closure density — addresses Finding 4).
    - Outcome: `index.ts` closures + binds 20 → target ≤ 8 (the `pi.on` handlers and the `toolRegistry` adapter remain legitimately).
 
-6. **Extract a context-owning `PromptingGateway`; collapse the prompt twins**
+6. **Extract a context-owning `PromptingGateway`; collapse the prompt twins** ([#339])
    - Target: new `src/prompting-gateway.ts`; `permission-session.ts`; `handlers/gates/runner.ts`; `index.ts`.
    - Move the stored context + `canConfirm()` / `prompt(details)` into one collaborator; `GateRunner` receives the gateway for the prompting role.
      The `canPrompt(ctx)`/`canConfirm()` and `prompt(ctx, details)`/`promptPermission(details)` twins collapse to a single context-bound pair.
    - Smell category: C (god object split — addresses Finding 2; depends on Step 1).
    - Outcome: the prompting role is a distinct object; `makeSession` sheds its prompt-delegation closures and the `undefined as unknown as ExtensionContext` casts.
 
-7. **Extract a `PermissionResolver` collaborator out of `PermissionSession`**
+7. **Extract a `PermissionResolver` collaborator out of `PermissionSession`** ([#340])
    - Target: `src/permission-resolver.ts` (promote to a concrete class holding the `PermissionManager` + `SessionRules`); `permission-session.ts`; `index.ts`.
    - The resolver owns `resolve` / `checkPermission` / `getToolPermission` / `getConfigIssues` / `getPolicyCacheStamp`; `PermissionSession` no longer plays the resolver role.
    - Smell category: C (god object split — addresses Finding 2; depends on Step 1).
    - Outcome: the resolution role is a distinct object directly unit-testable without a session fixture.
 
-8. **Slim `PermissionSession` to a state/lifecycle owner; unwind the fig-leaf interfaces**
+8. **Slim `PermissionSession` to a state/lifecycle owner; unwind the fig-leaf interfaces** ([#341])
    - Target: `permission-session.ts`; `gate-handler-session.ts`; `agent-prep-session.ts`; `session-lifecycle-session.ts`; the three handlers; `handler-fixtures.ts`.
    - With prompting and resolution extracted (Steps 6-7), retire or merge the `GateHandlerSession` / `AgentPrepSession` / `SessionLifecycleSession` interfaces that were one-class fig leaves; handlers depend on the distinct collaborators. `GateRunner` now receives three *different* objects.
    - Smell category: C (ISP applied to the object, not just the interface — addresses Finding 2; depends on Steps 6-7).
    - Outcome: `GateRunner(session, session, session, …)` becomes `GateRunner(resolver, recorder, prompter, …)`; the 17-field `makeSession` fixture splits into small per-collaborator fixtures or disappears.
 
-9. **Retire the `permission-system.test.ts` catch-all (test-cleanup tail)**
+9. **Retire the `permission-system.test.ts` catch-all (test-cleanup tail)** ([#342])
    - Target: `test/permission-system.test.ts`; the co-located destination files.
    - Redistribute the ~80 flat tests into the existing co-located files (`yolo-mode`, `system-prompt-sanitizer`, `permission-manager-unified`, `scope-merge`, the external-directory suite, `session-rules`, …) now that the collaborators are independently constructable; delete the emptied shell.
    - Smell category: D/E (test organization — the part of Finding 5 the production refactor does not auto-resolve).
@@ -703,15 +703,15 @@ Step 9 (test tail) depends on the full production refactor — the collaborators
 
 ```mermaid
 flowchart TD
-    S1["Step 1: Inject PermissionManagerFactory"]
-    S2["Step 2: Extract ConfigStore"]
-    S3["Step 3: Make logger injectable"]
-    S4["Step 4: Dissolve ExtensionRuntime"]
-    S5["Step 5: Collapse index.ts closures"]
-    S6["Step 6: Extract PromptingGateway"]
-    S7["Step 7: Extract PermissionResolver"]
-    S8["Step 8: Slim PermissionSession, unwind interfaces"]
-    S9["Step 9: Retire permission-system.test.ts"]
+    S1["Step 1: Inject PermissionManagerFactory (#334)"]
+    S2["Step 2: Extract ConfigStore (#335)"]
+    S3["Step 3: Make logger injectable (#336)"]
+    S4["Step 4: Dissolve ExtensionRuntime (#337)"]
+    S5["Step 5: Collapse index.ts closures (#338)"]
+    S6["Step 6: Extract PromptingGateway (#339)"]
+    S7["Step 7: Extract PermissionResolver (#340)"]
+    S8["Step 8: Slim PermissionSession, unwind interfaces (#341)"]
+    S9["Step 9: Retire permission-system.test.ts (#342)"]
 
     S1 --> S6
     S1 --> S7
@@ -766,3 +766,12 @@ Sixteen steps ([#314]–[#331]), all closed.
 [#290]: https://github.com/gotgenes/pi-packages/issues/290
 [#314]: https://github.com/gotgenes/pi-packages/issues/314
 [#331]: https://github.com/gotgenes/pi-packages/issues/331
+[#334]: https://github.com/gotgenes/pi-packages/issues/334
+[#335]: https://github.com/gotgenes/pi-packages/issues/335
+[#336]: https://github.com/gotgenes/pi-packages/issues/336
+[#337]: https://github.com/gotgenes/pi-packages/issues/337
+[#338]: https://github.com/gotgenes/pi-packages/issues/338
+[#339]: https://github.com/gotgenes/pi-packages/issues/339
+[#340]: https://github.com/gotgenes/pi-packages/issues/340
+[#341]: https://github.com/gotgenes/pi-packages/issues/341
+[#342]: https://github.com/gotgenes/pi-packages/issues/342
