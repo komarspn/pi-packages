@@ -129,9 +129,9 @@ describe("createExtensionRuntime", () => {
 
   // ── Default mutable state ────────────────────────────────────────────────
 
-  it("initializes config to DEFAULT_EXTENSION_CONFIG", () => {
+  it("initializes configStore.current() to DEFAULT_EXTENSION_CONFIG", () => {
     const runtime = createExtensionRuntime({ agentDir: "/test/agent" });
-    expect(runtime.config).toEqual(DEFAULT_EXTENSION_CONFIG);
+    expect(runtime.configStore.current()).toEqual(DEFAULT_EXTENSION_CONFIG);
   });
 
   it("initializes runtimeContext to null", () => {

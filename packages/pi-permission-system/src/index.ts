@@ -22,7 +22,7 @@ import { PermissionManager } from "./permission-manager";
 import { PermissionPrompter } from "./permission-prompter";
 import { PermissionSession } from "./permission-session";
 import { LocalPermissionsService } from "./permissions-service";
-import { createExtensionRuntime, refreshExtensionConfig } from "./runtime";
+import { createExtensionRuntime } from "./runtime";
 import { PermissionServiceLifecycle } from "./service-lifecycle";
 import { createSessionLogger } from "./session-logger";
 import { isSubagentExecutionContext } from "./subagent-context";
@@ -63,7 +63,7 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
     forwarder,
   });
 
-  refreshExtensionConfig(runtime);
+  runtime.configStore.refresh();
 
   const sessionManager = new PermissionManager({ agentDir: runtime.agentDir });
 
@@ -80,7 +80,7 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
     {
       canRequestPermissionConfirmation: (ctx) =>
         canResolveAskPermissionRequest({
-          config: runtime.config,
+          config: runtime.configStore.current(),
           hasUI: ctx.hasUI,
           isSubagent: isSubagentExecutionContext(
             ctx,
