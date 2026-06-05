@@ -227,7 +227,7 @@ describe("ConfigStore", () => {
     });
 
     it("sets warning when issues are present", () => {
-      const { store, logger } = makeStore();
+      const { store } = makeStore();
       const ctx = makeCtx({ hasUI: false });
       mockLoadAndMergeConfigs.mockReturnValue({
         merged: { ...DEFAULT_EXTENSION_CONFIG },
@@ -276,7 +276,7 @@ describe("ConfigStore", () => {
 
     it("clears warning when no issues on next refresh", () => {
       const mockNotify = vi.fn();
-      const { store, contextRef } = makeStore();
+      const { store } = makeStore();
       // First call: set a warning
       const ctxWithUI = makeCtx({
         hasUI: true,

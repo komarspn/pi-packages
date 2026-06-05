@@ -1,32 +1,14 @@
-import {
-  existsSync,
-  mkdirSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { dirname, join, normalize } from "node:path";
+import { join } from "node:path";
 import {
   type ExtensionCommandContext,
   type ExtensionContext,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 
-import { loadAndMergeConfigs, loadUnifiedConfig } from "./config-loader";
+import { DEBUG_LOG_FILENAME, REVIEW_LOG_FILENAME } from "./config-paths";
+import { ConfigStore, type RuntimeContextRef } from "./config-store";
 import {
-  DEBUG_LOG_FILENAME,
-  getGlobalConfigPath,
-  getLegacyExtensionConfigPath,
-  getLegacyGlobalPolicyPath,
-  getLegacyProjectPolicyPath,
-  REVIEW_LOG_FILENAME,
-} from "./config-paths";
-import { buildResolvedConfigLogEntry } from "./config-reporter";
-import {
-  DEFAULT_EXTENSION_CONFIG,
-  EXTENSION_ROOT,
   ensurePermissionSystemLogsDirectory,
-  normalizePermissionSystemConfig,
   type PermissionSystemExtensionConfig,
 } from "./extension-config";
 import { computeExtensionPaths, type ExtensionPaths } from "./extension-paths";
@@ -37,7 +19,6 @@ import { createPermissionSystemLogger } from "./logging";
 import { PermissionManager } from "./permission-manager";
 import { SessionRules } from "./session-rules";
 import type { SkillPromptEntry } from "./skill-prompt-sanitizer";
-import { syncPermissionSystemStatus } from "./status";
 
 /**
  * Mutable session state — the subset of ExtensionRuntime that holds
@@ -67,9 +48,14 @@ interface SessionState {
  * without timing issues around `PI_CODING_AGENT_DIR`.
  */
 export interface ExtensionRuntime extends ExtensionPaths, SessionState {
-  // ── Mutable state (beyond SessionState) ───────────────────────────────────
-  config: PermissionSystemExtensionConfig;
-  lastConfigWarning: string | null;
+  // ── Config (owned by ConfigStore) ─────────────────────────────────────────
+  /** The store that owns extension config. Step 2 (#335). */
+  configStore: ConfigStore;
+  /**
+   * Temporary read-only bridge to `configStore.current()`.
+   * Consumers migrate to `configStore.current()` in Steps 3-5; removed in Step 6 (#335).
+   */
+  readonly config: PermissionSystemExtensionConfig;
 
   // ── Logging (backed by logger created at construction) ─────────────────
   writeDebugLog(event: string, details?: Record<string, unknown>): void;
@@ -79,130 +65,41 @@ export interface ExtensionRuntime extends ExtensionPaths, SessionState {
 /**
  * Reload merged config from disk into the runtime.
  * If `ctx` is provided, updates `runtime.runtimeContext` first.
+ *
+ * Thin delegator to `runtime.configStore.refresh(ctx?)` — removed once all
+ * consumers migrate in Step 6 of #335.
  */
 export function refreshExtensionConfig(
   runtime: ExtensionRuntime,
   ctx?: ExtensionContext,
 ): void {
-  if (ctx) {
-    runtime.runtimeContext = ctx;
-  }
-  const cwd = runtime.runtimeContext?.cwd ?? null;
-  const mergeResult = loadAndMergeConfigs(
-    runtime.agentDir,
-    cwd ?? "",
-    EXTENSION_ROOT,
-  );
-  const runtimeConfig = normalizePermissionSystemConfig(mergeResult.merged);
-  runtime.config = runtimeConfig;
-
-  if (runtime.runtimeContext?.hasUI) {
-    syncPermissionSystemStatus(runtime.runtimeContext, runtimeConfig);
-  }
-
-  const warning =
-    mergeResult.issues.length > 0 ? mergeResult.issues.join("\n") : undefined;
-
-  if (warning && warning !== runtime.lastConfigWarning) {
-    runtime.lastConfigWarning = warning;
-    runtime.runtimeContext?.ui.notify(warning, "warning");
-  } else if (!warning) {
-    runtime.lastConfigWarning = null;
-  }
-
-  runtime.writeDebugLog("config.loaded", {
-    warning: warning ?? null,
-    debugLog: runtimeConfig.debugLog,
-    permissionReviewLog: runtimeConfig.permissionReviewLog,
-    yoloMode: runtimeConfig.yoloMode,
-  });
+  runtime.configStore.refresh(ctx);
 }
 
 /**
  * Save updated runtime knobs (debugLog, permissionReviewLog, yoloMode) to the
- * global config file, then update runtime.config and sync UI status.
+ * global config file, then update the config and sync UI status.
+ *
+ * Thin delegator to `runtime.configStore.save(next, ctx)` — removed once all
+ * consumers migrate in Step 6 of #335.
  */
 export function saveExtensionConfig(
   runtime: ExtensionRuntime,
   next: PermissionSystemExtensionConfig,
   ctx: ExtensionCommandContext,
 ): void {
-  const normalized = normalizePermissionSystemConfig(next);
-  const globalPath = getGlobalConfigPath(runtime.agentDir);
-
-  const existing = loadUnifiedConfig(globalPath);
-  const merged = {
-    ...existing.config,
-    debugLog: normalized.debugLog,
-    permissionReviewLog: normalized.permissionReviewLog,
-    yoloMode: normalized.yoloMode,
-  };
-
-  const tmpPath = `${globalPath}.tmp`;
-  try {
-    mkdirSync(dirname(globalPath), { recursive: true });
-    writeFileSync(tmpPath, `${JSON.stringify(merged, null, 2)}\n`, "utf-8");
-    renameSync(tmpPath, globalPath);
-  } catch (error) {
-    try {
-      if (existsSync(tmpPath)) {
-        unlinkSync(tmpPath);
-      }
-    } catch {
-      // Ignore cleanup failures.
-    }
-    const message = error instanceof Error ? error.message : String(error);
-    ctx.ui.notify(
-      `Failed to save permission-system config at '${globalPath}': ${message}`,
-      "error",
-    );
-    return;
-  }
-
-  runtime.config = normalized;
-  syncPermissionSystemStatus(ctx, normalized);
-  runtime.lastConfigWarning = null;
-
-  runtime.writeDebugLog("config.saved", {
-    debugLog: normalized.debugLog,
-    permissionReviewLog: normalized.permissionReviewLog,
-    yoloMode: normalized.yoloMode,
-  });
+  runtime.configStore.save(next, ctx);
 }
 
 /**
  * Write the resolved config path set (global, project, legacy) to the review
  * and debug logs.
+ *
+ * Thin delegator to `runtime.configStore.logResolvedPaths()` — removed once all
+ * consumers migrate in Step 6 of #335.
  */
 export function logResolvedConfigPaths(runtime: ExtensionRuntime): void {
-  const policyPaths = runtime.permissionManager.getResolvedPolicyPaths();
-  const cwd = runtime.runtimeContext?.cwd ?? null;
-  const { agentDir } = runtime;
-  const legacyGlobalPolicyDetected = existsSync(
-    getLegacyGlobalPolicyPath(agentDir),
-  );
-  const legacyProjectPolicyDetected = cwd
-    ? existsSync(getLegacyProjectPolicyPath(cwd))
-    : false;
-  const legacyExtConfigPath = getLegacyExtensionConfigPath(EXTENSION_ROOT);
-  const newGlobalPath = getGlobalConfigPath(agentDir);
-  const legacyExtensionConfigDetected =
-    normalize(legacyExtConfigPath) !== normalize(newGlobalPath) &&
-    existsSync(legacyExtConfigPath);
-  const entry = buildResolvedConfigLogEntry({
-    policyPaths,
-    legacyGlobalPolicyDetected,
-    legacyProjectPolicyDetected,
-    legacyExtensionConfigDetected,
-  });
-  runtime.writeReviewLog(
-    "config.resolved",
-    entry as unknown as Record<string, unknown>,
-  );
-  runtime.writeDebugLog(
-    "config.resolved",
-    entry as unknown as Record<string, unknown>,
-  );
+  runtime.configStore.logResolvedPaths();
 }
 
 // ── Factory ────────────────────────────────────────────────────────────────
@@ -219,28 +116,65 @@ export function createExtensionRuntime(options?: {
   const agentDir = options?.agentDir ?? getAgentDir();
   const paths = computeExtensionPaths(agentDir);
 
-  // Build a plain-object runtime first so the logger's `getConfig` closure
-  // can reference `runtime.config` directly (always reads current value).
-  const runtime: ExtensionRuntime = {
+  const permissionManager = new PermissionManager({ agentDir });
+
+  // Build the base object without `config` — the getter is added below.
+  const runtimeBase = {
     ...paths,
-    config: { ...DEFAULT_EXTENSION_CONFIG },
-    runtimeContext: null,
-    permissionManager: new PermissionManager({ agentDir }),
-    activeSkillEntries: [],
-    lastKnownActiveAgentName: null,
-    lastActiveToolsCacheKey: null,
-    lastPromptStateCacheKey: null,
-    lastConfigWarning: null,
+    runtimeContext: null as ExtensionContext | null,
+    configStore: null as unknown as ConfigStore,
+    permissionManager,
+    activeSkillEntries: [] as SkillPromptEntry[],
+    lastKnownActiveAgentName: null as string | null,
+    lastActiveToolsCacheKey: null as string | null,
+    lastPromptStateCacheKey: null as string | null,
     sessionRules: new SessionRules(),
     // Logging methods are replaced below after the logger is constructed.
-    writeDebugLog: () => {},
-    writeReviewLog: () => {},
+    writeDebugLog: (
+      _event: string,
+      _details: Record<string, unknown> = {},
+    ) => {},
+    writeReviewLog: (
+      _event: string,
+      _details: Record<string, unknown> = {},
+    ) => {},
   };
+
+  // Transitional RuntimeContextRef: reads/writes the still-runtime-owned
+  // `runtimeContext` field until Step 4 (#337) unifies context onto
+  // PermissionSession.
+  const contextRef: RuntimeContextRef = {
+    get: () => runtimeBase.runtimeContext,
+    set: (ctx) => {
+      runtimeBase.runtimeContext = ctx;
+    },
+  };
+
+  const configStore = new ConfigStore({
+    agentDir,
+    context: contextRef,
+    policyPaths: permissionManager,
+    logger: {
+      // Deferred-binding: `runtimeBase.writeDebugLog` is replaced below
+      // after the logger is constructed — same pattern as before this step.
+      writeDebugLog: (e, d) => runtimeBase.writeDebugLog(e, d),
+      writeReviewLog: (e, d) => runtimeBase.writeReviewLog(e, d),
+    },
+  });
+  runtimeBase.configStore = configStore;
+
+  // Add `config` as a getter bridge so index.ts consumers (`() => runtime.config`)
+  // transparently read from the store until they migrate in Steps 3-5.
+  const runtime = Object.defineProperty(runtimeBase, "config", {
+    get: () => configStore.current(),
+    enumerable: true,
+    configurable: true,
+  }) as ExtensionRuntime;
 
   const reportedLoggingWarnings = new Set<string>();
   const logger = createPermissionSystemLogger({
-    // Reads runtime.config at call time — always current.
-    getConfig: () => runtime.config,
+    // Reads from ConfigStore at call time — always current.
+    getConfig: () => configStore.current(),
     debugLogPath: join(paths.globalLogsDir, DEBUG_LOG_FILENAME),
     reviewLogPath: join(paths.globalLogsDir, REVIEW_LOG_FILENAME),
     ensureLogsDirectory: () =>

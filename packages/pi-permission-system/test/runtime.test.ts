@@ -5,9 +5,6 @@ const {
   mockLoggerDebug,
   mockLoggerReview,
   mockCreateLogger,
-  mockLoadAndMergeConfigs,
-  mockSyncPermissionSystemStatus,
-  mockBuildResolvedConfigLogEntry,
   mockDiscoverGlobalNodeModulesRoot,
 } = vi.hoisted(() => ({
   mockLoggerDebug:
@@ -19,9 +16,6 @@ const {
       (event: string, details?: Record<string, unknown>) => string | undefined
     >(),
   mockCreateLogger: vi.fn(),
-  mockLoadAndMergeConfigs: vi.fn(),
-  mockSyncPermissionSystemStatus: vi.fn(),
-  mockBuildResolvedConfigLogEntry: vi.fn(),
   mockDiscoverGlobalNodeModulesRoot: vi.fn<() => string | null>(),
 }));
 
@@ -31,21 +25,6 @@ vi.mock("../src/logging", () => ({
 
 vi.mock("../src/permission-manager", () => ({
   PermissionManager: vi.fn(),
-}));
-
-vi.mock("../src/config-loader", () => ({
-  loadAndMergeConfigs: mockLoadAndMergeConfigs,
-  loadUnifiedConfig: vi.fn().mockReturnValue({ config: {} }),
-}));
-
-vi.mock("../src/status", () => ({
-  PERMISSION_SYSTEM_STATUS_KEY: "permission-system",
-  syncPermissionSystemStatus: mockSyncPermissionSystemStatus,
-  getPermissionSystemStatus: vi.fn(),
-}));
-
-vi.mock("../src/config-reporter", () => ({
-  buildResolvedConfigLogEntry: mockBuildResolvedConfigLogEntry,
 }));
 
 vi.mock("../src/subagent-context", () => ({
@@ -61,10 +40,9 @@ vi.mock("../src/session-rules", () => ({
   deriveApprovalPattern: vi.fn(),
 }));
 
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getGlobalLogsDir } from "#src/config-paths";
 import { DEFAULT_EXTENSION_CONFIG } from "#src/extension-config";
-import { createExtensionRuntime, refreshExtensionConfig } from "#src/runtime";
+import { createExtensionRuntime } from "#src/runtime";
 
 // ── test suite ─────────────────────────────────────────────────────────────
 
@@ -181,28 +159,12 @@ describe("createExtensionRuntime", () => {
     expect(runtime.lastPromptStateCacheKey).toBeNull();
   });
 
-  it("initializes lastConfigWarning to null", () => {
-    const runtime = createExtensionRuntime({ agentDir: "/test/agent" });
-    expect(runtime.lastConfigWarning).toBeNull();
-  });
-
   it("creates a sessionRules instance", () => {
     const runtime = createExtensionRuntime({ agentDir: "/test/agent" });
     expect(runtime.sessionRules).toBeDefined();
   });
 
   // ── Mutable state is writable ──────────────────────────────────────────
-
-  it("allows config to be updated", () => {
-    const runtime = createExtensionRuntime({ agentDir: "/test/agent" });
-    const newConfig = {
-      debugLog: true,
-      permissionReviewLog: false,
-      yoloMode: false,
-    };
-    runtime.config = newConfig;
-    expect(runtime.config).toEqual(newConfig);
-  });
 
   it("allows runtimeContext to be updated", () => {
     const runtime = createExtensionRuntime({ agentDir: "/test/agent" });
@@ -226,19 +188,13 @@ describe("createExtensionRuntime", () => {
     expect(opts.reviewLogPath).toContain(expectedLogsDir);
   });
 
-  it("passes getConfig that reads current runtime.config", () => {
-    const runtime = createExtensionRuntime({ agentDir: "/test/agent" });
+  it("passes getConfig that reads from configStore.current()", () => {
+    createExtensionRuntime({ agentDir: "/test/agent" });
     const opts = mockCreateLogger.mock.calls[0][0] as {
       getConfig: () => typeof DEFAULT_EXTENSION_CONFIG;
     };
-    const updatedConfig = {
-      debugLog: true,
-      permissionReviewLog: false,
-      yoloMode: false,
-    };
-    runtime.config = updatedConfig;
-    // getConfig() should reflect the updated value
-    expect(opts.getConfig()).toEqual(updatedConfig);
+    // getConfig() reads from configStore.current() — DEFAULT_EXTENSION_CONFIG at startup
+    expect(opts.getConfig()).toEqual(DEFAULT_EXTENSION_CONFIG);
   });
 
   // ── writeDebugLog delegates to logger.debug ──────────────────────────────
@@ -340,148 +296,8 @@ describe("createExtensionRuntime", () => {
   });
 });
 
-// ── refreshExtensionConfig ────────────────────────────────────────────────
-
-describe("refreshExtensionConfig", () => {
-  function makeRuntime() {
-    mockCreateLogger.mockReturnValue({
-      debug: mockLoggerDebug,
-      review: mockLoggerReview,
-    });
-    return createExtensionRuntime({ agentDir: "/test/agent" });
-  }
-
-  function makeCtx(
-    overrides: Partial<ExtensionContext> = {},
-  ): ExtensionContext {
-    return {
-      cwd: "/test/project",
-      hasUI: false,
-      ui: { notify: vi.fn(), setStatus: vi.fn() },
-      sessionManager: { getEntries: vi.fn(), addEntry: vi.fn() },
-      ...overrides,
-    } as unknown as ExtensionContext;
-  }
-
-  beforeEach(() => {
-    mockLoggerDebug.mockReset().mockReturnValue(undefined);
-    mockLoggerReview.mockReset().mockReturnValue(undefined);
-    mockLoadAndMergeConfigs.mockReset().mockReturnValue({
-      merged: { ...DEFAULT_EXTENSION_CONFIG },
-      issues: [],
-    });
-    mockSyncPermissionSystemStatus.mockReset();
-  });
-
-  it("updates runtime.runtimeContext when ctx is provided", () => {
-    const runtime = makeRuntime();
-    const ctx = makeCtx();
-    refreshExtensionConfig(runtime, ctx);
-    expect(runtime.runtimeContext).toBe(ctx);
-  });
-
-  it("does not override runtimeContext when ctx is omitted", () => {
-    const runtime = makeRuntime();
-    const existing = makeCtx();
-    runtime.runtimeContext = existing;
-    refreshExtensionConfig(runtime);
-    expect(runtime.runtimeContext).toBe(existing);
-  });
-
-  it("updates runtime.config with normalized merged result", () => {
-    const runtime = makeRuntime();
-    mockLoadAndMergeConfigs.mockReturnValue({
-      merged: { debugLog: true, permissionReviewLog: false, yoloMode: false },
-      issues: [],
-    });
-    refreshExtensionConfig(runtime);
-    expect(runtime.config.debugLog).toBe(true);
-    expect(runtime.config.permissionReviewLog).toBe(false);
-  });
-
-  it("calls loadAndMergeConfigs with runtime.agentDir and cwd", () => {
-    const runtime = makeRuntime();
-    const ctx = makeCtx({ cwd: "/my/project" });
-    refreshExtensionConfig(runtime, ctx);
-    expect(mockLoadAndMergeConfigs).toHaveBeenCalledWith(
-      "/test/agent",
-      "/my/project",
-      expect.any(String), // EXTENSION_ROOT
-    );
-  });
-
-  it("writes config.loaded debug log", () => {
-    const runtime = makeRuntime();
-    refreshExtensionConfig(runtime);
-    expect(mockLoggerDebug).toHaveBeenCalledWith(
-      "config.loaded",
-      expect.objectContaining({ debugLog: false }),
-    );
-  });
-
-  it("sets lastConfigWarning when issues are present", () => {
-    const runtime = makeRuntime();
-    mockLoadAndMergeConfigs.mockReturnValue({
-      merged: { ...DEFAULT_EXTENSION_CONFIG },
-      issues: ["legacy config detected"],
-    });
-    refreshExtensionConfig(runtime);
-    expect(runtime.lastConfigWarning).toBe("legacy config detected");
-  });
-
-  it("clears lastConfigWarning when no issues", () => {
-    const runtime = makeRuntime();
-    runtime.lastConfigWarning = "old warning";
-    mockLoadAndMergeConfigs.mockReturnValue({
-      merged: { ...DEFAULT_EXTENSION_CONFIG },
-      issues: [],
-    });
-    refreshExtensionConfig(runtime);
-    expect(runtime.lastConfigWarning).toBeNull();
-  });
-
-  it("notifies UI when a new warning appears and hasUI is true", () => {
-    const runtime = makeRuntime();
-    const mockNotify = vi.fn();
-    const ctx = makeCtx({ hasUI: true, ui: { notify: mockNotify } as never });
-    mockLoadAndMergeConfigs.mockReturnValue({
-      merged: { ...DEFAULT_EXTENSION_CONFIG },
-      issues: ["new warning"],
-    });
-    refreshExtensionConfig(runtime, ctx);
-    expect(mockNotify).toHaveBeenCalledWith("new warning", "warning");
-  });
-
-  it("does not re-notify the same warning on subsequent calls", () => {
-    const runtime = makeRuntime();
-    const mockNotify = vi.fn();
-    const ctx = makeCtx({ hasUI: true, ui: { notify: mockNotify } as never });
-    mockLoadAndMergeConfigs.mockReturnValue({
-      merged: { ...DEFAULT_EXTENSION_CONFIG },
-      issues: ["persistent warning"],
-    });
-    refreshExtensionConfig(runtime, ctx);
-    refreshExtensionConfig(runtime, ctx);
-    expect(mockNotify).toHaveBeenCalledTimes(1);
-  });
-
-  it("calls syncPermissionSystemStatus when hasUI is true", () => {
-    const runtime = makeRuntime();
-    const ctx = makeCtx({ hasUI: true });
-    refreshExtensionConfig(runtime, ctx);
-    expect(mockSyncPermissionSystemStatus).toHaveBeenCalledWith(
-      ctx,
-      expect.any(Object),
-    );
-  });
-
-  it("does not call syncPermissionSystemStatus when hasUI is false", () => {
-    const runtime = makeRuntime();
-    const ctx = makeCtx({ hasUI: false });
-    refreshExtensionConfig(runtime, ctx);
-    expect(mockSyncPermissionSystemStatus).not.toHaveBeenCalled();
-  });
-});
+// refreshExtensionConfig / saveExtensionConfig / logResolvedConfigPaths are
+// thin delegators to runtime.configStore — behavior covered in config-store.test.ts.
 
 // resolveAgentName was moved to PermissionSession (#129)
-// Tests live in tests/permission-session.test.ts
+// Tests live in test/permission-session.test.ts
