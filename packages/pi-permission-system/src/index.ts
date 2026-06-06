@@ -24,7 +24,7 @@ import { PermissionSession } from "./permission-session";
 import { LocalPermissionsService } from "./permissions-service";
 import { createExtensionRuntime } from "./runtime";
 import { PermissionServiceLifecycle } from "./service-lifecycle";
-import { createSessionLogger } from "./session-logger";
+
 import { isSubagentExecutionContext } from "./subagent-context";
 import { subscribeSubagentLifecycle } from "./subagent-lifecycle-events";
 import { getSubagentSessionRegistry } from "./subagent-registry";
@@ -69,7 +69,7 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
 
   const session = new PermissionSession(
     runtime,
-    createSessionLogger(runtime),
+    runtime.logger,
     new ForwardingManager(
       runtime.subagentSessionsDir,
       forwarder,

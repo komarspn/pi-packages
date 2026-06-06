@@ -1,4 +1,10 @@
-import type { ExtensionRuntime } from "./runtime";
+import { join } from "node:path";
+import { DEBUG_LOG_FILENAME, REVIEW_LOG_FILENAME } from "./config-paths";
+import {
+  ensurePermissionSystemLogsDirectory,
+  type PermissionSystemExtensionConfig,
+} from "./extension-config";
+import { createPermissionSystemLogger } from "./logging";
 
 /**
  * Unified logging + notification surface for handler deps.
@@ -13,17 +19,48 @@ export interface SessionLogger {
   warn(message: string): void;
 }
 
+/** Narrow dependencies for constructing a {@link SessionLogger}. */
+export interface SessionLoggerDeps {
+  /** Root logs directory; the debug + review log file paths derive from it. */
+  globalLogsDir: string;
+  /** Reads current config for the debug/review write toggles (call-time). */
+  getConfig: () => PermissionSystemExtensionConfig;
+  /** Surfaces a warning message to the user; called at warn/IO-failure time. */
+  notify: (message: string) => void;
+}
+
 /**
- * Create a SessionLogger backed by an ExtensionRuntime.
+ * Create a SessionLogger from narrow dependencies.
  *
- * Captures `runtime` by reference so `warn` always reads the current
- * `runtimeContext` at call time — matching the behavior of the inline
- * closures it replaces in `src/index.ts`.
+ * Composes the JSONL log writer, owns the IO-failure warning dedup Set,
+ * and routes both IO-failure warnings and explicit warn() calls through
+ * the injected notify sink. No ExtensionRuntime reference required.
  */
-export function createSessionLogger(runtime: ExtensionRuntime): SessionLogger {
+export function createSessionLogger(deps: SessionLoggerDeps): SessionLogger {
+  const writer = createPermissionSystemLogger({
+    getConfig: deps.getConfig,
+    debugLogPath: join(deps.globalLogsDir, DEBUG_LOG_FILENAME),
+    reviewLogPath: join(deps.globalLogsDir, REVIEW_LOG_FILENAME),
+    ensureLogsDirectory: () =>
+      ensurePermissionSystemLogsDirectory(deps.globalLogsDir),
+  });
+
+  const reported = new Set<string>();
+  const reportOnce = (warning: string): void => {
+    if (reported.has(warning)) return;
+    reported.add(warning);
+    deps.notify(warning);
+  };
+
   return {
-    debug: (event, details) => runtime.writeDebugLog(event, details),
-    review: (event, details) => runtime.writeReviewLog(event, details),
-    warn: (message) => runtime.runtimeContext?.ui.notify(message, "warning"),
+    debug: (event, details) => {
+      const warning = writer.debug(event, details);
+      if (warning) reportOnce(warning);
+    },
+    review: (event, details) => {
+      const warning = writer.review(event, details);
+      if (warning) reportOnce(warning);
+    },
+    warn: (message) => deps.notify(message),
   };
 }

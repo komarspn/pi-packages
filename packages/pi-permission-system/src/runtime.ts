@@ -1,18 +1,15 @@
-import { join } from "node:path";
 import {
   type ExtensionContext,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 
-import { DEBUG_LOG_FILENAME, REVIEW_LOG_FILENAME } from "./config-paths";
 import { ConfigStore, type RuntimeContextRef } from "./config-store";
-import { ensurePermissionSystemLogsDirectory } from "./extension-config";
 import { computeExtensionPaths, type ExtensionPaths } from "./extension-paths";
 
 export type { ExtensionPaths } from "./extension-paths";
 
-import { createPermissionSystemLogger } from "./logging";
 import { PermissionManager } from "./permission-manager";
+import { createSessionLogger, type SessionLogger } from "./session-logger";
 import { SessionRules } from "./session-rules";
 import type { SkillPromptEntry } from "./skill-prompt-sanitizer";
 
@@ -47,7 +44,10 @@ export interface ExtensionRuntime extends ExtensionPaths, SessionState {
   /** The store that owns extension config. */
   configStore: ConfigStore;
 
-  // ── Logging (backed by logger created at construction) ─────────────────
+  /** The unified log-write + notification surface. */
+  logger: SessionLogger;
+
+  // ── Transitional delegators — removed in Step 2 (#336) ────────────────
   writeDebugLog(event: string, details?: Record<string, unknown>): void;
   writeReviewLog(event: string, details?: Record<string, unknown>): void;
 }
@@ -72,13 +72,14 @@ export function createExtensionRuntime(options?: {
     ...paths,
     runtimeContext: null,
     configStore: null as unknown as ConfigStore,
+    logger: null as unknown as SessionLogger,
     permissionManager,
     activeSkillEntries: [],
     lastKnownActiveAgentName: null,
     lastActiveToolsCacheKey: null,
     lastPromptStateCacheKey: null,
     sessionRules: new SessionRules(),
-    // Logging methods are replaced below after the logger is constructed.
+    // Transitional delegators — assigned below after the logger is constructed.
     writeDebugLog: () => {},
     writeReviewLog: () => {},
   };
@@ -93,55 +94,31 @@ export function createExtensionRuntime(options?: {
     },
   };
 
-  const configStore = new ConfigStore({
+  // `configStore` is declared before the logger so the logger's getConfig
+  // thunk can close over the variable; it is assigned immediately after.
+  // Initialized to a placeholder so `prefer-const` does not misfire (two assignments).
+  let configStore = null as unknown as ConfigStore;
+
+  const logger = createSessionLogger({
+    globalLogsDir: paths.globalLogsDir,
+    getConfig: () => configStore.current(),
+    notify: (message) => runtime.runtimeContext?.ui.notify(message, "warning"),
+  });
+
+  configStore = new ConfigStore({
     agentDir,
     context: contextRef,
     policyPaths: permissionManager,
     logger: {
-      // Deferred-binding: `runtime.writeDebugLog` is replaced below after
-      // the logger is constructed — same deferred pattern as before Step 2.
-      writeDebugLog: (e, d) => runtime.writeDebugLog(e, d),
-      writeReviewLog: (e, d) => runtime.writeReviewLog(e, d),
+      writeDebugLog: (e, d) => logger.debug(e, d),
+      writeReviewLog: (e, d) => logger.review(e, d),
     },
   });
+
   runtime.configStore = configStore;
-
-  const reportedLoggingWarnings = new Set<string>();
-  const logger = createPermissionSystemLogger({
-    getConfig: () => configStore.current(),
-    debugLogPath: join(paths.globalLogsDir, DEBUG_LOG_FILENAME),
-    reviewLogPath: join(paths.globalLogsDir, REVIEW_LOG_FILENAME),
-    ensureLogsDirectory: () =>
-      ensurePermissionSystemLogsDirectory(paths.globalLogsDir),
-  });
-
-  const reportLoggingWarning = (message: string): void => {
-    if (reportedLoggingWarnings.has(message)) {
-      return;
-    }
-    reportedLoggingWarnings.add(message);
-    runtime.runtimeContext?.ui.notify(message, "warning");
-  };
-
-  runtime.writeDebugLog = (
-    event: string,
-    details: Record<string, unknown> = {},
-  ): void => {
-    const warning = logger.debug(event, details);
-    if (warning) {
-      reportLoggingWarning(warning);
-    }
-  };
-
-  runtime.writeReviewLog = (
-    event: string,
-    details: Record<string, unknown> = {},
-  ): void => {
-    const warning = logger.review(event, details);
-    if (warning) {
-      reportLoggingWarning(warning);
-    }
-  };
+  runtime.logger = logger;
+  runtime.writeDebugLog = (event, details) => logger.debug(event, details);
+  runtime.writeReviewLog = (event, details) => logger.review(event, details);
 
   return runtime;
 }

@@ -4,23 +4,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   mockLoggerDebug,
   mockLoggerReview,
+  mockLoggerWarn,
   mockCreateLogger,
   mockDiscoverGlobalNodeModulesRoot,
 } = vi.hoisted(() => ({
   mockLoggerDebug:
-    vi.fn<
-      (event: string, details?: Record<string, unknown>) => string | undefined
-    >(),
+    vi.fn<(event: string, details?: Record<string, unknown>) => void>(),
   mockLoggerReview:
-    vi.fn<
-      (event: string, details?: Record<string, unknown>) => string | undefined
-    >(),
+    vi.fn<(event: string, details?: Record<string, unknown>) => void>(),
+  mockLoggerWarn: vi.fn<(message: string) => void>(),
   mockCreateLogger: vi.fn(),
   mockDiscoverGlobalNodeModulesRoot: vi.fn<() => string | null>(),
 }));
 
-vi.mock("../src/logging", () => ({
-  createPermissionSystemLogger: mockCreateLogger,
+vi.mock("../src/session-logger", () => ({
+  createSessionLogger: mockCreateLogger,
 }));
 
 vi.mock("../src/permission-manager", () => ({
@@ -49,13 +47,13 @@ import { createExtensionRuntime } from "#src/runtime";
 describe("createExtensionRuntime", () => {
   beforeEach(() => {
     mockLoggerDebug.mockReset();
-    mockLoggerDebug.mockReturnValue(undefined);
     mockLoggerReview.mockReset();
-    mockLoggerReview.mockReturnValue(undefined);
+    mockLoggerWarn.mockReset();
     mockCreateLogger.mockReset();
     mockCreateLogger.mockReturnValue({
       debug: mockLoggerDebug,
       review: mockLoggerReview,
+      warn: mockLoggerWarn,
     });
     mockDiscoverGlobalNodeModulesRoot.mockReset();
     mockDiscoverGlobalNodeModulesRoot.mockReturnValue(
@@ -173,19 +171,15 @@ describe("createExtensionRuntime", () => {
     expect(runtime.runtimeContext).toBe(mockCtx);
   });
 
-  // ── Logger is created with runtime-derived paths ─────────────────────────
+  // ── Logger construction ───────────────────────────────────────────────────
 
-  it("creates the logger with derived debugLogPath and reviewLogPath", () => {
+  it("creates the logger with globalLogsDir derived from agentDir", () => {
     const agentDir = "/test/agent";
     const expectedLogsDir = getGlobalLogsDir(agentDir);
     createExtensionRuntime({ agentDir });
     expect(mockCreateLogger).toHaveBeenCalledOnce();
-    const opts = mockCreateLogger.mock.calls[0][0] as {
-      debugLogPath: string;
-      reviewLogPath: string;
-    };
-    expect(opts.debugLogPath).toContain(expectedLogsDir);
-    expect(opts.reviewLogPath).toContain(expectedLogsDir);
+    const opts = mockCreateLogger.mock.calls[0][0] as { globalLogsDir: string };
+    expect(opts.globalLogsDir).toBe(expectedLogsDir);
   });
 
   it("passes getConfig that reads from configStore.current()", () => {
@@ -197,9 +191,15 @@ describe("createExtensionRuntime", () => {
     expect(opts.getConfig()).toEqual(DEFAULT_EXTENSION_CONFIG);
   });
 
-  // ── writeDebugLog delegates to logger.debug ──────────────────────────────
+  it("exposes the SessionLogger as runtime.logger", () => {
+    const runtime = createExtensionRuntime({ agentDir: "/test/agent" });
+    expect(runtime.logger.debug).toBe(mockLoggerDebug);
+    expect(runtime.logger.review).toBe(mockLoggerReview);
+  });
 
-  it("writeDebugLog calls logger.debug with event and details", () => {
+  // ── writeDebugLog / writeReviewLog delegate to logger ────────────────────
+
+  it("writeDebugLog delegates to logger.debug with event and details", () => {
     const runtime = createExtensionRuntime({ agentDir: "/test/agent" });
     runtime.writeDebugLog("test.event", { key: "value" });
     expect(mockLoggerDebug).toHaveBeenCalledWith("test.event", {
@@ -207,15 +207,13 @@ describe("createExtensionRuntime", () => {
     });
   });
 
-  it("writeDebugLog uses empty object as default details", () => {
+  it("writeDebugLog passes undefined details when none provided", () => {
     const runtime = createExtensionRuntime({ agentDir: "/test/agent" });
     runtime.writeDebugLog("test.event");
-    expect(mockLoggerDebug).toHaveBeenCalledWith("test.event", {});
+    expect(mockLoggerDebug).toHaveBeenCalledWith("test.event", undefined);
   });
 
-  // ── writeReviewLog delegates to logger.review ────────────────────────────
-
-  it("writeReviewLog calls logger.review with event and details", () => {
+  it("writeReviewLog delegates to logger.review with event and details", () => {
     const runtime = createExtensionRuntime({ agentDir: "/test/agent" });
     runtime.writeReviewLog("test.event", { key: "value" });
     expect(mockLoggerReview).toHaveBeenCalledWith("test.event", {
@@ -223,67 +221,10 @@ describe("createExtensionRuntime", () => {
     });
   });
 
-  it("writeReviewLog uses empty object as default details", () => {
+  it("writeReviewLog passes undefined details when none provided", () => {
     const runtime = createExtensionRuntime({ agentDir: "/test/agent" });
     runtime.writeReviewLog("test.event");
-    expect(mockLoggerReview).toHaveBeenCalledWith("test.event", {});
-  });
-
-  // ── Logging warning reporter ──────────────────────────────────────────────
-
-  it("notifies runtimeContext.ui when logger returns a warning", () => {
-    const runtime = createExtensionRuntime({ agentDir: "/test/agent" });
-    const mockNotify = vi.fn();
-    runtime.runtimeContext = {
-      hasUI: true,
-      ui: { notify: mockNotify },
-    } as never;
-    mockLoggerDebug.mockReturnValueOnce("log dir not writable");
-    runtime.writeDebugLog("some.event");
-    expect(mockNotify).toHaveBeenCalledWith("log dir not writable", "warning");
-  });
-
-  it("does not notify when runtimeContext is null", () => {
-    const runtime = createExtensionRuntime({ agentDir: "/test/agent" });
-    mockLoggerDebug.mockReturnValueOnce("a warning");
-    // runtimeContext is null, should not throw
-    expect(() => runtime.writeDebugLog("some.event")).not.toThrow();
-  });
-
-  it("deduplicates logging warnings (same warning not reported twice)", () => {
-    const runtime = createExtensionRuntime({ agentDir: "/test/agent" });
-    const mockNotify = vi.fn();
-    runtime.runtimeContext = {
-      hasUI: true,
-      ui: { notify: mockNotify },
-    } as never;
-    mockLoggerDebug
-      .mockReturnValueOnce("duplicate warning")
-      .mockReturnValueOnce("duplicate warning");
-    runtime.writeDebugLog("event.one");
-    runtime.writeDebugLog("event.two");
-    // The same warning should only be notified once
-    expect(mockNotify).toHaveBeenCalledTimes(1);
-    expect(mockNotify).toHaveBeenCalledWith("duplicate warning", "warning");
-  });
-
-  it("reports a different warning even after a duplicate has been suppressed", () => {
-    const runtime = createExtensionRuntime({ agentDir: "/test/agent" });
-    const mockNotify = vi.fn();
-    runtime.runtimeContext = {
-      hasUI: true,
-      ui: { notify: mockNotify },
-    } as never;
-    mockLoggerDebug
-      .mockReturnValueOnce("warning A")
-      .mockReturnValueOnce("warning A")
-      .mockReturnValueOnce("warning B");
-    runtime.writeDebugLog("event.one");
-    runtime.writeDebugLog("event.two");
-    runtime.writeDebugLog("event.three");
-    expect(mockNotify).toHaveBeenCalledTimes(2);
-    expect(mockNotify).toHaveBeenNthCalledWith(1, "warning A", "warning");
-    expect(mockNotify).toHaveBeenNthCalledWith(2, "warning B", "warning");
+    expect(mockLoggerReview).toHaveBeenCalledWith("test.event", undefined);
   });
 
   // ── Multiple independent runtimes ─────────────────────────────────────────

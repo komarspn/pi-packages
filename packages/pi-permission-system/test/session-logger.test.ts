@@ -1,113 +1,200 @@
-import { describe, expect, it, vi } from "vitest";
-import type { ExtensionRuntime } from "#src/runtime";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DEBUG_LOG_FILENAME, REVIEW_LOG_FILENAME } from "#src/config-paths";
+import {
+  DEFAULT_EXTENSION_CONFIG,
+  type PermissionSystemExtensionConfig,
+} from "#src/extension-config";
+import type { SessionLoggerDeps } from "#src/session-logger";
 import { createSessionLogger } from "#src/session-logger";
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
-function makeRuntime(
-  overrides: Partial<ExtensionRuntime> = {},
-): ExtensionRuntime {
+let tempDir: string;
+
+beforeEach(() => {
+  tempDir = mkdtempSync(join(tmpdir(), "ps-session-logger-"));
+});
+
+function makeDeps(
+  overrides: {
+    globalLogsDir?: string;
+    getConfig?: () => PermissionSystemExtensionConfig;
+  } = {},
+) {
   return {
-    runtimeContext: null,
-    writeDebugLog: vi.fn(),
-    writeReviewLog: vi.fn(),
-    ...overrides,
-  } as unknown as ExtensionRuntime;
+    globalLogsDir: overrides.globalLogsDir ?? tempDir,
+    getConfig:
+      overrides.getConfig ??
+      ((): PermissionSystemExtensionConfig => ({
+        ...DEFAULT_EXTENSION_CONFIG,
+      })),
+    notify: vi.fn<(message: string) => void>(),
+  };
+}
+
+/** A `globalLogsDir` that cannot be created: a file at the parent path blocks it. */
+function makeBlockedLogsDir(): string {
+  const barrier = join(tempDir, "barrier");
+  writeFileSync(barrier, "");
+  return join(barrier, "logs");
 }
 
 // ── createSessionLogger ────────────────────────────────────────────────────
 
 describe("createSessionLogger", () => {
+  // ── debug ────────────────────────────────────────────────────────────────
+
   describe("debug", () => {
-    it("delegates to runtime.writeDebugLog with event and details", () => {
-      const runtime = makeRuntime();
-      const logger = createSessionLogger(runtime);
+    it("writes a JSONL line to the debug log file when debugLog is true", () => {
+      const deps = makeDeps({
+        getConfig: () => ({ ...DEFAULT_EXTENSION_CONFIG, debugLog: true }),
+      });
+      const logger = createSessionLogger(deps);
 
       logger.debug("test.event", { key: "value" });
 
-      expect(runtime.writeDebugLog).toHaveBeenCalledWith("test.event", {
-        key: "value",
-      });
+      expect(existsSync(join(tempDir, DEBUG_LOG_FILENAME))).toBe(true);
+      expect(deps.notify).not.toHaveBeenCalled();
     });
 
-    it("delegates to runtime.writeDebugLog with event and no details", () => {
-      const runtime = makeRuntime();
-      const logger = createSessionLogger(runtime);
+    it("does not write to the debug log when debugLog is false", () => {
+      // DEFAULT_EXTENSION_CONFIG.debugLog === false
+      const deps = makeDeps();
+      const logger = createSessionLogger(deps);
 
       logger.debug("test.event");
 
-      expect(runtime.writeDebugLog).toHaveBeenCalledWith(
-        "test.event",
-        undefined,
-      );
+      expect(existsSync(join(tempDir, DEBUG_LOG_FILENAME))).toBe(false);
+      expect(deps.notify).not.toHaveBeenCalled();
+    });
+
+    it("reads getConfig at write time — a mid-session toggle change takes effect", () => {
+      let debugLog = true;
+      const deps = makeDeps({
+        getConfig: () => ({ ...DEFAULT_EXTENSION_CONFIG, debugLog }),
+      });
+      const logger = createSessionLogger(deps);
+      debugLog = false;
+
+      logger.debug("test.event");
+
+      expect(existsSync(join(tempDir, DEBUG_LOG_FILENAME))).toBe(false);
     });
   });
 
+  // ── review ───────────────────────────────────────────────────────────────
+
   describe("review", () => {
-    it("delegates to runtime.writeReviewLog with event and details", () => {
-      const runtime = makeRuntime();
-      const logger = createSessionLogger(runtime);
+    it("writes a JSONL line to the review log file when permissionReviewLog is true", () => {
+      // DEFAULT_EXTENSION_CONFIG.permissionReviewLog === true
+      const deps = makeDeps();
+      const logger = createSessionLogger(deps);
 
       logger.review("permission.granted", { agentName: "coder" });
 
-      expect(runtime.writeReviewLog).toHaveBeenCalledWith(
-        "permission.granted",
-        { agentName: "coder" },
-      );
+      expect(existsSync(join(tempDir, REVIEW_LOG_FILENAME))).toBe(true);
+      expect(deps.notify).not.toHaveBeenCalled();
     });
 
-    it("delegates to runtime.writeReviewLog with event and no details", () => {
-      const runtime = makeRuntime();
-      const logger = createSessionLogger(runtime);
+    it("does not write to the review log when permissionReviewLog is false", () => {
+      const deps = makeDeps({
+        getConfig: () => ({
+          ...DEFAULT_EXTENSION_CONFIG,
+          permissionReviewLog: false,
+        }),
+      });
+      const logger = createSessionLogger(deps);
 
       logger.review("permission.granted");
 
-      expect(runtime.writeReviewLog).toHaveBeenCalledWith(
-        "permission.granted",
-        undefined,
-      );
+      expect(existsSync(join(tempDir, REVIEW_LOG_FILENAME))).toBe(false);
+      expect(deps.notify).not.toHaveBeenCalled();
     });
   });
 
-  describe("warn", () => {
-    it("calls ui.notify with the message and 'warning' severity when runtimeContext is present", () => {
-      const notify = vi.fn();
-      const runtime = makeRuntime({
-        runtimeContext: {
-          ui: { notify, setStatus: vi.fn(), select: vi.fn(), input: vi.fn() },
-        } as unknown as ExtensionRuntime["runtimeContext"],
+  // ── IO-failure warnings ───────────────────────────────────────────────────
+
+  describe("IO-failure warnings", () => {
+    it("calls notify with the error message when the logs directory cannot be created", () => {
+      const deps = makeDeps({
+        globalLogsDir: makeBlockedLogsDir(),
+        getConfig: () => ({ ...DEFAULT_EXTENSION_CONFIG, debugLog: true }),
       });
-      const logger = createSessionLogger(runtime);
+      const logger = createSessionLogger(deps);
+
+      logger.debug("test.event");
+
+      expect(deps.notify).toHaveBeenCalledOnce();
+      expect(deps.notify).toHaveBeenCalledWith(
+        expect.stringContaining("Failed to"),
+      );
+    });
+
+    it("deduplicates the same IO-failure warning across multiple writes", () => {
+      const deps = makeDeps({
+        globalLogsDir: makeBlockedLogsDir(),
+        getConfig: () => ({ ...DEFAULT_EXTENSION_CONFIG, debugLog: true }),
+      });
+      const logger = createSessionLogger(deps);
+
+      logger.debug("event.one");
+      logger.debug("event.two");
+
+      expect(deps.notify).toHaveBeenCalledOnce();
+    });
+
+    it("shares the dedup set across debug and review — same message notified only once", () => {
+      const deps = makeDeps({
+        globalLogsDir: makeBlockedLogsDir(),
+        getConfig: () => ({
+          ...DEFAULT_EXTENSION_CONFIG,
+          debugLog: true,
+          permissionReviewLog: true,
+        }),
+      });
+      const logger = createSessionLogger(deps);
+
+      logger.debug("event.one"); // emits warning
+      logger.review("event.two"); // same error message → suppressed
+
+      expect(deps.notify).toHaveBeenCalledOnce();
+    });
+  });
+
+  // ── warn ──────────────────────────────────────────────────────────────────
+
+  describe("warn", () => {
+    it("calls notify with the message directly", () => {
+      const deps = makeDeps();
+      const logger = createSessionLogger(deps);
 
       logger.warn("Something went wrong");
 
-      expect(notify).toHaveBeenCalledWith("Something went wrong", "warning");
+      expect(deps.notify).toHaveBeenCalledWith("Something went wrong");
     });
 
-    it("does not throw when runtimeContext is null", () => {
-      const runtime = makeRuntime({ runtimeContext: null });
-      const logger = createSessionLogger(runtime);
+    it("calls notify for every warn — not deduplicated", () => {
+      const deps = makeDeps();
+      const logger = createSessionLogger(deps);
 
-      expect(() => logger.warn("no-op warning")).not.toThrow();
+      logger.warn("same message");
+      logger.warn("same message");
+
+      expect(deps.notify).toHaveBeenCalledTimes(2);
     });
 
-    it("reads runtimeContext at call time, not at creation time", () => {
-      const runtime = makeRuntime({ runtimeContext: null });
-      const logger = createSessionLogger(runtime);
+    it("does not throw when notify is a no-op", () => {
+      const deps: SessionLoggerDeps = {
+        globalLogsDir: tempDir,
+        getConfig: () => ({ ...DEFAULT_EXTENSION_CONFIG }),
+        notify: () => {},
+      };
+      const logger = createSessionLogger(deps);
 
-      // runtimeContext is null at creation — warn should be a no-op now
-      logger.warn("early warning");
-
-      // Later runtimeContext is set
-      const notify = vi.fn();
-      runtime.runtimeContext = {
-        ui: { notify, setStatus: vi.fn(), select: vi.fn(), input: vi.fn() },
-      } as unknown as ExtensionRuntime["runtimeContext"];
-
-      logger.warn("late warning");
-
-      expect(notify).toHaveBeenCalledOnce();
-      expect(notify).toHaveBeenCalledWith("late warning", "warning");
+      expect(() => logger.warn("test")).not.toThrow();
     });
   });
 });
