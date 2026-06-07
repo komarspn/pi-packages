@@ -1,5 +1,5 @@
 import { getPathBearingToolPath } from "#src/path-utils";
-import type { PermissionResolver } from "#src/permission-resolver";
+import type { ScopedPermissionResolver } from "#src/permission-resolver";
 import { SessionApproval } from "#src/session-approval";
 import { deriveApprovalPattern } from "#src/session-rules";
 import type { GateDescriptor, GateResult } from "./descriptor";
@@ -15,7 +15,7 @@ import type { ToolCallContext } from "./types";
  */
 export function describePathGate(
   tcc: ToolCallContext,
-  resolver: PermissionResolver,
+  resolver: ScopedPermissionResolver,
 ): GateResult {
   const filePath = getPathBearingToolPath(tcc.toolName, tcc.input);
   if (!filePath) return null;

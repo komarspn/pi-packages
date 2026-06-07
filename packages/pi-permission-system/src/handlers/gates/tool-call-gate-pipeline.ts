@@ -1,5 +1,5 @@
 import { getNonEmptyString, toRecord } from "#src/common";
-import type { PermissionResolver } from "#src/permission-resolver";
+import type { ScopedPermissionResolver } from "#src/permission-resolver";
 import type { SkillPromptEntry } from "#src/skill-prompt-sanitizer";
 import type { ToolInputFormatterLookup } from "#src/tool-input-formatter-registry";
 import {
@@ -21,14 +21,14 @@ import type { GateOutcome, ToolCallContext } from "./types";
 /**
  * Narrow interface the pipeline needs from its session-side dependency.
  *
- * Extends `PermissionResolver` (the `resolve` method gate factories use)
+ * Extends `ScopedPermissionResolver` (the `resolve` method gate factories use)
  * with the three query methods needed to assemble gate inputs.
  *
  * `PermissionSession` satisfies this structurally at the construction call
  * site; no `implements` clause is needed and would create a layer-inversion
  * import from the domain module into the handler layer.
  */
-export interface ToolCallGateInputs extends PermissionResolver {
+export interface ToolCallGateInputs extends ScopedPermissionResolver {
   /** Active skill prompt entries for the skill-read gate. */
   getActiveSkillEntries(): SkillPromptEntry[];
   /** Combined infrastructure read directories (static + config-derived). */

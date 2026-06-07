@@ -11,7 +11,7 @@ import type { ExtensionPaths } from "./extension-paths";
 import type { ForwardingController } from "./forwarding-manager";
 import type { GateHandlerSession } from "./gate-handler-session";
 import type { ScopedPermissionManager } from "./permission-manager";
-import type { PermissionResolver } from "./permission-resolver";
+import type { ScopedPermissionResolver } from "./permission-resolver";
 import type { PromptingGatewayLifecycle } from "./prompting-gateway";
 import type { Rule } from "./rule";
 import type { SessionApproval } from "./session-approval";
@@ -43,7 +43,7 @@ import type { PermissionCheckResult, PermissionState } from "./types";
  */
 export class PermissionSession
   implements
-    PermissionResolver,
+    ScopedPermissionResolver,
     SessionApprovalRecorder,
     GateHandlerSession,
     AgentPrepSession,

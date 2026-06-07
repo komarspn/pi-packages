@@ -1,5 +1,5 @@
 import { getNonEmptyString, toRecord } from "#src/common";
-import type { PermissionResolver } from "#src/permission-resolver";
+import type { ScopedPermissionResolver } from "#src/permission-resolver";
 import { SessionApproval } from "#src/session-approval";
 import { deriveApprovalPattern } from "#src/session-rules";
 import type { PermissionCheckResult } from "#src/types";
@@ -25,7 +25,7 @@ import type { ToolCallContext } from "./types";
 export function describeBashPathGate(
   tcc: ToolCallContext,
   bashProgram: BashProgram | null,
-  resolver: PermissionResolver,
+  resolver: ScopedPermissionResolver,
 ): GateResult {
   if (tcc.toolName !== "bash") return null;
 

@@ -8,7 +8,7 @@ import type { PermissionCheckResult } from "./types";
  * previously threaded by hand: the ruleset was only ever fetched to be passed
  * straight back into `checkPermission`, so the two are one operation.
  */
-export interface PermissionResolver {
+export interface ScopedPermissionResolver {
   resolve(
     surface: string,
     input: unknown,
