@@ -490,7 +490,7 @@ src/
 ├── permission-gate.ts        Pure deny/ask/allow gate (injected IO)
 ├── permission-prompter.ts    Yolo-mode, review logging, UI/forwarding branch; PromptPermissionDetails type
 ├── permission-dialog.ts      Dialog options (once / session / deny)
-├── permission-resolver.ts    `PermissionResolver` interface - `resolve(surface, input, agentName)`; collapses the checkPermission + getSessionRuleset relay (#319). Implemented by `PermissionSession`
+├── permission-resolver.ts    `ScopedPermissionResolver` interface - narrow `{ resolve }` role the gate factories / runner / pipeline depend on; `PermissionResolver` concrete class - holds `ScopedPermissionManager` + `SessionRules`, owns `resolve` / `checkPermission` / `getToolPermission` / `getConfigIssues` / `getPolicyCacheStamp`; extracted from `PermissionSession` (#340)
 ├── decision-reporter.ts      `DecisionReporter` interface + `GateDecisionReporter` class - owns `SessionLogger` and event bus; writes review-log entries and emits decision events (#322)
 ├── gate-prompter.ts          `GatePrompter` interface - `canConfirm()` + `prompt(details)`; the prompting role `GateRunner` needs, bound to context by the implementor (#323)
 ├── prompting-gateway.ts      `PromptingGateway` class - context-owning `GatePrompter` implementation; owns the stored `ExtensionContext`, the can-prompt policy (UI / subagent / yolo-mode), and `prompt(details)` delegation; `PromptingGatewayLifecycle` interface drives `activate`/`deactivate` from `PermissionSession` (#339)
@@ -499,7 +499,7 @@ src/
 ├── agent-prep-session.ts     `AgentPrepSession` interface — extends `GateHandlerSession` + `SkillPermissionChecker`; adds `refreshConfig`, `getToolPermission`, the active-tools + prompt-state cache-key pairs, `getPolicyCacheStamp`, `setActiveSkillEntries`. Role `AgentPrepHandler` depends on (#331)
 ├── session-lifecycle-session.ts `SessionLifecycleSession` interface — `refreshConfig`, `resetForNewSession`, `logResolvedConfigPaths`, `resolveAgentName`, `getConfigIssues`, `reload`, `getRuntimeContext`, `shutdown`, `logger`. Role `SessionLifecycleHandler` depends on; intentionally omits `activate` (ISP) (#331)
 │
-├── permission-session.ts     `PermissionSession` class - encapsulates all mutable session state; implements `PermissionResolver`, `SessionApprovalRecorder`, `GateHandlerSession`, `AgentPrepSession`, `SessionLifecycleSession`; exposes `getInfrastructureReadDirs()` and `getToolPreviewLimits()` for Tell-Don't-Ask gate inputs (#327); `createPermissionRequestId` relocated to `SkillInputGatePipeline` (#329, absorbs #330); narrowed role interfaces added for all three handlers (#325, #331); prompting role moved to `PromptingGateway` (#339)
+├── permission-session.ts     `PermissionSession` class - encapsulates all mutable session state; implements `SessionApprovalRecorder`, `GateHandlerSession`, `AgentPrepSession`, `SessionLifecycleSession`; exposes `getInfrastructureReadDirs()` and `getToolPreviewLimits()` for Tell-Don't-Ask gate inputs (#327); `createPermissionRequestId` relocated to `SkillInputGatePipeline` (#329, absorbs #330); narrowed role interfaces added for all three handlers (#325, #331); prompting role moved to `PromptingGateway` (#339); resolve role moved to `PermissionResolver` (#340)
 ├── handlers/                 Handler classes with narrow constructor injection
 │   ├── index.ts              Barrel re-exports
 │   ├── lifecycle.ts          SessionLifecycleHandler (session: `SessionLifecycleSession` + serviceLifecycle: `ServiceLifecycle`) (#331, #320)
@@ -508,8 +508,8 @@ src/
 │   └── gates/               Pure descriptor factories + runner
 │       ├── types.ts          GateOutcome, ToolCallContext
 │       ├── descriptor.ts     GateDescriptor (with DenialContext), GateBypass, GateResult types
-│       ├── runner.ts         GateRunner class — constructed with `PermissionResolver`, `SessionApprovalRecorder`, `GatePrompter`, `DecisionReporter`; `run(gate, agentName, toolCallId)` dispatches null / bypass / descriptor
-│       ├── tool-call-gate-pipeline.ts `ToolCallGateInputs` interface + `ToolCallGatePipeline` class — constructed once in the composition root and injected into `PermissionGateHandler`; owns bash-command extraction + single `BashProgram.parse`, `ToolPreviewFormatter` construction, infra-dir list, the six gate producers, and the run loop; `evaluate(tcc, runner)` returns the first block outcome or allow (#327)
+│       ├── runner.ts         GateRunner class — constructed with `ScopedPermissionResolver`, `SessionApprovalRecorder`, `GatePrompter`, `DecisionReporter`; `run(gate, agentName, toolCallId)` dispatches null / bypass / descriptor
+│       ├── tool-call-gate-pipeline.ts `ToolCallGateInputs` interface (three query methods: `getActiveSkillEntries`, `getInfrastructureReadDirs`, `getToolPreviewLimits`) + `ToolCallGatePipeline` class — constructed with `ScopedPermissionResolver` + `ToolCallGateInputs`; owns bash-command extraction + single `BashProgram.parse`, `ToolPreviewFormatter` construction, infra-dir list, the six gate producers, and the run loop; `evaluate(tcc, runner)` returns the first block outcome or allow (#327, #340)
 │       ├── skill-input-gate-pipeline.ts `SkillInputGateInputs` + `GateNotifier` interfaces + `SkillInputGatePipeline` class — constructed once in the composition root and injected into `PermissionGateHandler`; owns raw `checkPermission` pre-check, deny notify, `describeSkillInputGate` descriptor, request-id mint (`createSkillInputRequestId`), and `runner.run`; `evaluate(skillName, agentName, notifier, runner)` makes the `input` path symmetric with the `tool_call` path (#329, absorbs #330)
 │       ├── helpers.ts        deriveDecisionValue, deriveResolution, buildDecisionEvent
 │       ├── skill-read.ts     describeSkillReadGate - pure descriptor factory
@@ -592,22 +592,22 @@ Phase 4 splits the object so each role maps to a distinct collaborator, then ret
 
 `fallow`'s structural metrics (left) say the production code is healthy; the constructibility metrics (right) — which `fallow` does not score — tell the real story.
 
-| Metric                                                       | Value                                                                            |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------- |
-| Health score                                                 | 76 B                                                                             |
-| LOC                                                          | 37,151                                                                           |
-| Dead files / exports                                         | 0%                                                                               |
-| Avg cyclomatic / p90                                         | 1.4 / 2                                                                          |
-| Maintainability                                              | 91.2 (good)                                                                      |
-| Complexity refactoring targets                               | 0                                                                                |
-| Production duplication                                       | 0% (no `src/` clone groups)                                                      |
-| `index.ts` closures + `.bind` adapters                       | 10 (was 11; `canRequestPermissionConfirmation` removed by #339)                  |
-| `runtime`-as-first-arg free functions                        | 0 (all eliminated by #335–#337)                                                  |
-| `PermissionSession` role interfaces implemented by one class | 5 (`GatePrompter` role moved to `PromptingGateway` by #339)                      |
-| Test files using module-level `vi.mock`                      | 23                                                                               |
-| `as unknown as` casts in `test/`                             | ~31 (3× `PermissionManager`, 1× `SessionRules`; prompting casts removed by #339) |
-| Test duplication                                             | 2,505 lines across 41 files — 3.4% (`dupes`) / 6.6% (health basis)               |
-| Very-high functions (>60 LOC)                                | 5% — all in `test/`                                                              |
+| Metric                                                       | Value                                                                                                           |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| Health score                                                 | 76 B                                                                                                            |
+| LOC                                                          | 37,151                                                                                                          |
+| Dead files / exports                                         | 0%                                                                                                              |
+| Avg cyclomatic / p90                                         | 1.4 / 2                                                                                                         |
+| Maintainability                                              | 91.2 (good)                                                                                                     |
+| Complexity refactoring targets                               | 0                                                                                                               |
+| Production duplication                                       | 0% (no `src/` clone groups)                                                                                     |
+| `index.ts` closures + `.bind` adapters                       | 10 (was 11; `canRequestPermissionConfirmation` removed by #339)                                                 |
+| `runtime`-as-first-arg free functions                        | 0 (all eliminated by #335–#337)                                                                                 |
+| `PermissionSession` role interfaces implemented by one class | 4 (`GatePrompter` role moved to `PromptingGateway` by #339; resolve role moved to `PermissionResolver` by #340) |
+| Test files using module-level `vi.mock`                      | 23                                                                                                              |
+| `as unknown as` casts in `test/`                             | ~31 (3× `PermissionManager`, 1× `SessionRules`; prompting casts removed by #339)                                |
+| Test duplication                                             | 2,505 lines across 41 files — 3.4% (`dupes`) / 6.6% (health basis)                                              |
+| Very-high functions (>60 LOC)                                | 5% — all in `test/`                                                                                             |
 
 Health-score deductions: hotspots -10.0 · unit size -10.0 · coupling -2.4 · duplication -1.6.
 
