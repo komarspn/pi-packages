@@ -696,6 +696,11 @@ Expected phase outcome: the constructibility table moves toward zero — `index.
 Deferred to Phase 5 (the "Full" scope exceeds 9 steps): further `PermissionSession` decomposition (an `ActiveAgentTracker` for agent-name state, a cache-key owner, an infra-path/preview-limits helper), and the remaining test-tree cleanup from the first draft that the production refactor does not dissolve — de-duplicating the residual clone families (`external-directory-integration`, `permission-forwarder`, the gate families) onto shared fixtures and splitting the oversized `describe` arrows (`bash-external-directory.test.ts` 880-line, `permission-session.test.ts` 575-line).
 These are intentionally last: they are cheaper after Steps 1-8 shrink the fixtures they would otherwise migrate.
 
+Phase 5 candidate — dissolve the logger `notify` cycle via the event bus: route the logger's IO-failure and `warn()` warnings through a `pi.events` channel (mirroring the existing `emitUiPromptEvent` pub-sub) instead of reaching `session.getRuntimeContext().ui.notify`.
+The logger then depends only on the bus (available at construction), breaking the logger ↔ `PermissionSession` forward-reference cycle that [#338] leaves in place; the dedup `Set` stays on the emit side.
+This is pub-sub, not the in-process Observer (`SubagentManagerObserver`) pattern pi-subagents uses — a directly-injected observer would reintroduce the cycle because the logger is constructed before any context-bearing collaborator.
+The logger ↔ `ConfigStore` `getConfig` cycle is deliberately not a candidate: the logger must exist before the store yet needs live toggle reads, so the forward-reference closure is cheaper than any untangling (a push model would require the setter the composition root avoids).
+
 ### Step dependency diagram
 
 Two production tracks run in parallel after Step 1, joined at the composition root and the test tail.
