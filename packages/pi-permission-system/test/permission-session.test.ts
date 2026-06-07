@@ -19,7 +19,6 @@ vi.mock("../src/active-agent", () => ({
 
 import type { DEFAULT_EXTENSION_CONFIG } from "#src/extension-config";
 import { SessionApproval } from "#src/session-approval";
-import { SessionRules } from "#src/session-rules";
 import type { SkillPromptEntry } from "#src/skill-prompt-sanitizer";
 import { makeCtx } from "#test/helpers/handler-fixtures";
 import {

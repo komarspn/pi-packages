@@ -9,10 +9,9 @@ import type { SessionConfigStore } from "./config-store";
 import type { PermissionSystemExtensionConfig } from "./extension-config";
 import type { ExtensionPaths } from "./extension-paths";
 import type { ForwardingController } from "./forwarding-manager";
-import type { GateHandlerSession } from "./gate-handler-session";
+import type { ToolCallGateInputs } from "./handlers/gates/tool-call-gate-pipeline";
 import type { ScopedPermissionManager } from "./permission-manager";
 import type { PromptingGatewayLifecycle } from "./prompting-gateway";
-import type { Rule } from "./rule";
 
 import type { SessionLogger } from "./session-logger";
 import type { SessionRules } from "./session-rules";
@@ -21,7 +20,6 @@ import {
   resolveToolPreviewLimits,
   type ToolPreviewFormatterOptions,
 } from "./tool-preview-formatter";
-import type { PermissionCheckResult, PermissionState } from "./types";
 
 /**
  * Encapsulates all mutable session state and exposes operations instead of
@@ -38,7 +36,7 @@ import type { PermissionCheckResult, PermissionState } from "./types";
  * - `SessionConfigStore` — owns extension config; provides refresh, log, read
  * - `PromptingGatewayLifecycle` — prompting lifecycle forwarded via activate/deactivate
  */
-export class PermissionSession implements GateHandlerSession {
+export class PermissionSession implements ToolCallGateInputs {
   private context: ExtensionContext | null = null;
   private skillEntries: SkillPromptEntry[] = [];
   private knownAgentName: string | null = null;
@@ -166,6 +164,10 @@ export class PermissionSession implements GateHandlerSession {
     return this.knownAgentName;
   }
 
+  // Read by config-modal (`controller.session.lastKnownActiveAgentName`).
+  // fallow cannot trace the getter through the command's object-literal
+  // wiring, so it reports a false positive here.
+  // fallow-ignore-next-line unused-class-member
   get lastKnownActiveAgentName(): string | null {
     return this.knownAgentName;
   }

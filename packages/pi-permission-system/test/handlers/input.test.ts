@@ -49,9 +49,10 @@ describe("extractSkillNameFromInput", () => {
 describe("handleInput", () => {
   it("activates session with ctx", async () => {
     const ctx = makeCtx();
-    const { handler, session } = makeHandler();
+    const { handler, forwarding } = makeHandler();
     await handler.handleInput(makeInputEvent("hello"), ctx);
-    expect(session.activate).toHaveBeenCalledWith(ctx);
+    // session.activate(ctx) calls forwarding.start(ctx) on the real session
+    expect(forwarding.start).toHaveBeenCalledWith(ctx);
   });
 
   it("returns continue for non-skill input", async () => {
@@ -64,9 +65,9 @@ describe("handleInput", () => {
   });
 
   it("does not check permissions for non-skill input", async () => {
-    const { handler, session } = makeHandler();
+    const { handler, permissionManager } = makeHandler();
     await handler.handleInput(makeInputEvent("just a message"), makeCtx());
-    expect(session.checkPermission).not.toHaveBeenCalled();
+    expect(permissionManager.checkPermission).not.toHaveBeenCalled();
   });
 
   it("returns continue when skill is allowed", async () => {

@@ -1,15 +1,16 @@
 /**
  * Shared handler-level test fixtures for PermissionGateHandler tests.
  *
- * All factories use override bags so callers can specialize any field
- * without constructing the full object from scratch.
+ * `makeHandler` builds a real PermissionSession + PermissionResolver and wires
+ * them into the handler and pipelines exactly as `index.ts` does.
+ * Call-site overrides for permission results flow through
+ * `permissionManager.checkPermission`; session state overrides are applied
+ * via vi.spyOn on the real session instance.
  */
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { vi } from "vitest";
 
 import { GateDecisionReporter } from "#src/decision-reporter";
-import { DEFAULT_EXTENSION_CONFIG } from "#src/extension-config";
-import type { GateHandlerSession } from "#src/gate-handler-session";
 import type { GatePrompter } from "#src/gate-prompter";
 import { GateRunner } from "#src/handlers/gates/runner";
 import {
@@ -26,28 +27,31 @@ import { PERMISSIONS_DECISION_CHANNEL } from "#src/permission-events";
 import type { Rule } from "#src/rule";
 import type { SessionLogger } from "#src/session-logger";
 import { SessionRules } from "#src/session-rules";
-import { resolveToolPreviewLimits } from "#src/tool-preview-formatter";
 import type { ToolRegistry } from "#src/tool-registry";
 import type { PermissionCheckResult, PermissionState } from "#src/types";
+import {
+  makeRealResolver,
+  makeRealSession,
+} from "#test/helpers/session-fixtures";
+
+// ── MockGateHandlerSession ────────────────────────────────────────────────
 
 /**
- * Precise mock boundary for PermissionGateHandler integration tests.
+ * Mock type for gate-pipeline inputs (ToolCallGateInputs + SkillInputGateInputs).
  *
- * Intersection of every role the handler and its collaborators require.
- * Prompting is not included here — it moved to `PromptingGateway` (#339).
- * Pass a `prompter` override to `makeHandler` to steer GateRunner's prompting
- * role; `makeHandler` creates a clean default prompter when none is supplied.
+ * Used by `makeSurfaceCheck`, `makeBashCommandCheck`, and the `session`
+ * override bag in `makeHandler`.  The `GateHandlerSession` role (activate +
+ * resolveAgentName) is now satisfied by the real `PermissionSession`; this
+ * type covers only the pipeline input surface.
  *
- * The 4-arg `checkPermission` keeps the `rules?` param for backward compat
- * with call sites that supply rules — the resolver no longer forwards ruleset
- * via the session, but the mock signature is a superset of SkillInputGateInputs.
+ * The 4-arg `checkPermission` is a superset of `SkillInputGateInputs` —
+ * it routes through `permissionManager.checkPermission` in production.
  */
 export type MockGateHandlerSession = ToolCallGateInputs &
-  SkillInputGateInputs &
-  GateHandlerSession & {
-    /** Logger source for the reporter the fixture builds. */
+  SkillInputGateInputs & {
+    /** Logger shape expected by GateDecisionReporter. */
     logger: SessionLogger;
-    /** 4-arg form kept for backward compat with existing test overrides. */
+    /** 4-arg form so surface-check mocks can receive optional rules. */
     checkPermission(
       surface: string,
       input: unknown,
@@ -55,6 +59,8 @@ export type MockGateHandlerSession = ToolCallGateInputs &
       rules?: Rule[],
     ): PermissionCheckResult;
   };
+
+// ── Small utility factories ───────────────────────────────────────────────
 
 export function makeEvents() {
   return {
@@ -115,52 +121,6 @@ export function makeCheckResult(
   };
 }
 
-/**
- * Full-intersection session stub.
- *
- * Uses per-field `??` selection (no spread) so TypeScript verifies every
- * field against `MockGateHandlerSession` individually — a missing field fails
- * `pnpm run check` instead of failing silently at runtime.
- *
- * Prompting is not part of this mock — pass `prompter` to `makeHandler`.
- */
-export function makeSession(
-  overrides: Partial<MockGateHandlerSession> = {},
-): MockGateHandlerSession {
-  const session: MockGateHandlerSession = {
-    logger: overrides.logger ?? {
-      debug: vi.fn(),
-      review: vi.fn(),
-      warn: vi.fn(),
-    },
-    activate: overrides.activate ?? vi.fn<MockGateHandlerSession["activate"]>(),
-    resolveAgentName:
-      overrides.resolveAgentName ??
-      vi.fn<MockGateHandlerSession["resolveAgentName"]>().mockReturnValue(null),
-    checkPermission:
-      overrides.checkPermission ??
-      vi
-        .fn<MockGateHandlerSession["checkPermission"]>()
-        .mockReturnValue(makeCheckResult()),
-    getActiveSkillEntries:
-      overrides.getActiveSkillEntries ??
-      vi
-        .fn<MockGateHandlerSession["getActiveSkillEntries"]>()
-        .mockReturnValue([]),
-    getInfrastructureReadDirs:
-      overrides.getInfrastructureReadDirs ??
-      vi
-        .fn<MockGateHandlerSession["getInfrastructureReadDirs"]>()
-        .mockReturnValue(["/test/agent", "/test/agent/git"]),
-    getToolPreviewLimits:
-      overrides.getToolPreviewLimits ??
-      vi
-        .fn<MockGateHandlerSession["getToolPreviewLimits"]>()
-        .mockReturnValue(resolveToolPreviewLimits(DEFAULT_EXTENSION_CONFIG)),
-  };
-  return session;
-}
-
 export function makeToolRegistry(
   overrides: Partial<ToolRegistry> = {},
 ): ToolRegistry {
@@ -171,14 +131,14 @@ export function makeToolRegistry(
   };
 }
 
+// ── Surface-check factories ────────────────────────────────────────────────
+
 /**
  * Surface-dispatching `checkPermission` mock.
  *
- * Builds a `vi.fn()` that returns a `PermissionCheckResult` for each surface,
- * using `bySurface[surface]` when matched and `defaultResult` otherwise.
- * Default fields: `toolName` = the surface string, `source: "tool"`,
- * `origin: "builtin"` — callers override by including the field in the
- * per-surface or default partial (e.g. `{ path: { state: "allow", source: "special" } }`).
+ * Returns the matching per-surface result or `defaultResult`.
+ * Pass the returned function as `session.checkPermission` in a `makeHandler`
+ * override bag — it is applied to `permissionManager.checkPermission`.
  *
  * Return type is intentionally unannotated so callers retain full `vi.fn()`
  * mock access (`mock.calls`, `toHaveBeenCalledWith`, etc.).
@@ -208,9 +168,8 @@ export function makeSurfaceCheck(
 /**
  * Bash-surface `checkPermission` mock that dispatches on a command regex.
  *
- * For the `bash` surface: returns a deny result when `opts.deny` matches the
- * command, and an allow result otherwise.  For all other surfaces, returns a
- * plain allow result.
+ * Pass the returned function as `session.checkPermission` in a `makeHandler`
+ * override bag — it is applied to `permissionManager.checkPermission`.
  *
  * Return type is intentionally unannotated so callers retain full `vi.fn()`
  * mock access.
@@ -243,24 +202,68 @@ export function makeBashCommandCheck(opts: {
     });
 }
 
+// ── makeHandler ────────────────────────────────────────────────────────────
+
 /**
- * Constructs a PermissionGateHandler with mocked collaborators.
+ * Constructs a PermissionGateHandler wired with real collaborators.
  *
- * Returns all collaborators so each test file can destructure only what
- * it needs — handler, events, session, toolRegistry, and prompter are all available.
+ * The `session` override bag maps to the real collaborators:
+ * - `checkPermission` → applied to `permissionManager.checkPermission`
+ * - `getActiveSkillEntries`, `getInfrastructureReadDirs`, `getToolPreviewLimits`
+ *   → applied as vi.spyOn overrides on the real session
+ * - `resolveAgentName` → applied as a vi.spyOn override on the real session
  *
- * The default prompter approves all requests. Pass `prompter` explicitly to
- * steer canConfirm/prompt behavior for the test.
+ * Returns `{ handler, events, session, toolRegistry, prompter, recorder,
+ * permissionManager, forwarding }` so each test file can destructure only
+ * what it needs.
+ * `session.activate` is not a mock — use `forwarding.start` to assert it
+ * was called.
  */
 export function makeHandler(overrides?: {
-  session?: Partial<MockGateHandlerSession>;
+  session?: Partial<MockGateHandlerSession> & {
+    resolveAgentName?: (
+      ctx: ExtensionContext,
+      systemPrompt?: string,
+    ) => string | null;
+  };
   /** Override the GatePrompter passed to GateRunner. Defaults to an allow-all stub. */
   prompter?: GatePrompter;
   toolRegistry?: Partial<ToolRegistry>;
   /** Sugar: builds the `getAll` mock from a list of tool names. */
   tools?: string[];
 }) {
-  const session = makeSession(overrides?.session);
+  const { session, permissionManager, sessionRules, forwarding, logger } =
+    makeRealSession();
+  const { resolver } = makeRealResolver(permissionManager, sessionRules);
+
+  // Apply session override bag to the real collaborators.
+  const so = overrides?.session;
+  if (so?.checkPermission) {
+    vi.mocked(permissionManager.checkPermission).mockImplementation(
+      so.checkPermission,
+    );
+  }
+  if (so?.getActiveSkillEntries) {
+    vi.spyOn(session, "getActiveSkillEntries").mockImplementation(
+      so.getActiveSkillEntries,
+    );
+  }
+  if (so?.getInfrastructureReadDirs) {
+    vi.spyOn(session, "getInfrastructureReadDirs").mockImplementation(
+      so.getInfrastructureReadDirs,
+    );
+  }
+  if (so?.getToolPreviewLimits) {
+    vi.spyOn(session, "getToolPreviewLimits").mockImplementation(
+      so.getToolPreviewLimits,
+    );
+  }
+  if (so?.resolveAgentName) {
+    vi.spyOn(session, "resolveAgentName").mockImplementation(
+      so.resolveAgentName,
+    );
+  }
+
   const events = makeEvents();
   const toolRegistry =
     overrides?.tools !== undefined
@@ -270,18 +273,11 @@ export function makeHandler(overrides?: {
             .mockReturnValue(overrides.tools.map((name) => ({ name }))),
         })
       : makeToolRegistry(overrides?.toolRegistry);
-  // Resolver delegates to session's checkPermission —
-  // overriding session.checkPermission steers resolve automatically.
-  // The recorder is a shared SessionRules so the runner records approvals
-  // independently of the session mock.
+
   const recorder = new SessionRules();
-  const resolver = {
-    resolve: (surface: string, input: unknown, agentName?: string) =>
-      session.checkPermission(surface, input, agentName),
-  };
   const pipeline = new ToolCallGatePipeline(resolver, session);
-  const skillInputPipeline = new SkillInputGatePipeline(session);
-  const reporter = new GateDecisionReporter(session.logger, events);
+  const skillInputPipeline = new SkillInputGatePipeline(resolver);
+  const reporter = new GateDecisionReporter(logger, events);
   const prompter: GatePrompter = overrides?.prompter ?? {
     canConfirm: vi.fn().mockReturnValue(true),
     prompt: vi
@@ -296,8 +292,19 @@ export function makeHandler(overrides?: {
     skillInputPipeline,
     runner,
   );
-  return { handler, events, session, toolRegistry, prompter, recorder };
+  return {
+    handler,
+    events,
+    session,
+    toolRegistry,
+    prompter,
+    recorder,
+    permissionManager,
+    forwarding,
+  };
 }
+
+// ── Decision-event helper ─────────────────────────────────────────────────
 
 /** Extract all permissions:decision payloads from the events.emit mock. */
 export function getDecisionEvents(

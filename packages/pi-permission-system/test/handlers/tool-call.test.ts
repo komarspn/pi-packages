@@ -49,9 +49,10 @@ describe("getEventInput", () => {
 describe("handleToolCall", () => {
   it("activates session with ctx", async () => {
     const ctx = makeCtx();
-    const { handler, session } = makeHandler();
+    const { handler, forwarding } = makeHandler();
     await handler.handleToolCall(makeToolCallEvent("read"), ctx);
-    expect(session.activate).toHaveBeenCalledWith(ctx);
+    // session.activate(ctx) calls forwarding.start(ctx) on the real session
+    expect(forwarding.start).toHaveBeenCalledWith(ctx);
   });
 
   it("blocks when tool name cannot be resolved", async () => {
