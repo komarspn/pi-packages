@@ -109,7 +109,7 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
             subagentRegistry,
           ),
         }),
-      promptPermission: (ctx, details) => prompter.prompt(ctx, details),
+      prompter,
     },
   );
 

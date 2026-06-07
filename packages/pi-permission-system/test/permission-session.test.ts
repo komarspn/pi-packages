@@ -86,9 +86,9 @@ function makeConfigStore(
 function makeRuntimeDeps(): PermissionSessionRuntimeDeps {
   return {
     canRequestPermissionConfirmation: vi.fn().mockReturnValue(true),
-    promptPermission: vi
-      .fn()
-      .mockResolvedValue({ approved: true, state: "approved" }),
+    prompter: {
+      prompt: vi.fn().mockResolvedValue({ approved: true, state: "approved" }),
+    },
   };
 }
 
@@ -665,7 +665,7 @@ describe("PermissionSession", () => {
 
       const result = await session.promptPermission(details);
 
-      expect(runtimeDeps.promptPermission).toHaveBeenCalledWith(ctx, details);
+      expect(runtimeDeps.prompter.prompt).toHaveBeenCalledWith(ctx, details);
       expect(result).toEqual({ approved: true, state: "approved" });
     });
 
@@ -709,7 +709,7 @@ describe("PermissionSession", () => {
   });
 
   describe("prompt", () => {
-    it("delegates to runtimeDeps.promptPermission", async () => {
+    it("delegates to runtimeDeps.prompter.prompt", async () => {
       const { session, runtimeDeps } = createSession();
       const ctx = makeCtx();
       const details = {
@@ -721,7 +721,7 @@ describe("PermissionSession", () => {
 
       const result = await session.prompt(ctx, details);
 
-      expect(runtimeDeps.promptPermission).toHaveBeenCalledWith(ctx, details);
+      expect(runtimeDeps.prompter.prompt).toHaveBeenCalledWith(ctx, details);
       expect(result).toEqual({ approved: true, state: "approved" });
     });
   });

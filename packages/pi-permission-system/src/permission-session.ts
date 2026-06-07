@@ -13,7 +13,10 @@ import type { GateHandlerSession } from "./gate-handler-session";
 import type { GatePrompter } from "./gate-prompter";
 import type { PermissionPromptDecision } from "./permission-dialog";
 import type { ScopedPermissionManager } from "./permission-manager";
-import type { PromptPermissionDetails } from "./permission-prompter";
+import type {
+  PermissionPrompterApi,
+  PromptPermissionDetails,
+} from "./permission-prompter";
 import type { PermissionResolver } from "./permission-resolver";
 import type { Rule } from "./rule";
 import type { SessionApproval } from "./session-approval";
@@ -36,11 +39,8 @@ import type { PermissionCheckResult, PermissionState } from "./types";
 export interface PermissionSessionRuntimeDeps {
   /** Whether the current context can show an interactive permission prompt. */
   canRequestPermissionConfirmation(ctx: ExtensionContext): boolean;
-  /** Prompt the user for a permission decision, log the outcome, and return it. */
-  promptPermission(
-    ctx: ExtensionContext,
-    details: PromptPermissionDetails,
-  ): Promise<PermissionPromptDecision>;
+  /** Resolves the permission decision via the shared PermissionPrompter. */
+  prompter: PermissionPrompterApi;
 }
 
 /**
@@ -304,7 +304,7 @@ export class PermissionSession
     ctx: ExtensionContext,
     details: PromptPermissionDetails,
   ): Promise<PermissionPromptDecision> {
-    return this.runtimeDeps.promptPermission(ctx, details);
+    return this.runtimeDeps.prompter.prompt(ctx, details);
   }
 
   /**
