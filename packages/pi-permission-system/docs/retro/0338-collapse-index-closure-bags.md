@@ -50,3 +50,49 @@ All planned interface changes landed — `ConfigStoreLogger` and `ForwardedPermi
   Noted as a minor deviation.
 - One stray unused import (`Rule` in `permission-event-rpc.ts`) surfaced at lint time after cycle 3; fixed as a `style:` commit since it was separated from the originating commit by later commits.
 - Pre-completion reviewer: **PASS** — all deterministic checks green, no structural concerns, architecture.md Mermaid diagrams valid.
+
+## Stage: Final Retrospective (2026-06-06T22:30:00Z)
+
+### Session summary
+
+A single long session carried #338 from planning through shipping: explored the composition root, surfaced two design forks via `ask_user`, wrote the plan, executed seven TDD cycles (six `refactor:` + one `docs:`), passed pre-completion review, and shipped (CI green, issue closed, no release-please PR since `refactor:`/`style:`/`docs:` commits do not trigger a release).
+The suite held at 86 files / 1815 tests with zero delta; `index.ts` closures dropped 20 → 11 exactly as the plan's budget table predicted.
+Execution was clean — friction was confined to two minor tool-mechanics blips, no rework to committed code.
+
+### Observations
+
+#### What went well
+
+- The two-question `ask_user` at planning surfaced genuine design forks (no-setter / forward-reference-closure direction; include `ConfigStore` + `PermissionForwarder` in scope) that shaped the whole plan and steered away from the wrong path of setter injection.
+  Novel: both answers materially changed the design rather than rubber-stamping it.
+- The mid-session conceptual Q&A (Observer pattern vs. event-bus pub-sub for the logger `notify` cycle) turned a clarifying question into a committed Phase 5 roadmap note in `architecture.md` (commit `723310c0`).
+  Novel: a Q&A interlude becoming a durable architecture artifact rather than ephemeral chat.
+- Lift-and-shift folding (consumer interface change + its test updates + the matching `index.ts` wiring, all in one commit per consumer) ran across all six refactor cycles with no type-checker deadlock and a clean Red→Green at each step.
+  Validated the planning rule about folding interface + tests + single call-site into one commit.
+- Planning accuracy: the plan honestly revised the roadmap's optimistic "≤ 8" closure target to a realistic 11 with a budget breakdown, and the final count landed at exactly 11 (pre-completion confirmed).
+
+#### What caused friction (agent side)
+
+- `missing-context` — Cycle 1 (`config-store.ts`): constructed the `Edit` batch `oldText` from memory rather than reading the exact lines first; the batch was rejected ("Could not find edits[3]" — indentation/content mismatch) and atomically discarded.
+  Impact: ~3 extra tool calls (grep + two reads + re-apply); no rework to committed code.
+- `other` (feedback-loop gap) — `pnpm run lint` ran only at the end of implementation, so the unused `Rule` import left behind when cycle 3 dropped `getSessionRules(): Rule[]` surfaced post-implementation and needed a separate `style:` commit (`939af088`).
+  Impact: one extra commit; `pnpm run check` (tsc) ran incrementally and passed, but does not flag unused type imports — biome does.
+
+#### What caused friction (user side)
+
+- None.
+  User involvement was strategic at every decision boundary (two planning forks, the proactive untangling Q&A, the ship-time batching decision) — no mechanical oversight, no corrections requiring rework.
+- Minor opportunity, not friction: the logger-cycle answer ("same as we did for pi-subagents") required investigating `pi-subagents/src/index.ts` to recover the exact pattern; a file pointer would have saved one exploration step, but the reference was reasonable and unambiguous in hindsight.
+
+### Diagnostic details
+
+- **Model-performance correlation** — one subagent dispatch (`pre-completion-reviewer`) ran on `anthropic/claude-sonnet-4-6`; appropriate for judgment-heavy review (acceptance criteria, code design, docs staleness).
+  No mismatch.
+- **Escalation-delay tracking** — no `rabbit-hole` friction; the Cycle 1 batch-edit rejection resolved in ~2 tool calls, well under the 5-call escalation threshold.
+- **Unused-tool detection** — none notable; planning exploration used `grep`/`Read` efficiently and no `missing-context` point would have been better served by an Explore subagent or `colgrep`.
+- **Feedback-loop gap analysis** — `pnpm run test` (per-file) and `pnpm run check` ran incrementally after each cycle (good); `pnpm run lint` ran only at the end, which is the sole gap and the direct cause of the late unused-import catch.
+
+### Changes made
+
+1. Appended this Final Retrospective stage entry to `packages/pi-permission-system/docs/retro/0338-collapse-index-closure-bags.md`.
+   No `AGENTS.md` or prompt changes — the two friction points (Edit-batch-from-memory; late lint) are already covered by existing guidance or too marginal to warrant a rule (user confirmed: land retro only).
