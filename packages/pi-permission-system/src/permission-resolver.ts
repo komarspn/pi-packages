@@ -67,14 +67,17 @@ export class PermissionResolver implements ScopedPermissionResolver {
     );
   }
 
+  // fallow-ignore-next-line unused-class-member
   getToolPermission(toolName: string, agentName?: string): PermissionState {
     return this.permissionManager.getToolPermission(toolName, agentName);
   }
 
+  // fallow-ignore-next-line unused-class-member
   getConfigIssues(agentName?: string): string[] {
     return this.permissionManager.getConfigIssues(agentName);
   }
 
+  // fallow-ignore-next-line unused-class-member
   getPolicyCacheStamp(agentName?: string): string {
     return this.permissionManager.getPolicyCacheStamp(agentName);
   }
