@@ -9,7 +9,6 @@
  * PermissionManager.
  */
 
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
 import { GateDecisionReporter } from "#src/decision-reporter";
@@ -19,7 +18,6 @@ import { GateRunner } from "#src/handlers/gates/runner";
 import { SkillInputGatePipeline } from "#src/handlers/gates/skill-input-gate-pipeline";
 import { ToolCallGatePipeline } from "#src/handlers/gates/tool-call-gate-pipeline";
 import { PermissionGateHandler } from "#src/handlers/permission-gate-handler";
-import type { PromptPermissionDetails } from "#src/permission-prompter";
 import type { Rule } from "#src/rule";
 import type { SessionApproval } from "#src/session-approval";
 import { resolveToolPreviewLimits } from "#src/tool-preview-formatter";
@@ -155,15 +153,7 @@ function makeStatefulSession(
       vi
         .fn<MockGateHandlerSession["getToolPreviewLimits"]>()
         .mockReturnValue(resolveToolPreviewLimits(DEFAULT_EXTENSION_CONFIG)),
-    canPrompt:
-      overrides.canPrompt ??
-      vi.fn<MockGateHandlerSession["canPrompt"]>().mockReturnValue(true),
-    prompt:
-      overrides.prompt ??
-      vi
-        .fn<MockGateHandlerSession["prompt"]>()
-        .mockResolvedValue({ approved: true, state: "approved_for_session" }),
-    // Delegations — closures read `session` at call time so overrides win.
+    // Resolve delegation — closure reads `session` at call time so overrides win.
     resolve:
       overrides.resolve ??
       vi.fn<MockGateHandlerSession["resolve"]>((surface, input, agentName) =>
@@ -173,17 +163,6 @@ function makeStatefulSession(
           agentName,
           session.getSessionRuleset(),
         ),
-      ),
-    canConfirm:
-      overrides.canConfirm ??
-      vi.fn<MockGateHandlerSession["canConfirm"]>(() =>
-        session.canPrompt(undefined as unknown as ExtensionContext),
-      ),
-    promptPermission:
-      overrides.promptPermission ??
-      vi.fn<MockGateHandlerSession["promptPermission"]>(
-        (details: PromptPermissionDetails) =>
-          session.prompt(undefined as unknown as ExtensionContext, details),
       ),
   };
   return session;

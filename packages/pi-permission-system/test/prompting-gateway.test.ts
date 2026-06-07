@@ -205,12 +205,6 @@ describe("PromptingGateway", () => {
   });
 
   describe("lifecycle", () => {
-    let originalEnv: NodeJS.ProcessEnv;
-
-    beforeEach(() => {
-      originalEnv = { ...process.env };
-    });
-
     afterEach(() => {
       vi.unstubAllEnvs();
     });

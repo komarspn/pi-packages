@@ -219,13 +219,13 @@ describe("external_directory — allow external reads, gate external writes (#14
   });
 
   it("prompts for write to external path when external_directory allows but write is ask", async () => {
-    const prompt = vi
-      .fn()
-      .mockResolvedValue({ approved: true, state: "approved" });
-    const { handler } = makeHandler({
-      session: {
-        checkPermission: makeExtDirCheck("allow", "ask"),
-        prompt,
+    const { handler, prompter } = makeHandler({
+      session: { checkPermission: makeExtDirCheck("allow", "ask") },
+      prompter: {
+        canConfirm: vi.fn().mockReturnValue(true),
+        prompt: vi
+          .fn<GatePrompter["prompt"]>()
+          .mockResolvedValue({ approved: true, state: "approved" }),
       },
       tools: ALL_TOOLS,
     });
@@ -235,7 +235,7 @@ describe("external_directory — allow external reads, gate external writes (#14
     const result = await handler.handleToolCall(event, makeCtx());
     // external_directory passes; write gate prompts and user approves
     expect(result).toEqual({});
-    expect(prompt).toHaveBeenCalledOnce();
+    expect(prompter.prompt).toHaveBeenCalledOnce();
   });
 
   it("blocks write to external path when external_directory allows but write is deny", async () => {
