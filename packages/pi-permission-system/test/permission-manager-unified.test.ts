@@ -1359,6 +1359,100 @@ describe("cross-cutting path surface", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Home-expansion in path values (issue #350)
+// ---------------------------------------------------------------------------
+
+describe("cross-cutting path surface — home-expanded values", () => {
+  it("~/... path value is denied by a ~/* rule (reported footgun)", () => {
+    const { manager, cleanup } = makeManagerWithConfig({
+      path: { "*": "allow", "~/.ssh/*": "deny" },
+    });
+    try {
+      const result = manager.checkPermission("path", {
+        path: "~/.ssh/config",
+      });
+      expect(result.state).toBe("deny");
+      expect(result.matchedPattern).toBe("~/.ssh/*");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("$HOME/... path value is denied by a ~/* rule", () => {
+    const { manager, cleanup } = makeManagerWithConfig({
+      path: { "*": "allow", "~/.ssh/*": "deny" },
+    });
+    try {
+      const result = manager.checkPermission("path", {
+        path: `${homedir()}/.ssh/config`,
+      });
+      expect(result.state).toBe("deny");
+      expect(result.matchedPattern).toBe("~/.ssh/*");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("$HOME/... path value matches a $HOME/* pattern rule", () => {
+    const { manager, cleanup } = makeManagerWithConfig({
+      path: { "*": "allow", "$HOME/.ssh/*": "deny" },
+    });
+    try {
+      const result = manager.checkPermission("path", {
+        path: "$HOME/.ssh/config",
+      });
+      expect(result.state).toBe("deny");
+      expect(result.matchedPattern).toBe("$HOME/.ssh/*");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("already-absolute home path is still denied by ~/* rule", () => {
+    const { manager, cleanup } = makeManagerWithConfig({
+      path: { "*": "allow", "~/.ssh/*": "deny" },
+    });
+    try {
+      const result = manager.checkPermission("path", {
+        path: `${homedir()}/.ssh/config`,
+      });
+      expect(result.state).toBe("deny");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("non-home value is unchanged — .env still matches *.env", () => {
+    const { manager, cleanup } = makeManagerWithConfig({
+      path: { "*": "allow", "*.env": "deny" },
+    });
+    try {
+      const result = manager.checkPermission("path", { path: ".env" });
+      expect(result.state).toBe("deny");
+      expect(result.matchedPattern).toBe("*.env");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("per-tool read surface denies ~/... path with a ~/* rule", () => {
+    const { manager, cleanup } = makeManagerWithConfig({
+      "*": "allow",
+      read: { "*": "allow", "~/.ssh/*": "deny" },
+    });
+    try {
+      const result = manager.checkPermission("read", {
+        path: "~/.ssh/config",
+      });
+      expect(result.state).toBe("deny");
+      expect(result.matchedPattern).toBe("~/.ssh/*");
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // configureForCwd and agentDir construction
 // ---------------------------------------------------------------------------
 

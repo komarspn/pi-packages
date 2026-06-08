@@ -1,4 +1,5 @@
 import { toRecord } from "./common";
+import { expandHomePath } from "./expand-home";
 import { createMcpPermissionTargets } from "./mcp-targets";
 import { getPathBearingToolPath, PATH_BEARING_TOOLS } from "./path-utils";
 
@@ -66,13 +67,13 @@ export function normalizeInput(
   input: unknown,
   configuredMcpServerNames: readonly string[],
 ): NormalizedInput {
-  // --- Special surfaces (external_directory) ---
+  // --- Special surfaces (path, external_directory) ---
   if (SPECIAL_PERMISSION_KEYS.has(toolName)) {
     const record = toRecord(input);
     const pathValue = typeof record.path === "string" ? record.path : null;
     return {
       surface: toolName,
-      values: [pathValue ?? "*"],
+      values: [pathValue === null ? "*" : expandHomePath(pathValue)],
       resultExtras: {},
     };
   }
@@ -119,7 +120,7 @@ export function normalizeInput(
     const path = getPathBearingToolPath(toolName, input);
     return {
       surface: toolName,
-      values: [path ?? "*"],
+      values: [path === null ? "*" : expandHomePath(path)],
       resultExtras: {},
     };
   }

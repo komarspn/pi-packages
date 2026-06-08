@@ -1,6 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const mockHomedir = vi.hoisted(() => vi.fn(() => "/mock/home"));
+
+vi.mock("node:os", () => ({
+  homedir: mockHomedir,
+  default: { homedir: mockHomedir },
+}));
+
 import { normalizeInput } from "#src/input-normalizer";
 import { createMcpPermissionTargets } from "#src/mcp-targets";
+
+afterEach(() => {
+  mockHomedir.mockClear();
+});
 
 describe("normalizeInput — non-MCP surfaces", () => {
   describe("special / path", () => {
@@ -23,6 +36,26 @@ describe("normalizeInput — non-MCP surfaces", () => {
 
     it("handles null input", () => {
       const result = normalizeInput("path", null, []);
+      expect(result.values).toEqual(["*"]);
+    });
+
+    it("expands ~/... path value to absolute home path", () => {
+      const result = normalizeInput("path", { path: "~/.ssh/config" }, []);
+      expect(result.values).toEqual([join("/mock/home", ".ssh/config")]);
+    });
+
+    it("expands $HOME/... path value to absolute home path", () => {
+      const result = normalizeInput("path", { path: "$HOME/.ssh/config" }, []);
+      expect(result.values).toEqual([join("/mock/home", ".ssh/config")]);
+    });
+
+    it("does not expand non-home values", () => {
+      const result = normalizeInput("path", { path: ".env" }, []);
+      expect(result.values).toEqual([".env"]);
+    });
+
+    it("does not expand the '*' fallback", () => {
+      const result = normalizeInput("path", {}, []);
       expect(result.values).toEqual(["*"]);
     });
   });
@@ -52,6 +85,24 @@ describe("normalizeInput — non-MCP surfaces", () => {
     it("handles null input", () => {
       const result = normalizeInput("external_directory", null, []);
       expect(result.values).toEqual(["*"]);
+    });
+
+    it("expands ~/... path value to absolute home path", () => {
+      const result = normalizeInput(
+        "external_directory",
+        { path: "~/dev/project" },
+        [],
+      );
+      expect(result.values).toEqual([join("/mock/home", "dev/project")]);
+    });
+
+    it("expands $HOME/... path value to absolute home path", () => {
+      const result = normalizeInput(
+        "external_directory",
+        { path: "$HOME/dev/project" },
+        [],
+      );
+      expect(result.values).toEqual([join("/mock/home", "dev/project")]);
     });
   });
 
@@ -129,6 +180,16 @@ describe("normalizeInput — non-MCP surfaces", () => {
     it("falls back to '*' when input is null", () => {
       const result = normalizeInput("edit", null, []);
       expect(result.values).toEqual(["*"]);
+    });
+
+    it("expands ~/... path value to absolute home path", () => {
+      const result = normalizeInput("read", { path: "~/.ssh/config" }, []);
+      expect(result.values).toEqual([join("/mock/home", ".ssh/config")]);
+    });
+
+    it("expands $HOME/... path value to absolute home path", () => {
+      const result = normalizeInput("write", { path: "$HOME/.ssh/config" }, []);
+      expect(result.values).toEqual([join("/mock/home", ".ssh/config")]);
     });
   });
 
