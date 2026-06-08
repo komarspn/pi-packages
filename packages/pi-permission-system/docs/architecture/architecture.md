@@ -685,7 +685,7 @@ Each step is a behavior-preserving refactor that leaves the suite green; the suc
    - Smell category: C (ISP applied to the object, not just the interface — addresses Finding 2; depends on Steps 6-7).
    - Outcome: `GateRunner(session, session, session, …)` becomes `GateRunner(resolver, recorder, prompter, …)`; the 17-field `makeSession` fixture splits into small per-collaborator fixtures or disappears.
 
-9. **Retire the `permission-system.test.ts` catch-all (test-cleanup tail)** ([#342])
+9. **Retire the `permission-system.test.ts` catch-all (test-cleanup tail)** ([#342]) ✓ complete
    - Target: `test/permission-system.test.ts`; the co-located destination files.
    - Redistribute the ~80 flat tests into the existing co-located files (`yolo-mode`, `system-prompt-sanitizer`, `permission-manager-unified`, `scope-merge`, the external-directory suite, `session-rules`, …) now that the collaborators are independently constructable; delete the emptied shell.
    - Smell category: D/E (test organization — the part of Finding 5 the production refactor does not auto-resolve).
