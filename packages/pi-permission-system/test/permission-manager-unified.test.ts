@@ -7,13 +7,17 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import { getGlobalConfigPath, getProjectConfigPath } from "#src/config-paths";
 import {
   PermissionManager,
   type ScopedPermissionManager,
 } from "#src/permission-manager";
 import type { Rule, Ruleset } from "#src/rule";
+import {
+  createManager,
+  createManagerWithProject,
+} from "#test/helpers/manager-harness";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1506,4 +1510,193 @@ describe("PermissionManager — configureForCwd and agentDir option", () => {
       cleanup();
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+// Project-level and per-agent config scope — moved from catch-all (#342)
+// ---------------------------------------------------------------------------
+
+test("Project-level config overrides base bash patterns", () => {
+  const { manager, cleanup } = createManagerWithProject(
+    {
+      permission: {
+        "*": "allow",
+        bash: { "*": "ask", "rm -rf *": "deny" },
+      },
+    },
+    {},
+    {
+      projectConfig: {
+        permission: { bash: { "rm -rf build": "allow" } },
+      },
+    },
+  );
+
+  try {
+    const allowed = manager.checkPermission("bash", {
+      command: "rm -rf build",
+    });
+    expect(allowed.state).toBe("allow");
+    expect(allowed.matchedPattern).toBe("rm -rf build");
+
+    const denied = manager.checkPermission("bash", {
+      command: "rm -rf node_modules",
+    });
+    expect(denied.state).toBe("deny");
+    expect(denied.matchedPattern).toBe("rm -rf *");
+  } finally {
+    cleanup();
+  }
+});
+
+test("System-agent config overrides project-level bash patterns", () => {
+  const { manager, cleanup } = createManagerWithProject(
+    {
+      permission: { "*": "allow", bash: "ask" },
+    },
+    {
+      reviewer: `---
+name: reviewer
+permission:
+  bash:
+    "git log *": allow
+---
+`,
+    },
+    {
+      projectConfig: {
+        permission: { bash: { "git *": "deny" } },
+      },
+    },
+  );
+
+  try {
+    const allowed = manager.checkPermission(
+      "bash",
+      { command: "git log --oneline" },
+      "reviewer",
+    );
+    expect(allowed.state).toBe("allow");
+    expect(allowed.matchedPattern).toBe("git log *");
+
+    const denied = manager.checkPermission(
+      "bash",
+      { command: "git status" },
+      "reviewer",
+    );
+    expect(denied.state).toBe("deny");
+    expect(denied.matchedPattern).toBe("git *");
+  } finally {
+    cleanup();
+  }
+});
+
+test("Project-agent config overrides system-agent tool rules", () => {
+  const { manager, cleanup } = createManagerWithProject(
+    {
+      permission: { "*": "ask" },
+    },
+    {
+      reviewer: `---
+name: reviewer
+permission:
+  read: deny
+---
+`,
+    },
+    {
+      projectAgentFiles: {
+        reviewer: `---
+name: reviewer
+permission:
+  read: allow
+---
+`,
+      },
+    },
+  );
+
+  try {
+    const result = manager.checkPermission("read", {}, "reviewer");
+    expect(result.state).toBe("allow");
+    expect(result.source).toBe("tool");
+  } finally {
+    cleanup();
+  }
+});
+
+test("Full precedence chain base < project < system-agent < project-agent for universal default", () => {
+  const { manager, cleanup } = createManagerWithProject(
+    {
+      permission: { "*": "deny" },
+    },
+    {
+      reviewer: `---
+name: reviewer
+permission:
+  "*": ask
+---
+`,
+    },
+    {
+      projectConfig: {
+        permission: { "*": "allow" },
+      },
+      projectAgentFiles: {
+        reviewer: `---
+name: reviewer
+permission:
+  "*": deny
+---
+`,
+      },
+    },
+  );
+
+  try {
+    const reviewerResult = manager.checkPermission(
+      "custom_extension_tool",
+      {},
+      "reviewer",
+    );
+    expect(reviewerResult.state).toBe("deny");
+    expect(reviewerResult.source).toBe("default");
+
+    const globalResult = manager.checkPermission("custom_extension_tool", {});
+    expect(globalResult.state).toBe("allow");
+    expect(globalResult.source).toBe("default");
+  } finally {
+    cleanup();
+  }
+});
+
+test("Project-agent applies even without a matching system-agent file", () => {
+  const { manager, cleanup } = createManagerWithProject(
+    {
+      permission: { "*": "allow" },
+    },
+    {},
+    {
+      projectAgentFiles: {
+        reviewer: `---
+name: reviewer
+permission:
+  read: deny
+---
+`,
+      },
+    },
+  );
+
+  try {
+    const agentResult = manager.checkPermission("read", {}, "reviewer");
+    expect(agentResult.state).toBe("deny");
+    expect(agentResult.source).toBe("tool");
+
+    const globalResult = manager.checkPermission("read", {});
+    expect(globalResult.state).toBe("allow");
+    expect(globalResult.source).toBe("tool");
+  } finally {
+    cleanup();
+  }
 });
