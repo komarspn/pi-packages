@@ -414,6 +414,9 @@ They are expanded to the OS home directory at match time, so configs are portabl
 
 The pattern is stored and displayed as written (e.g. `~/development/*`) in logs and approval dialogs.
 
+Path **values** supplied by tool calls and bash commands are expanded the same way.
+This means `~/...`, `$HOME/...`, and the fully-expanded absolute form all match a single home-anchored pattern: a `read` tool called with path `~/.ssh/config`, `$HOME/.ssh/config`, or `/Users/me/.ssh/config` is all caught by a `"~/.ssh/*": "deny"` rule.
+
 ---
 
 ## Per-Agent Overrides

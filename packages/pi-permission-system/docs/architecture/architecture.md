@@ -277,6 +277,7 @@ Input normalization for all surfaces lives in `src/input-normalizer.ts`.
 For path-bearing tools (`read`, `write`, `edit`, `find`, `grep`, `ls`), `normalizeInput` returns the file path from `input.path` as the match value instead of `"*"`.
 This enables per-tool path patterns: `"read": { "*": "allow", "*.env": "deny" }` denies reads of `.env` files while allowing everything else.
 When `input.path` is missing or empty, the value falls back to `"*"` (surface-level catch-all), preserving backward compatibility.
+Path values are home-expanded via `expandHomePath` before matching, so `~/...` and `$HOME/...` values match home-anchored patterns (`~/.ssh/*`) just as absolute paths do.
 `getToolPermission()` is unaffected - it always evaluates with `"*"` to determine whether to inject the tool at agent start.
 
 ## Session approvals: the cache-miss model
@@ -481,7 +482,7 @@ src/
 ├── input-normalizer.ts       Surface-specific input normalization → NormalizedInput
 ├── pattern-suggest.ts        Per-surface approval pattern suggestions
 ├── bash-arity.ts             Command arity table for bash pattern suggestions
-├── expand-home.ts            ~/$HOME expansion for patterns
+├── expand-home.ts            ~/$HOME expansion for patterns and path values
 ├── session-approval.ts        SessionApproval value object - owns the single/multi-pattern union; exposes representativePattern and toGateApproval()
 ├── session-rules.ts          Session approval store (Ruleset wrapper); `implements SessionApprovalRecorder` — `recordSessionApproval(approval)` fan-out delegates to per-pattern `approve()`; injected directly into `GateRunner` as the recorder role (#341)
 ├── policy-loader.ts          PolicyLoader interface + FilePolicyLoader (file I/O, mtime caching)
