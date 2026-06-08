@@ -2921,3 +2921,69 @@ test("bash session rules do not bleed into mcp checks", () => {
     cleanup();
   }
 });
+
+// ---------------------------------------------------------------------------
+// getResolvedPolicyPaths — moved from catch-all (#342)
+// ---------------------------------------------------------------------------
+
+test("getResolvedPolicyPaths returns correct paths and existence when files exist", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "policy-paths-exist-"));
+  try {
+    const globalConfigPath = join(tempDir, "pi-permissions.jsonc");
+    const agentsDir = join(tempDir, "agents");
+    const projectConfigPath = join(tempDir, "project", "pi-permissions.jsonc");
+    const projectAgentsDir = join(tempDir, "project", "agents");
+
+    writeFileSync(globalConfigPath, "{}", "utf-8");
+    mkdirSync(agentsDir, { recursive: true });
+    mkdirSync(join(tempDir, "project"), { recursive: true });
+    writeFileSync(projectConfigPath, "{}", "utf-8");
+    mkdirSync(projectAgentsDir, { recursive: true });
+
+    const pm = new PermissionManager({
+      globalConfigPath,
+      agentsDir,
+      projectGlobalConfigPath: projectConfigPath,
+      projectAgentsDir,
+    });
+
+    const result = pm.getResolvedPolicyPaths();
+
+    expect(result.globalConfigPath).toBe(globalConfigPath);
+    expect(result.globalConfigExists).toBe(true);
+    expect(result.projectConfigPath).toBe(projectConfigPath);
+    expect(result.projectConfigExists).toBe(true);
+    expect(result.agentsDir).toBe(agentsDir);
+    expect(result.agentsDirExists).toBe(true);
+    expect(result.projectAgentsDir).toBe(projectAgentsDir);
+    expect(result.projectAgentsDirExists).toBe(true);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("getResolvedPolicyPaths returns false for missing files and null for absent project paths", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "policy-paths-missing-"));
+  try {
+    const globalConfigPath = join(tempDir, "does-not-exist.jsonc");
+    const agentsDir = join(tempDir, "no-agents");
+
+    const pm = new PermissionManager({
+      globalConfigPath,
+      agentsDir,
+    });
+
+    const result = pm.getResolvedPolicyPaths();
+
+    expect(result.globalConfigPath).toBe(globalConfigPath);
+    expect(result.globalConfigExists).toBe(false);
+    expect(result.projectConfigPath).toBe(null);
+    expect(result.projectConfigExists).toBe(false);
+    expect(result.agentsDir).toBe(agentsDir);
+    expect(result.agentsDirExists).toBe(false);
+    expect(result.projectAgentsDir).toBe(null);
+    expect(result.projectAgentsDirExists).toBe(false);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
