@@ -17,6 +17,13 @@ export function getNonEmptyString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/** Returns `raw` if it is a positive integer; otherwise `undefined`. */
+export function normalizeOptionalPositiveInt(raw: unknown): number | undefined {
+  return typeof raw === "number" && Number.isInteger(raw) && raw > 0
+    ? raw
+    : undefined;
+}
+
 export function isPermissionState(value: unknown): value is PermissionState {
   return value === "allow" || value === "deny" || value === "ask";
 }

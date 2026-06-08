@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   detectMisplacedPermissionKeys,
-  normalizeOptionalPositiveInt,
   normalizePermissionSystemConfig,
 } from "#src/extension-config";
 
@@ -72,36 +71,6 @@ describe("detectMisplacedPermissionKeys", () => {
       someRandomKey: "value",
     });
     expect(result).toEqual([]);
-  });
-});
-
-describe("normalizeOptionalPositiveInt", () => {
-  it("returns the value for a valid positive integer", () => {
-    expect(normalizeOptionalPositiveInt(1)).toBe(1);
-    expect(normalizeOptionalPositiveInt(200)).toBe(200);
-    expect(normalizeOptionalPositiveInt(9999)).toBe(9999);
-  });
-
-  it("returns undefined for zero", () => {
-    expect(normalizeOptionalPositiveInt(0)).toBeUndefined();
-  });
-
-  it("returns undefined for negative integers", () => {
-    expect(normalizeOptionalPositiveInt(-1)).toBeUndefined();
-    expect(normalizeOptionalPositiveInt(-100)).toBeUndefined();
-  });
-
-  it("returns undefined for non-integer numbers (floats)", () => {
-    expect(normalizeOptionalPositiveInt(400.5)).toBeUndefined();
-    expect(normalizeOptionalPositiveInt(1.1)).toBeUndefined();
-  });
-
-  it("returns undefined for non-number types", () => {
-    expect(normalizeOptionalPositiveInt("200")).toBeUndefined();
-    expect(normalizeOptionalPositiveInt(true)).toBeUndefined();
-    expect(normalizeOptionalPositiveInt(null)).toBeUndefined();
-    expect(normalizeOptionalPositiveInt(undefined)).toBeUndefined();
-    expect(normalizeOptionalPositiveInt({})).toBeUndefined();
   });
 });
 

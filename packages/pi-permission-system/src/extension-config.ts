@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { toRecord } from "./common";
+import { normalizeOptionalPositiveInt, toRecord } from "./common";
 
 export const EXTENSION_ID = "pi-permission-system";
 
@@ -44,13 +44,6 @@ export function detectMisplacedPermissionKeys(
   raw: Record<string, unknown>,
 ): string[] {
   return Object.keys(raw).filter((key) => PERMISSION_POLICY_KEYS.has(key));
-}
-
-/** Returns `raw` if it is a positive integer; otherwise `undefined`. */
-export function normalizeOptionalPositiveInt(raw: unknown): number | undefined {
-  return typeof raw === "number" && Number.isInteger(raw) && raw > 0
-    ? raw
-    : undefined;
 }
 
 export function normalizePermissionSystemConfig(
