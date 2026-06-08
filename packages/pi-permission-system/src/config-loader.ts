@@ -220,8 +220,19 @@ export function mergeUnifiedConfigs(
 ): UnifiedPermissionConfig {
   const merged: UnifiedPermissionConfig = {};
 
-  // Scalars: override replaces base when defined
+  // Boolean scalars: override replaces base when defined
   for (const key of ["debugLog", "permissionReviewLog", "yoloMode"] as const) {
+    const value = override[key] ?? base[key];
+    if (value !== undefined) {
+      merged[key] = value;
+    }
+  }
+
+  // Number scalars: override replaces base when defined
+  for (const key of [
+    "toolInputPreviewMaxLength",
+    "toolTextSummaryMaxLength",
+  ] as const) {
     const value = override[key] ?? base[key];
     if (value !== undefined) {
       merged[key] = value;

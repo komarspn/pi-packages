@@ -418,6 +418,48 @@ describe("mergeUnifiedConfigs", () => {
     expect(merged).not.toHaveProperty("permissionReviewLog");
     expect(merged).not.toHaveProperty("permission");
   });
+
+  it("override toolInputPreviewMaxLength replaces base value", () => {
+    const merged = mergeUnifiedConfigs(
+      { toolInputPreviewMaxLength: 200 },
+      { toolInputPreviewMaxLength: 1000 },
+    );
+    expect(merged.toolInputPreviewMaxLength).toBe(1000);
+  });
+
+  it("base toolInputPreviewMaxLength survives when override omits it", () => {
+    const merged = mergeUnifiedConfigs(
+      { toolInputPreviewMaxLength: 500 },
+      { debugLog: true },
+    );
+    expect(merged.toolInputPreviewMaxLength).toBe(500);
+  });
+
+  it("toolInputPreviewMaxLength is absent when both base and override omit it", () => {
+    const merged = mergeUnifiedConfigs({ debugLog: true }, { yoloMode: false });
+    expect(merged).not.toHaveProperty("toolInputPreviewMaxLength");
+  });
+
+  it("override toolTextSummaryMaxLength replaces base value", () => {
+    const merged = mergeUnifiedConfigs(
+      { toolTextSummaryMaxLength: 80 },
+      { toolTextSummaryMaxLength: 200 },
+    );
+    expect(merged.toolTextSummaryMaxLength).toBe(200);
+  });
+
+  it("base toolTextSummaryMaxLength survives when override omits it", () => {
+    const merged = mergeUnifiedConfigs(
+      { toolTextSummaryMaxLength: 120 },
+      { debugLog: false },
+    );
+    expect(merged.toolTextSummaryMaxLength).toBe(120);
+  });
+
+  it("toolTextSummaryMaxLength is absent when both base and override omit it", () => {
+    const merged = mergeUnifiedConfigs({}, { permissionReviewLog: true });
+    expect(merged).not.toHaveProperty("toolTextSummaryMaxLength");
+  });
 });
 
 describe("loadAndMergeConfigs", () => {
