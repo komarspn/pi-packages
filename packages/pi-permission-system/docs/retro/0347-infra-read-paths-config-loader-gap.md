@@ -25,3 +25,18 @@ Produced `docs/plans/0347-infra-read-paths-config-loader-gap.md` with five red�
 [#122]: https://github.com/gotgenes/pi-packages/issues/122
 [#332]: https://github.com/gotgenes/pi-packages/issues/332
 [#350]: https://github.com/gotgenes/pi-packages/issues/350
+
+## Stage: Implementation — TDD (2026-06-08T22:00:00Z)
+
+### Session summary
+
+Executed all five TDD cycles from the plan in a single session across four commits.
+Added `normalizeOptionalStringArray` to `src/common.ts`, refactored `normalizePermissionSystemConfig()` in `src/extension-config.ts` to use it (no behavior change), added `piInfrastructureReadPaths` to `UnifiedPermissionConfig` with parse and override-wins merge in `src/config-loader.ts`, and added `refresh()` + `save()` integration tests to `test/config-store.test.ts`.
+Test count grew from 1873 to 1894 (+21).
+
+### Observations
+
+- Step 5 (`save()` preservation) was green immediately against the step-4 production fix — the `...existing.config` spread in `ConfigStore.save()` carries the field automatically once the loader declares and parses it, exactly as predicted from the [#332] precedent.
+  No additional `save()` production change was needed.
+- The `it.each` for malformed `piInfrastructureReadPaths` values in `test/config-loader.test.ts` used a `const` assertion on the tuple array (`as const`); the `"mixed-type array"` entry `["a", 1]` required the outer array to be typed carefully since `as const` would make `1` a literal `1` not assignable to the union — worked fine with the existing pattern already established for other `it.each` tables in the file.
+- Pre-completion reviewer: **PASS** — all deterministic checks clean, no warnings.
