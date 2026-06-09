@@ -605,18 +605,18 @@ Unchanged guardrails: 0% dead code, avg cyclomatic 1.4, maintainability 91.1, no
 
 The composition-root forward-reference cycle exists *because* the logger needs late-bound config-reading and UI-notify capability, and the `logger` field on `PermissionSession` is relayed straight back out — so these three land in order: make the logger a state-owning class, dissolve the cycle, then drop the relay-only field.
 
-1. Convert `createSessionLogger` into a `SessionLogger` class
+1. Convert `createSessionLogger` into a `SessionLogger` class ([#362])
    - Target: `src/session-logger.ts` — the `createSessionLogger` factory that returns an object literal closing over a mutable `reported: Set<string>` (IO-failure-warning dedup) and the writer.
    - Smell: Category C (mutable closure state) — a bag of state + closures masquerading as a factory.
    - Outcome: a `SessionLogger` class that privately owns `reported` and the writer and exposes `debug` / `review` / `warn`; constructed as `new SessionLogger(deps)`; no factory-closure mutable state remains.
 
-2. Add `PermissionSession.notify()` and dissolve the `index.ts` forward-reference cycle
+2. Add `PermissionSession.notify()` and dissolve the `index.ts` forward-reference cycle ([#363])
    - Target: `src/permission-session.ts` (new `notify(message)` Tell-Don't-Ask method over the owned context); `src/index.ts` (remove `let configStore = null as unknown as ConfigStore` and the `let sessionNotify` holder, wiring the logger's notify sink as `(m) => session.notify(m)`).
    - Smell: Category C (forward references + the only production `as unknown as` cast + the `getRuntimeContext()?.ui.notify` Law-of-Demeter reach-through).
    - Outcome: production `as unknown as` casts 3 → 2; `index.ts` has no `null`-init holders; the UI-notify reach-through becomes a single tell to the context-owning session.
    - Depends on Step 1 (the logger reshape that lets construction order resolve without the cast).
 
-3. Inject `logger` directly into the lifecycle handler and reporter; drop the relay-only field from `PermissionSession`
+3. Inject `logger` directly into the lifecycle handler and reporter; drop the relay-only field from `PermissionSession` ([#364])
    - Target: `src/permission-session.ts` (remove the `readonly logger` constructor parameter — never read internally, only relayed — taking the constructor from 7 args to 6); `src/handlers/lifecycle.ts` (accept a `SessionLogger` and call `this.logger.warn/debug` instead of `this.session.logger`); `src/index.ts` (pass the composition-root `logger` to `new GateDecisionReporter(logger, …)` and `new SessionLifecycleHandler(session, resolver, serviceLifecycle, logger)`).
    - Smell: Category C (relay-only dependency / Law-of-Demeter reach-through — the handler talks to `session.logger`, a stranger reached through the session).
    - Outcome: `PermissionSession` no longer exposes `logger`; the three lifecycle reach-throughs and the one reporter-wiring reach-through are gone; the constructor narrows to 6 args.
@@ -624,7 +624,7 @@ The composition-root forward-reference cycle exists *because* the logger needs l
 
 #### Track B — anemic cache-key state (independent)
 
-4. Encapsulate agent-start cache keys in a `CacheKeyGate` class
+4. Encapsulate agent-start cache keys in a `CacheKeyGate` class ([#365])
    - Target: `src/permission-session.ts` (replace the four anemic methods — `shouldUpdateActiveTools` / `commitActiveToolsCacheKey` / `shouldUpdatePromptState` / `commitPromptStateCacheKey` — and their two `string | null` fields with two `CacheKeyGate` instances); `src/handlers/before-agent-start.ts` (collapse the two ask-then-tell pairs into `gate.runIfChanged(key, effect)`); `src/before-agent-start-cache.ts` (remove the dead-in-production `shouldApplyCachedAgentStartState` and fold its comparison into `CacheKeyGate`).
    - Smell: Category C (anemic domain / ask-then-tell — the handler asks "should I update?"
      then tells "commit") plus Category A (a redundant export kept alive only by its own test, which is why `fallow`'s 0%-dead-exports misses it).
@@ -633,19 +633,19 @@ The composition-root forward-reference cycle exists *because* the logger needs l
 
 #### Track C — narrow-interface decoupling for testability (independent)
 
-5. Narrow `LocalPermissionsService` collaborators to interfaces
+5. Narrow `LocalPermissionsService` collaborators to interfaces ([#366])
    - Target: `src/permissions-service.ts` — the constructor types the concrete `PermissionManager`, `SessionRules`, and `ToolInputFormatterRegistry` but only calls `checkPermission` / `getToolPermission`, `getRuleset`, and `register`.
    - Smell: Category C (DIP — depending on concrete classes) / Category D (testability — concrete-class types expose private members, so `permissions-service.test.ts` is forced into `as unknown as` casts).
    - Outcome: depends on the existing `ScopedPermissionManager`, `Pick<SessionRules, "getRuleset">`, and a `{ register }` formatter interface; the three `as unknown as` casts in `permissions-service.test.ts` disappear and mocks become plain objects.
 
-6. Narrow `PermissionForwarder`'s context dependency to a local interface
+6. Narrow `PermissionForwarder`'s context dependency to a local interface ([#367])
    - Target: `src/forwarded-permissions/permission-forwarder.ts` — methods take the full SDK `ExtensionContext` rather than a narrow local interface of the fields actually read.
    - Smell: Category C (platform-type threading) / Category D (testability).
    - Outcome: the five `as unknown as ExtensionContext` casts in `permission-forwarder.test.ts` (the single biggest cluster of the 12 such casts across 7 test files) disappear; a bounded down-payment on the systemic ctx-threading pattern.
 
 #### Track D — slash-command reach-through (independent)
 
-7. Remove the `config-modal` controller reach-through
+7. Remove the `config-modal` controller reach-through ([#368])
    - Target: `src/config-modal.ts` — the `show` handler chains `controller.permissionManager.getComposedConfigRules(controller.session.lastKnownActiveAgentName ?? undefined)`, reaching through the controller bag to two strangers.
    - Smell: Category C (Law-of-Demeter reach-through).
    - Outcome: collapse the controller's `permissionManager` + `session` fields into a single `getActiveAgentConfigRules()` accessor wired in the composition root, so the command tells one collaborator; the `PermissionSession.lastKnownActiveAgentName` getter is no longer consumed via object-literal wiring (retiring the `fallow` false-positive suppression).
@@ -654,13 +654,13 @@ The composition-root forward-reference cycle exists *because* the logger needs l
 
 ```mermaid
 flowchart TD
-    S1["Step 1: SessionLogger class"]
-    S2["Step 2: PermissionSession.notify + dissolve index.ts cycle"]
-    S3["Step 3: inject logger; drop relay-only field"]
-    S4["Step 4: CacheKeyGate for agent-start cache keys"]
-    S5["Step 5: narrow LocalPermissionsService collaborators"]
-    S6["Step 6: narrow PermissionForwarder context"]
-    S7["Step 7: remove config-modal reach-through"]
+    S1["Step 1: SessionLogger class (#362)"]
+    S2["Step 2: PermissionSession.notify + dissolve index.ts cycle (#363)"]
+    S3["Step 3: inject logger; drop relay-only field (#364)"]
+    S4["Step 4: CacheKeyGate for agent-start cache keys (#365)"]
+    S5["Step 5: narrow LocalPermissionsService collaborators (#366)"]
+    S6["Step 6: narrow PermissionForwarder context (#367)"]
+    S7["Step 7: remove config-modal reach-through (#368)"]
 
     S1 --> S2 --> S3
 
@@ -736,3 +736,10 @@ Nine steps ([#334]–[#342]), all closed.
 [#331]: https://github.com/gotgenes/pi-packages/issues/331
 [#334]: https://github.com/gotgenes/pi-packages/issues/334
 [#342]: https://github.com/gotgenes/pi-packages/issues/342
+[#362]: https://github.com/gotgenes/pi-packages/issues/362
+[#363]: https://github.com/gotgenes/pi-packages/issues/363
+[#364]: https://github.com/gotgenes/pi-packages/issues/364
+[#365]: https://github.com/gotgenes/pi-packages/issues/365
+[#366]: https://github.com/gotgenes/pi-packages/issues/366
+[#367]: https://github.com/gotgenes/pi-packages/issues/367
+[#368]: https://github.com/gotgenes/pi-packages/issues/368
