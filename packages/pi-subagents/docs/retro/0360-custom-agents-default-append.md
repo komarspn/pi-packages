@@ -21,3 +21,19 @@ Enumerated the full change surface: the source line, two existing tests in `test
 - **Breaking change**: flipping the default alters the runtime behavior of existing `.pi/agents/*.md` files that omit `prompt_mode` (they switch from `replace` to `append` on upgrade with no config edit).
   The plan was corrected mid-session to use `fix!:` with a `BREAKING CHANGE:` footer so release-please cuts a major — the initial draft incorrectly used a plain `fix:`.
 - No `docs/architecture/` references to the default value exist; `CHANGELOG.md` is release-please-owned and untouched.
+
+## Stage: Implementation — TDD (2026-06-09T02:48:38Z)
+
+### Session summary
+
+Completed both TDD cycles from the plan in a single session.
+Step 1 flipped the ternary in `src/config/custom-agents.ts` and updated three assertions in `test/config/custom-agents.test.ts` (empty-frontmatter default, no-frontmatter assertion added, unknown-mode renamed and flipped).
+Step 2 updated the inline doc comment in `src/ui/agent-creation-wizard.ts` and the `README.md` defaults table.
+Test count: 973 (unchanged — no new tests added, three assertions updated in-place).
+
+### Observations
+
+- No deviations from the plan; all three test mutations landed exactly as specified.
+- Full suite (59 test files, 973 tests) stayed green after the source change — the planning analysis that the broader upstream regression suite uses explicit `promptMode` values was confirmed correct.
+- `pnpm fallow dead-code` and `pnpm run check` both passed with no findings.
+- Pre-completion reviewer verdict: **PASS** — no warnings or findings raised.
