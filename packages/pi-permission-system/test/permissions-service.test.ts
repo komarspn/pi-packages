@@ -9,6 +9,7 @@ import type {
 } from "#src/tool-input-formatter-registry";
 
 import { makeCheckResult } from "#test/helpers/handler-fixtures";
+import { makeFakePermissionManager } from "#test/helpers/session-fixtures";
 
 // ── input-normalizer stub ──────────────────────────────────────────────────
 
@@ -21,17 +22,6 @@ vi.mock("#src/input-normalizer", () => ({
 }));
 
 // ── helpers ────────────────────────────────────────────────────────────────
-
-function makePermissionManager(): PermissionManager {
-  return {
-    checkPermission: vi
-      .fn<PermissionManager["checkPermission"]>()
-      .mockReturnValue(makeCheckResult()),
-    getToolPermission: vi
-      .fn<PermissionManager["getToolPermission"]>()
-      .mockReturnValue("allow"),
-  } as unknown as PermissionManager;
-}
 
 function makeSessionRules(rules: Ruleset = []): SessionRules {
   return {
@@ -53,7 +43,8 @@ function makeService(overrides?: {
   formatterRegistry?: ToolInputFormatterRegistry;
 }) {
   const permissionManager =
-    overrides?.permissionManager ?? makePermissionManager();
+    overrides?.permissionManager ??
+    (makeFakePermissionManager() as unknown as PermissionManager);
   const sessionRules = overrides?.sessionRules ?? makeSessionRules();
   const formatterRegistry =
     overrides?.formatterRegistry ?? makeFormatterRegistry();
