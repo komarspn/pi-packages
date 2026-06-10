@@ -39,3 +39,47 @@ No TypeScript or test files were modified; `bash -n` confirmed script syntax; al
 - Pre-completion reviewer returned **PASS** — all deterministic checks clean, conventional commits valid, no dead code, no test artifacts expected for a bash-only change.
 - The backfill runbook to publish `0.2.2` to npm locally must be executed by the maintainer after `/ship-issue` pushes and CI passes.
   Exact commands: `npm whoami`, then `pnpm --filter @gotgenes/pi-subagents-worktrees publish --access public --no-git-checks`, then `npm view @gotgenes/pi-subagents-worktrees version` to confirm `0.2.2` resolves.
+
+## Stage: Final Retrospective (2026-06-10T02:12:38Z)
+
+### Session summary
+
+Shipped the one-line `scripts/publish-released.sh` allowlist fix across plan/build/ship stages with a `PASS` pre-completion review and clean CI, then backfilled `0.2.2` to npm and closed the issue with a thank-you and apology to the reporter.
+The single substantive friction was the manual-publish ref: the plan's runbook published from `main`, which the user caught would pollute the tarball with files added after the `v0.2.2` tag.
+
+### Observations
+
+#### What went well
+
+- Root-cause diagnosis in planning was precise and evidence-backed: identified the hardcoded `packages` array in `scripts/publish-released.sh`, and confirmed the npm `0.0.1` was a manual scaffold publish by noting the absence of a `pi-subagents-worktrees-v0.0.1` git tag.
+- The `ask_user` gate cleanly surfaced the two real decisions (backfill scope, backfill mechanism) instead of guessing — both were preference-sensitive and shaped the plan.
+- Tight execution: one-line fix, `PASS` review, no rework, no deviations from plan through build and ship.
+
+#### What caused friction (agent side)
+
+- `missing-context` (user-caught) — the plan's backfill runbook published from `main` and explicitly reasoned "no checkout of a tag is needed since `main` already sits on the latest release."
+  That reasoning ignored that `main` accumulates plan/retro docs inside `packages/pi-subagents-worktrees/docs/` between the `v0.2.2` tag and HEAD.
+  A `pnpm pack --dry-run` confirms publishing from `main` ships `docs/plans/0001-*.md` and `docs/retro/0001-*.md` — files absent from the tagged release.
+  The user caught it with "We don't have to check out a tag of some sort?"
+  Impact: corrected publish guidance (check out `pi-subagents-worktrees-v0.2.2` first); no committed rework, but the artifact would have been unfaithful to the GitHub release had the user not asked.
+
+#### What caused friction (user side)
+
+- None — the user's two interventions ("don't close until we publish" and the tag-checkout question) were well-timed strategic steers that improved the outcome.
+
+### Diagnostic details
+
+- **Unused-tool / root-cause check** — the `missing-context` gap was a reasoning miss, not a search miss, but a `git diff --name-only <tag>..HEAD -- packages/<PKG>/` (or `pnpm pack --dry-run`) at plan time would have surfaced the doc-pollution delta before it reached the runbook.
+- **Deeper structural cause** — `packages/pi-subagents-worktrees/package.json` has no `files` allowlist, so every npm publish ships `docs/` (plans, retros) and `test/` to consumers, not just during this backfill.
+  This is a per-package packaging-hygiene gap that likely affects sibling ship-source packages; it warrants its own issue rather than an inline retro fix.
+- Other lenses (model-performance, escalation-delay, feedback-loop) found nothing notable: one subagent dispatch (`pre-completion-reviewer`) was appropriately scoped, no rabbit holes, and verification (`lint`, `bash -n`, pre-completion checks) ran incrementally.
+
+### Changes made
+
+1. Added this Final Retrospective stage entry to `packages/pi-subagents-worktrees/docs/retro/0001-publish-worktrees-package.md`.
+2. No `AGENTS.md` change — the proposed manual-backfill tag-checkout note was declined as a band-aid that the `files`-allowlist fix would obsolete.
+
+### Follow-up
+
+1. Open an issue to add a `files` allowlist to `packages/pi-subagents-worktrees/package.json` (and audit sibling ship-source packages) so npm publishes exclude `docs/` and `test/`.
+   This is the proper fix for the tarball-pollution friction the manual backfill exposed; run `/plan-issue` on it rather than patching `AGENTS.md`.
