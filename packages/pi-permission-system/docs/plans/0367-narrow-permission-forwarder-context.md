@@ -66,16 +66,22 @@ Constraint from the `code-design` skill (Dependency width / ISP): prefer lean lo
 This is a pure type-narrowing refactor.
 No runtime behavior changes; only parameter and field types narrow.
 
-### Two SDK-divergence decisions (documented, deliberate)
+### SDK-fidelity decisions (verified against the live SDK source)
 
-1. `getSessionDir(): string | null` in the narrow interface.
-   The SDK types it as `() => string`, but `isSubagentExecutionContext` reads it defensively (`if (!sessionDir) return false`) and `subagent-context.test.ts` exercises the `null` case (`getSessionDir: vi.fn().mockReturnValue(null)`).
-   The narrow interface declares the return as `string | null` to reflect the production read and let the existing test stub satisfy it without a cast.
-   A `() => string` is still assignable to `() => string | null` (covariant return), so full-`ExtensionContext` callers are unaffected.
-2. A minimal `SessionEntryView` for `getEntries`.
+The SDK signatures were checked in the development monorepo (`~/development/pi/pi`, `v0.79.1`) in addition to the pinned `0.75.4` in `node_modules`.
+`getSessionId(): string`, `getSessionDir(): string`, `getEntries(): SessionEntry[]`, and the 9-member `SessionEntry` union are **identical** across both versions, so the narrow interfaces below are faithful to the SDK and upgrade-safe through the eventual `0.75.4 → 0.79.x` bump.
+
+1. `getSessionDir(): string` — kept faithful to the SDK (no divergence).
+   An earlier draft proposed `string | null` to accommodate the existing test stub (`getSessionDir: vi.fn().mockReturnValue(null)`).
+   Investigation shows the SDK returns `string` in every version (`return this.sessionDir`), so `null` is unreachable at runtime; the production guard `if (!sessionDir) return false` in `isSubagentExecutionContext` is really guarding the **empty-string** case (`""`, reachable for in-memory / dir-less sessions), which is a valid `string`.
+   The narrow interface therefore declares `getSessionDir(): string`, and the `subagent-context.test.ts` `makeCtx` stub coerces an absent dir to `""` (`vi.fn(() => sessionDir ?? "")`) instead of returning `null`.
+   This keeps the type exactly the SDK's, still exercises the falsy-dir guard (`""` is falsy → same branch), and requires no call-site churn (`makeCtx(null)` callers stay as-is; the coercion lives in the helper).
+   The lone inline throw-stub context returns `""` for `getSessionDir` as well.
+2. A minimal `SessionEntryView` for `getEntries` (the one genuine narrowing of an element type).
    `getActiveAgentName` reads only `type` / `customType` / `data` from each entry, and its tests build simplified literals (e.g. `{ type: "message", data: { name: "agent" } }`) that are not assignable to the SDK's `SessionEntry` discriminated union.
    The narrow context declares `getEntries(): readonly SessionEntryView[]` where `SessionEntryView = { type: string; customType?: string; data?: unknown }`.
    The SDK `SessionEntry` is assignable to `SessionEntryView` (it has `type` at minimum), so full-`ExtensionContext` callers are unaffected, and the internal per-entry cast in `getActiveAgentName` disappears.
+   This is not a divergence so much as **naming the structural slice the function already operated on**: the SDK `SessionEntry` is a discriminated union of nine variants the function never inspects, and the test fixtures' simplified literals (e.g. `{ type: "tool_call", customType: "active_agent", data: {…} }`) are not assignable to that union — building real `CustomEntry` literals just to test name-extraction would be pure ceremony.
 
 ### Collaborator narrow interfaces
 
@@ -104,7 +110,7 @@ export function getActiveAgentName(ctx: ActiveAgentContext): string | null;
 export interface SubagentDetectionContext {
   sessionManager: {
     getSessionId(): string;
-    getSessionDir(): string | null;
+    getSessionDir(): string;
   };
 }
 
@@ -136,7 +142,7 @@ export interface ForwarderContext {
   ui: PermissionDecisionUi;
   sessionManager: {
     getSessionId(): string;
-    getSessionDir(): string | null;
+    getSessionDir(): string;
     getEntries(): readonly SessionEntryView[];
   };
 }
@@ -183,7 +189,7 @@ const decision = await this.deps.forwarder.requestApproval(ctx, message, …);
 void this.forwarder.processInbox(this.context).finally(…);
 ```
 
-`ExtensionContext` is assignable to `ForwarderContext` (it has all members, with `getSessionDir(): string` assignable to `() => string | null` and `SessionEntry[]` assignable to `readonly SessionEntryView[]`), so both consumers compile with no change.
+`ExtensionContext` is assignable to `ForwarderContext` (it has all members, with `getSessionDir(): string` matching exactly and `SessionEntry[]` assignable to `readonly SessionEntryView[]`), so both consumers compile with no change.
 `PermissionForwarder` continues to satisfy `implements ApprovalRequester, InboxProcessor` with the narrowed seam types.
 
 ### Edge cases
@@ -198,7 +204,7 @@ void this.forwarder.processInbox(this.context).finally(…);
 - `src/subagent-context.ts` — add exported `SubagentDetectionContext`; change `isRegisteredSubagentChild` and `isSubagentExecutionContext` parameters to it; keep the `SubagentSessionRegistry` import; drop the `ExtensionContext` import if unused afterward.
 - `src/forwarded-permissions/permission-forwarder.ts` — add `ForwarderContext`; import `PermissionDecisionUi` (from `#src/permission-dialog`) and `SessionEntryView` (from `#src/active-agent`); change `ApprovalRequester`, `InboxProcessor`, `PermissionForwarderDeps.requestPermissionDecisionFromUi`, the stored field's type, the two public methods, the three private methods, and the two module-private helpers from `ExtensionContext` to `ForwarderContext` / `PermissionDecisionUi`; keep the `ExtensionContext` import only if a residual reference remains (expected: none — verify and remove).
 - `test/active-agent.test.ts` — retype `makeCtx` to return `ActiveAgentContext` (or a plain object satisfying it); remove its one `as unknown as ExtensionContext` cast; drop the `ExtensionContext` import.
-- `test/subagent-context.test.ts` — retype `makeCtx` and the inline throw-stub context to `SubagentDetectionContext`; remove its two `as unknown as ExtensionContext` casts; drop the `ExtensionContext` import.
+- `test/subagent-context.test.ts` — retype `makeCtx` and the inline throw-stub context to `SubagentDetectionContext`; coerce the `getSessionDir` stub to a `string` (`vi.fn(() => sessionDir ?? "")`; inline stub returns `""`) so it satisfies the faithful `getSessionDir(): string` without a cast; remove its two `as unknown as ExtensionContext` casts; drop the `ExtensionContext` import.
 - `test/permission-forwarder.test.ts` — add a small `makeCtx(overrides)` helper that returns a `ForwarderContext` with default `vi.fn()` session-manager stubs; rewrite the five inline context literals to use it; remove all five `as unknown as ExtensionContext` casts; drop the `ExtensionContext` import.
 - `docs/architecture/architecture.md` — no change in this plan; the `✓ complete` mark on Track C Step 6 (and any reader-cast count update) is applied at ship time.
 
@@ -236,9 +242,9 @@ There is no incremental lift-and-shift here — no large test file is rewritten 
 - Risk: the narrowing ripples beyond the forwarder into two shared collaborator modules, which is wider than the issue's literal "change the forwarder's method signatures."
   Mitigation: it is forced by the type system (the forwarder passes `ctx` into those collaborators), the consequence is purely beneficial (three additional casts removed), and every other caller of those collaborators passes a full `ExtensionContext` that stays assignable — verified by grep.
   No public API or runtime behavior changes.
-- Risk: `getSessionDir(): string | null` and `SessionEntryView` diverge from the SDK types.
-  Mitigation: both reflect how the production code actually reads those values (defensive null check; `type`/`customType`/`data` only); the SDK types remain assignable to the narrower ones, so no real caller breaks.
-  Documented as deliberate decisions above.
+- Risk: `SessionEntryView` is a local element type rather than the SDK `SessionEntry` union, so a future SDK change to the entry shape would not auto-propagate.
+  Mitigation: it names exactly the three fields `getActiveAgentName` reads, the SDK union stays assignable to it, and the signatures were verified identical across the pinned `0.75.4` and the dev `v0.79.1` SDK — so the eventual upgrade does not break it.
+  `getSessionDir` / `getSessionId` / `getEntries` are kept at their exact SDK signatures (no divergence), so the only standing local type is `SessionEntryView`.
 - Risk: a hidden caller passing something that is *not* a full `ExtensionContext` could rely on a field the narrow interface drops.
   Mitigation: grep confirms all production callers pass `ExtensionContext`; mocked callers use `vi.mock` and do not depend on the real parameter type.
 - Risk: forgetting one parameter (e.g. a private method) leaves a residual `ExtensionContext` reference and a stranded import.
