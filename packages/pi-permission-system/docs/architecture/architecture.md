@@ -624,7 +624,7 @@ The composition-root forward-reference cycle exists *because* the logger needs l
 
 #### Track B — anemic cache-key state (independent)
 
-4. Encapsulate agent-start cache keys in a `CacheKeyGate` class ([#365])
+4. Encapsulate agent-start cache keys in a `CacheKeyGate` class ([#365]) ✓ complete
    - Target: `src/permission-session.ts` (replace the four anemic methods — `shouldUpdateActiveTools` / `commitActiveToolsCacheKey` / `shouldUpdatePromptState` / `commitPromptStateCacheKey` — and their two `string | null` fields with two `CacheKeyGate` instances); `src/handlers/before-agent-start.ts` (collapse the two ask-then-tell pairs into `gate.runIfChanged(key, effect)`); `src/before-agent-start-cache.ts` (remove the dead-in-production `shouldApplyCachedAgentStartState` and fold its comparison into `CacheKeyGate`).
    - Smell: Category C (anemic domain / ask-then-tell — the handler asks "should I update?"
      then tells "commit") plus Category A (a redundant export kept alive only by its own test, which is why `fallow`'s 0%-dead-exports misses it).

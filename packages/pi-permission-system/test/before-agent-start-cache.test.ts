@@ -1,9 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { expect, test } from "vitest";
-import {
-  createActiveToolsCacheKey,
-  createBeforeAgentStartPromptStateKey,
-} from "#src/before-agent-start-cache";
+import { createBeforeAgentStartPromptStateKey } from "#src/before-agent-start-cache";
 import { createManager } from "#test/helpers/manager-harness";
 
 test("Before-agent-start prompt cache invalidates on permission changes while runtime enforcement stays authoritative", () => {
