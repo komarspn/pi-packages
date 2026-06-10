@@ -154,6 +154,10 @@ Fix: restructure the code to eliminate the assertion entirely (explicit `if` gua
 Passing an interface method as a bare value (`writeReviewLog: logger.review`) trips `@typescript-eslint/unbound-method`; the rule's suggested `this: void` fix is itself rejected by `@typescript-eslint/no-invalid-void-type`.
 Fix: wrap in an arrow (`(e, d) => logger.review(e, d)`).
 
+ESLint `prefer-const` fires on a `let` assigned exactly once — even with no initializer (e.g. a forward declaration captured by a closure before assignment).
+`const` without an initializer is a syntax error, so the suggested fix is impossible, but the error still triggers (biome's `useConst` correctly skips it; a `let` reassigned 2+ times is also skipped).
+Fix: `// eslint-disable-next-line prefer-const -- forward-declared let; const requires an initializer`.
+
 Before implementing, refactoring, or reviewing code, load the `code-design` skill for design principles and structural heuristics.
 
 ## Markdown
@@ -201,5 +205,8 @@ Use Conventional Commits.
 Commit at meaningful checkpoints without waiting for an explicit reminder.
 Prefer small, reviewable commits that leave the repository in a valid state.
 Do not edit `CHANGELOG.md` — release-please owns it.
+Do not put `Closes #N` / `Fixes #N` / `Resolves #N` in commit messages.
+`/ship-issue` posts a curated close comment (implemented-in SHA, behavior summary) via `issue_close`; a commit keyword auto-closes the issue on push and pre-empts that comment, leaving the issue with no summary.
+Reference issues as `(#N)` in the subject or `Refs #N` in the body instead.
 Avoid `git rebase -i` in this environment — `$EDITOR` opens an interactive editor that aborts non-interactively.
 Reorder or fix unpushed commits with `git reset` + re-commit, or set `GIT_SEQUENCE_EDITOR`/`EDITOR=true`.
