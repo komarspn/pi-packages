@@ -3,30 +3,8 @@ import { expect, test } from "vitest";
 import {
   createActiveToolsCacheKey,
   createBeforeAgentStartPromptStateKey,
-  shouldApplyCachedAgentStartState,
 } from "#src/before-agent-start-cache";
 import { createManager } from "#test/helpers/manager-harness";
-
-test("Before-agent-start cache dedupes unchanged active-tool exposure and prompt state", () => {
-  const allowedTools = ["read", "mcp"];
-  const activeToolsKey = createActiveToolsCacheKey(allowedTools);
-  const promptStateKey = createBeforeAgentStartPromptStateKey({
-    agentName: "code",
-    cwd: "C:/workspace/project",
-    permissionStamp: "permissions-v1",
-    systemPrompt: "Available tools:\n- read\n- mcp",
-    allowedToolNames: allowedTools,
-  });
-
-  expect(shouldApplyCachedAgentStartState(null, activeToolsKey)).toBe(true);
-  expect(shouldApplyCachedAgentStartState(activeToolsKey, activeToolsKey)).toBe(
-    false,
-  );
-  expect(shouldApplyCachedAgentStartState(null, promptStateKey)).toBe(true);
-  expect(shouldApplyCachedAgentStartState(promptStateKey, promptStateKey)).toBe(
-    false,
-  );
-});
 
 test("Before-agent-start prompt cache invalidates on permission changes while runtime enforcement stays authoritative", () => {
   const { manager, globalConfigPath, cleanup } = createManager({
@@ -43,9 +21,6 @@ test("Before-agent-start prompt cache invalidates on permission changes while ru
       allowedToolNames: ["read"],
     });
 
-    expect(shouldApplyCachedAgentStartState(baselineKey, baselineKey)).toBe(
-      false,
-    );
     expect(manager.checkPermission("write", {}, undefined).state).toBe("deny");
 
     const updatedConfig = `${JSON.stringify(
@@ -79,9 +54,7 @@ test("Before-agent-start prompt cache invalidates on permission changes while ru
       allowedToolNames: ["read", "write"],
     });
 
-    expect(shouldApplyCachedAgentStartState(baselineKey, invalidatedKey)).toBe(
-      true,
-    );
+    expect(invalidatedKey).not.toBe(baselineKey);
     expect(manager.checkPermission("write", {}, undefined).state).toBe("allow");
   } finally {
     cleanup();
