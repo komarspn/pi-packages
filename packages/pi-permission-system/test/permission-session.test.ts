@@ -388,4 +388,35 @@ describe("PermissionSession", () => {
       expect(session.getRuntimeContext()).toBeNull();
     });
   });
+
+  describe("notify", () => {
+    it("forwards the message to ctx.ui.notify with 'warning' severity after activation", () => {
+      const { session } = createSession();
+      const ctx = makeCtx();
+      session.activate(ctx);
+
+      session.notify("something went wrong");
+
+      expect(ctx.ui.notify).toHaveBeenCalledOnce();
+      expect(ctx.ui.notify).toHaveBeenCalledWith(
+        "something went wrong",
+        "warning",
+      );
+    });
+
+    it("is a no-op and does not throw before activation", () => {
+      const { session } = createSession();
+
+      expect(() => session.notify("msg")).not.toThrow();
+    });
+
+    it("is a no-op and does not throw after deactivation", () => {
+      const { session } = createSession();
+      const ctx = makeCtx();
+      session.activate(ctx);
+      session.deactivate();
+
+      expect(() => session.notify("msg")).not.toThrow();
+    });
+  });
 });

@@ -74,6 +74,13 @@ export class PermissionSession implements ToolCallGateInputs {
     return this.context;
   }
 
+  // ── UI notifications ────────────────────────────────────────────────────
+
+  /** Surface a warning message to the user via the active UI context, if any. */
+  notify(message: string): void {
+    this.context?.ui.notify(message, "warning");
+  }
+
   // ── Session lifecycle ────────────────────────────────────────────────────
 
   /**

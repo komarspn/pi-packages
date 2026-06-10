@@ -43,22 +43,19 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
   const formatterRegistry = new ToolInputFormatterRegistry();
   registerBuiltinToolInputFormatters(formatterRegistry);
 
-  // Forward reference: configStore is declared before the logger so the
-  // logger's getConfig thunk can close over the variable; assigned immediately
-  // after. Typed via cast so the closure compiles without assertions.
-  // The same null-at-init pattern used in the former createExtensionRuntime.
-  let configStore = null as unknown as ConfigStore;
-
-  // sessionNotify is a mutable holder so the logger's notify closure can
-  // reach the UI once PermissionSession is constructed. Starts as null;
-  // notify is a best-effort sink (no-op at factory-init when there is no UI).
-  let sessionNotify: PermissionSession | null = null;
+  // Both `configStore` and `session` are forward-declared so the logger's
+  // lazy thunks can close over them without a cast or null-init holder.
+  // TypeScript exempts closure captures from definite-assignment analysis;
+  // all synchronous reads occur after the assignments below.
+  // eslint-disable-next-line prefer-const -- forward-declared let; `const` requires an initializer
+  let configStore: ConfigStore;
+  // eslint-disable-next-line prefer-const -- forward-declared let; `const` requires an initializer
+  let session: PermissionSession;
 
   const logger = new PermissionSessionLogger({
     globalLogsDir: paths.globalLogsDir,
     getConfig: () => configStore.current(),
-    notify: (message) =>
-      sessionNotify?.getRuntimeContext()?.ui.notify(message, "warning"),
+    notify: (message) => session.notify(message),
   });
 
   configStore = new ConfigStore({
@@ -85,8 +82,6 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
     forwarder,
   });
 
-  configStore.refresh();
-
   const gateway = new PromptingGateway({
     config: configStore,
     subagentSessionsDir: paths.subagentSessionsDir,
@@ -94,7 +89,7 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
     prompter,
   });
 
-  const session = new PermissionSession(
+  session = new PermissionSession(
     paths,
     logger,
     new ForwardingManager(
@@ -108,8 +103,10 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
     gateway,
   );
 
-  // Connect the notify sink now that session is available.
-  sessionNotify = session;
+  // refresh() must run after `session` is assigned: a debug-write IO failure
+  // triggers the logger's notify sink — `session.notify(m)` — which no-ops
+  // on the null context but requires `session` to be bound.
+  configStore.refresh();
 
   const configPath = getGlobalConfigPath(agentDir);
   registerPermissionSystemCommand(pi, {
