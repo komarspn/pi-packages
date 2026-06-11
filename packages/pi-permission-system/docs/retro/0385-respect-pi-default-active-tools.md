@@ -46,4 +46,55 @@ Test count went from 1921 to 1922 (+1 regression test); `check`, `lint`, and `fa
   Renamed it to `activeTools` and folded the rename into the `fix!:` commit (via `git reset --soft` + `--amend`, unpushed) rather than a follow-up.
 - The `fix!:` and `feat:` commits both carry the `Co-authored-by: Ben Tang <bentang@fastmail.com>` trailer (verified it survived the amend).
 
+## Stage: Final Retrospective (2026-06-11T22:39:40Z)
+
+### Session summary
+
+Shipped #385 across planning, TDD, and ship stages: `pi-permission-system` v11.0.0 released with the restrict-only `before_agent_start` fix.
+The dominant lesson is a `missing-context` failure — I asserted a non-existent "pi `activeTools` config" as the breaking-change remediation, which the user had to correct with a follow-up commit (`58db6f81`); the wrong guidance still ships in the v11.0.0 CHANGELOG and the issue close comment.
+
+### Observations
+
+#### What went well
+
+- Reference-PR evaluation: reading PR [#386] alongside the issue, then adopting its approach but improving on it (typing `getActive(): string[]` instead of the PR's `unknown[]`, adding the missing regression test) and crediting the author via `Co-authored-by:` trailers.
+  A clean "accept-and-improve" flow rather than rubber-stamping or rewriting.
+- The regression test design (`getActive` returns the four defaults, `getAll` returns a seven-tool superset, assert `setActive` called with exactly the four) was a precise guard: red on the old `getAll()` handler, green after the switch.
+- Incremental verification cadence: per-file `vitest` after each red/green, `pnpm run check` before the interface-touching commits, full suite + `lint` + `fallow dead-code` at the end.
+
+#### What caused friction (agent side)
+
+- `missing-context` (high impact, user-caught) — Asserted "pi's own `activeTools` configuration" as the way users re-enable `find`/`grep`/`ls`, without verifying pi's actual tool-activation surface.
+  The real mechanism is the `--tools` / `-t` CLI flag (or `createAgentSession({ tools: [...] })`); there is no persistent config-file key.
+  The error propagated to the plan, the `fix!:` `BREAKING CHANGE:` footer, and the issue close comment.
+  Impact: the user pushed a correction commit (`58db6f81`) to the plan; the wrong guidance still ships in the v11.0.0 `CHANGELOG.md` (release-please-owned, generated from the commit footer — not editable) and the GitHub issue #385 close comment.
+- `other` (low-medium, self-identified) — Commit-split surgery during the crediting sub-task: `git reset --soft HEAD~2` left both the plan and retro changes staged, so the first recommit swallowed both files; a second attempt split the retro across both commits; a third (`git reset --soft HEAD~2` then mixed `git reset`) finally separated them.
+  Impact: ~2 redo cycles, no shipped defect.
+- `other` (low, self-identified) — An `Edit` batch on `session-start.test.ts` was rejected because the two fake `ExtensionAPI` blocks are identical and my first `oldText` pair was not uniquely anchored; re-anchored on the enclosing `test(...)` names.
+  Impact: one retry.
+
+#### What caused friction (user side)
+
+- The credit request ("I'd like to give credit to 0xbentang, too") arrived after the plan was already committed, which forced the retroactive commit-split surgery above.
+  Opportunity (not criticism): surfacing co-authorship intent during planning would have folded the trailers into the normal commit flow.
+- The `activeTools` → `--tools` correction was delivered as a direct commit between sessions rather than as a redirect.
+  A one-line "verify how pi activates tools" nudge during planning would have caught the error before it reached the immutable CHANGELOG.
+
+### Diagnostic details
+
+- **Unused-tool detection** — for the `missing-context` finding, `code_search` and `web_search` were available and never used.
+  A single `code_search "pi coding agent tool activation --tools CLI flag"` would have surfaced the real mechanism before the wrong guidance shipped.
+  I used the SDK `.d.ts` to confirm `getActiveTools(): string[]` but never checked the user-facing activation path.
+- **Model-performance correlation** — one subagent dispatched (`pre-completion-reviewer`, default model): judgment-heavy review work, 42 tool uses, returned PASS plus a real naming WARN (`allTools` → `activeTools`).
+  Appropriate model-to-task fit; no mismatch.
+- **Feedback-loop gap analysis** — no gap; verification ran incrementally per TDD step, not only at the end.
+- **Escalation-delay tracking** — no single-error sequence exceeded five consecutive tool calls; the commit-split retries were distinct strategies, not one repeated error.
+
+### Changes made
+
+1. `AGENTS.md` (Commits section) — added a rule to verify a breaking-change migration mechanism (CLI flag, config key, API call) against the real surface before asserting it, noting the note ships to the uneditable CHANGELOG and the close comment.
+2. `AGENTS.md` (git guidance) — appended a one-line note that `git reset --soft HEAD~N` stages all N commits together, so re-splitting needs a mixed `git reset` first.
+3. GitHub issue #385 close comment — corrected the `activeTools` config reference to the `--tools` / `-t` CLI flag (and `createAgentSession({ tools })`), with an inline correction note.
+4. Known erratum (not fixed): the v11.0.0 `CHANGELOG.md` `BREAKING CHANGE` entry still says "activeTools configuration" — it is generated from the `fix!:` commit footer and owned by release-please, so it was left as-is rather than hand-edited.
+
 [#386]: https://github.com/gotgenes/pi-packages/pull/386
