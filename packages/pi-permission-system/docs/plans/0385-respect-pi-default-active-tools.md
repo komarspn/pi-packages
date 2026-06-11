@@ -33,12 +33,14 @@ The implementation commits should credit Ben with a `Co-authored-by: Ben Tang <b
 - Add a regression test proving off-by-default tools (`find`/`grep`/`ls`) present in the registry but absent from the active set are **not** activated.
 - **Breaking change.**
   On upgrade, the main session's effective tool set changes without a user edit: tools pi leaves off (e.g. `find`, `grep`, `ls`) are no longer auto-activated by the permission system.
+  Users who want them active should launch pi with the `--tools` CLI flag (there is no persistent config-file key for the active set).
   Ship as `fix!:` with a `BREAKING CHANGE:` footer.
 
 ## Non-Goals
 
 - No escape hatch to re-grant pi's off-by-default tools through permission config.
-  The extension stays restrict-only; granting tools is pi's job (pi-level `activeTools` config).
+  The extension stays restrict-only; activating tools is pi's job — done at launch via the `--tools` / `-t` CLI flag (e.g. `pi --tools read,bash,edit,write,grep,find,ls`) or programmatically via `createAgentSession({ tools: [...] })`.
+  There is no persistent settings-file key for the active tool set.
 - No change to `PermissionGateHandler` / `validateRequestedTool` — tool-call validation continues to use `getAll()` (the full registry), which is correct: a denied-but-registered tool should still validate as "registered" and then be gated, not rejected as "unknown".
 - No split of the `ToolRegistry` interface (see Design Overview — track-and-watch, not now).
 - No change to skill or prompt sanitization logic in the handler.
@@ -175,7 +177,7 @@ This is a one-line behavior change on a shared seam, not an extraction, so the t
    Red: in `before-agent-start.test.ts`, add the test — `getActive` returns `[read, bash, edit, write]`, all permission-allowed — asserting `setActive` is called with exactly `[read, bash, edit, write]`.
    With the handler still on `getAll`, this fails (or is wired to `getAll` returning the superset and fails by including `find`/`grep`/`ls`).
    Green: change `AgentPrepHandler.handle()` to call `getActive()`; update the three existing active-set assertions to use `getActive` returning `string[]`; add `getActive` to the inline stubs in `external-directory-session-dedup.test.ts` and `tool-call.test.ts`.
-   Commit: `fix!: respect pi's default active tool set in before_agent_start (#385)` with a `BREAKING CHANGE:` footer noting that the permission system no longer auto-activates pi's off-by-default tools (`find`, `grep`, `ls`) in the main session; users wanting them active should enable them via pi's own `activeTools` configuration.
+   Commit: `fix!: respect pi's default active tool set in before_agent_start (#385)` with a `BREAKING CHANGE:` footer noting that the permission system no longer auto-activates pi's off-by-default tools (`find`, `grep`, `ls`) in the main session; users wanting them active should launch pi with `--tools read,bash,edit,write,grep,find,ls` (no persistent config-file key exists for the active set).
 
 3. **Docs.**
    Update `docs/configuration.md` to clarify the restrict-only filtering behavior.
@@ -201,7 +203,7 @@ Co-authored-by: Ben Tang <bentang@fastmail.com>
   Mitigation: this plan types `getActive(): string[]` and returns bare strings from every mock/fake so tests match the real contract.
 - **Breaking-change surprise for existing users.**
   Users relying on `find`/`grep`/`ls` being active in the main session lose them on upgrade.
-  Mitigation: prominent `BREAKING CHANGE:` footer + changelog (release-please) pointing to pi's `activeTools` config as the supported way to enable them.
+  Mitigation: prominent `BREAKING CHANGE:` footer + changelog (release-please) pointing to the `--tools` CLI flag as the supported way to enable them.
 
 ## Open Questions
 
