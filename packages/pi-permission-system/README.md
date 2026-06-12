@@ -104,19 +104,16 @@ For the full reference — all surfaces, runtime knobs, per-agent overrides, mer
 ## Development
 
 ```bash
-pnpm run build       # Type-check TypeScript (no emit)
-pnpm run lint        # Biome lint + format check
-pnpm run lint:fix    # Biome lint + format auto-fix
-pnpm run lint:md     # markdownlint-cli2 on README etc.
-pnpm run lint:all    # lint + lint:md
-pnpm run format      # Biome format --write
-pnpm run test        # Run tests from ./tests
-pnpm run check       # build + lint:all + test
+pnpm run check       # Type-check TypeScript (no emit)
+pnpm run lint        # Biome + ESLint + lint:md
+pnpm run lint:md     # rumdl on README and docs
+pnpm run test        # Run tests from ./test
+pnpm run test:watch  # Run tests in watch mode
 ```
 
 ### Pre-commit hooks
 
-This project uses [prek](https://prek.j178.dev/) to run Biome and markdownlint on staged files before each commit.
+This project uses [prek](https://prek.j178.dev/) to run Biome, ESLint, and rumdl on staged files before each commit.
 Run `pnpm install` to set up hooks automatically.
 
 ## Acknowledgments
