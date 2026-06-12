@@ -6,6 +6,7 @@ import {
   getProjectConfigPath,
   loadConfig,
 } from "./lib/config";
+import { checkIndexExists } from "./lib/index-status";
 import { createReindexer, type Reindexer } from "./lib/reindex";
 import { registerColGrep } from "./tools/colgrep";
 
@@ -23,6 +24,13 @@ function setColGrepStatus(
 export default function piColGrepExtension(pi: ExtensionAPI): void {
   const availability = createAvailabilityState();
   let reindexer: Reindexer | undefined;
+  // Whether a colgrep index exists for the current session's cwd. Probed once
+  // on session_start and flipped true when an index is built. The write/edit
+  // auto-reindex is gated on this so we never proactively index a directory
+  // the operator never searches.
+  let indexExists = false;
+  // Limits the "no index, skipping" notice to one per session.
+  let skipWarned = false;
 
   registerColGrep(pi, {
     exec: (cmd, args, opts) => pi.exec(cmd, args, opts),
@@ -58,16 +66,31 @@ export default function piColGrepExtension(pi: ExtensionAPI): void {
       onStatus: (text) => setColGrepStatus(ctx, text),
     });
 
+    skipWarned = false;
+    indexExists = await checkIndexExists(exec, ctx.cwd);
+
     if (config.indexOnStartup) {
       // Fire-and-forget: kick the index build off in the background so it never
       // blocks Pi startup. `shutdown()` awaits the in-flight run on session end.
       void reindexer.runNow();
+      indexExists = true;
     }
   });
 
-  pi.on("tool_result", (event, _ctx) => {
+  pi.on("tool_result", (event, ctx) => {
     if (event.isError) return;
     if (event.toolName !== "write" && event.toolName !== "edit") return;
+    if (!indexExists) {
+      if (!skipWarned) {
+        skipWarned = true;
+        ctx.ui.notify(
+          "colgrep: skipping auto-reindex — no index for this directory. " +
+            "Run /colgrep-reindex to build one.",
+          "info",
+        );
+      }
+      return;
+    }
     reindexer?.schedule();
   });
 
@@ -104,6 +127,8 @@ export default function piColGrepExtension(pi: ExtensionAPI): void {
         });
 
       await indexer.runNow();
+      // A manual reindex establishes an index, so resume write/edit reindexing.
+      indexExists = true;
       ctx.ui.notify("ColGrep index updated.", "info");
     },
   });

@@ -113,6 +113,10 @@ function makeSessionStartEvent() {
   return {};
 }
 
+const NO_INDEX_STATUS =
+  "No index found for /project [model]\nRun `colgrep <query>` to create one.\n";
+const INDEXED_STATUS = "Project: /project\nModel:   model\nIndex:   /tmp/idx\n";
+
 // ---- Cycle 6: session_start reindex ----
 
 describe("extension — session_start reindex", () => {
@@ -380,6 +384,104 @@ describe("extension — /colgrep-reindex command", () => {
     await expect(
       pi.invokeCommand("colgrep-reindex", "", ctx),
     ).resolves.toBeUndefined();
+  });
+});
+
+// ---- Issue #389: write/edit reindex gating ----
+
+describe("extension — write/edit reindex gating (#389)", () => {
+  let pi: TestPi;
+  let ctx: TestCtx;
+
+  function mockExec(statusStdout: string) {
+    pi.exec.mockImplementation((_cmd, args) => {
+      if (args[0] === "status") {
+        return Promise.resolve({ stdout: statusStdout, stderr: "", code: 0 });
+      }
+      return Promise.resolve({ stdout: "", stderr: "", code: 0 });
+    });
+  }
+
+  beforeEach(() => {
+    pi = new TestPi();
+    ctx = makeCtx();
+    pi.exec.mockResolvedValue({ stdout: "", stderr: "", code: 0 });
+    piColGrepExtension(pi.asExtensionAPI());
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("probes index existence once on session_start", async () => {
+    await pi.trigger("session_start", makeSessionStartEvent(), ctx);
+    expect(pi.exec).toHaveBeenCalledWith(
+      "colgrep",
+      ["status", "/project", "--color", "never"],
+      expect.objectContaining({ cwd: "/project" }),
+    );
+  });
+
+  it("schedules a reindex on write when an index already exists", async () => {
+    loadConfig.mockReturnValue({ indexOnStartup: false });
+    mockExec(INDEXED_STATUS);
+    await pi.trigger("session_start", makeSessionStartEvent(), ctx);
+    pi.exec.mockClear();
+    mockExec(INDEXED_STATUS);
+
+    await pi.trigger("tool_result", { toolName: "write", isError: false }, ctx);
+    await vi.advanceTimersByTimeAsync(4_000);
+
+    expect(pi.exec).toHaveBeenCalledWith(
+      "colgrep",
+      ["init", "-y", "."],
+      expect.anything(),
+    );
+  });
+
+  it("skips the reindex and warns once when no index exists", async () => {
+    loadConfig.mockReturnValue({ indexOnStartup: false });
+    mockExec(NO_INDEX_STATUS);
+    await pi.trigger("session_start", makeSessionStartEvent(), ctx);
+    pi.exec.mockClear();
+    ctx.ui.notify.mockClear();
+    mockExec(NO_INDEX_STATUS);
+
+    await pi.trigger("tool_result", { toolName: "write", isError: false }, ctx);
+    await pi.trigger("tool_result", { toolName: "edit", isError: false }, ctx);
+    await vi.advanceTimersByTimeAsync(4_000);
+
+    expect(pi.exec).not.toHaveBeenCalledWith(
+      "colgrep",
+      ["init", "-y", "."],
+      expect.anything(),
+    );
+    expect(ctx.ui.notify).toHaveBeenCalledTimes(1);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("skipping"),
+      "info",
+    );
+  });
+
+  it("resumes reindexing after a manual /colgrep-reindex builds the index", async () => {
+    loadConfig.mockReturnValue({ indexOnStartup: false });
+    mockExec(NO_INDEX_STATUS);
+    await pi.trigger("session_start", makeSessionStartEvent(), ctx);
+
+    // Manual reindex builds an index and flips the gate.
+    await pi.invokeCommand("colgrep-reindex", "", ctx);
+
+    pi.exec.mockClear();
+    mockExec(NO_INDEX_STATUS);
+    await pi.trigger("tool_result", { toolName: "write", isError: false }, ctx);
+    await vi.advanceTimersByTimeAsync(4_000);
+
+    expect(pi.exec).toHaveBeenCalledWith(
+      "colgrep",
+      ["init", "-y", "."],
+      expect.anything(),
+    );
   });
 });
 
