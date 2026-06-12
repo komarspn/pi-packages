@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 import type { Rule, RuleOrigin, Ruleset } from "#src/rule";
-import { evaluate, evaluateFirst, evaluateMostRestrictive } from "#src/rule";
+import {
+  evaluate,
+  evaluateAnyValue,
+  evaluateFirst,
+  evaluateMostRestrictive,
+} from "#src/rule";
 
 describe("evaluate", () => {
   const allowBashGit: Rule = {
@@ -389,6 +394,74 @@ describe("evaluateFirst", () => {
   test("uses '*' as fallback value when values array is empty", () => {
     const rules: Ruleset = [defaultRule];
     const result = evaluateFirst("bash", [], rules);
+    expect(result.value).toBe("*");
+  });
+});
+
+describe("evaluateAnyValue", () => {
+  const catchAllAllow: Rule = {
+    surface: "path",
+    pattern: "*",
+    action: "allow",
+    layer: "config",
+    origin: "global",
+  };
+  const catchAllAsk: Rule = {
+    surface: "path",
+    pattern: "*",
+    action: "ask",
+    layer: "config",
+    origin: "global",
+  };
+  const relativeDeny: Rule = {
+    surface: "path",
+    pattern: "src/*",
+    action: "deny",
+    layer: "config",
+    origin: "global",
+  };
+  const absoluteAllow: Rule = {
+    surface: "path",
+    pattern: "/proj/*",
+    action: "allow",
+    layer: "config",
+    origin: "global",
+  };
+
+  test("a later relative rule wins over a catch-all matched by another alias", () => {
+    const rules: Ruleset = [catchAllAllow, relativeDeny];
+    const result = evaluateAnyValue(
+      "path",
+      ["/proj/src/foo.ts", "src/foo.ts"],
+      rules,
+    );
+    expect(result.rule).toEqual(relativeDeny);
+    expect(result.value).toBe("src/foo.ts");
+  });
+
+  test("uses an absolute alias when no later relative rule matches", () => {
+    const rules: Ruleset = [catchAllAsk, absoluteAllow];
+    const result = evaluateAnyValue(
+      "path",
+      ["/proj/src/foo.ts", "src/foo.ts"],
+      rules,
+    );
+    expect(result.rule).toEqual(absoluteAllow);
+    expect(result.value).toBe("/proj/src/foo.ts");
+  });
+
+  test("falls back to the first value's default when no rule matches", () => {
+    const result = evaluateAnyValue(
+      "path",
+      ["/proj/src/foo.ts", "src/foo.ts"],
+      [],
+    );
+    expect(result.rule.action).toBe("ask");
+    expect(result.value).toBe("/proj/src/foo.ts");
+  });
+
+  test("uses '*' as fallback value when values array is empty", () => {
+    const result = evaluateAnyValue("path", [], []);
     expect(result.value).toBe("*");
   });
 });
