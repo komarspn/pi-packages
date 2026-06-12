@@ -22,3 +22,19 @@ The change is non-breaking (package-internal type, unchanged `show` output) and 
 - The only empirical unknown is whether `fallow dead-code` actually stops flagging the getter; the plan carries a documented fallback (restore a single justified suppression) so the unknown does not block.
 - The interface change breaks `index.ts` wiring and all four `config-modal.test.ts` controller literals at the type level in the same commit, so they fold into one TDD step per the AGENTS.md rule on constructed call sites.
 - `getComposedConfigRules` always returns a `Ruleset` (never `undefined`), so the accessor needs no optionality and the existing empty-ruleset/`summarizeConfig` behavior is preserved.
+
+## Stage: Implementation — TDD (2026-06-12T08:30:00Z)
+
+### Session summary
+
+Executed the single TDD cycle: updated all four controller literals in `test/config-modal.test.ts` to the `getActiveAgentConfigRules` shape (Red — 4 type errors confirmed), then updated `src/config-modal.ts`, `src/index.ts`, and `src/permission-session.ts` (Green).
+All 93 test files / 1951 tests stayed green; committed as one atomic `refactor:` commit.
+A separate `docs:` commit marked Phase 5 Step 7 complete in `docs/architecture/architecture.md`.
+
+### Observations
+
+- The key risk — `fallow` still flagging `lastKnownActiveAgentName` — did **not** materialise.
+  Moving the read into a real arrow-function body in `index.ts` (`session.lastKnownActiveAgentName`) was sufficient for `fallow` to trace it; the `fallow-ignore-next-line` suppression is fully retired.
+- All four controller literals in `test/config-modal.test.ts` were updated atomically; TypeScript's excess-property checking at `pnpm run check` caught any that might have been missed.
+- The `summarizeConfig` optional `rules?` parameter did not need to change — the accessor always returns a defined `Ruleset`, and the existing behavior (empty ruleset → no rule-suffix) is preserved without optionality.
+- Pre-completion reviewer: **PASS** — no WARN findings.
