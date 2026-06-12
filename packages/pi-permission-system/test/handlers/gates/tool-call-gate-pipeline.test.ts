@@ -23,7 +23,7 @@ vi.mock("#src/handlers/gates/bash-program", () => ({
 function makeMockBashProgram() {
   return {
     commands: vi.fn<() => []>(() => []),
-    pathTokens: vi.fn<() => []>(() => []),
+    pathRuleCandidates: vi.fn<() => []>(() => []),
     externalPaths: vi.fn<() => []>(() => []),
   };
 }

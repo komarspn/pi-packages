@@ -236,9 +236,21 @@ export function makeHandler(overrides?: {
 
   // Apply session override bag to the real collaborators.
   const so = overrides?.session;
-  if (so?.checkPermission) {
+  const surfaceCheck = so?.checkPermission;
+  if (surfaceCheck) {
     vi.mocked(permissionManager.checkPermission).mockImplementation(
-      so.checkPermission,
+      surfaceCheck,
+    );
+    // The bash path gate resolves through checkPathPolicy; route it through
+    // the same surface dispatcher so `path` overrides apply to bash tokens.
+    vi.mocked(permissionManager.checkPathPolicy).mockImplementation(
+      (values, agentName, sessionRules) =>
+        surfaceCheck(
+          "path",
+          { path: values[0] ?? "*" },
+          agentName,
+          sessionRules,
+        ),
     );
   }
   if (so?.getActiveSkillEntries) {

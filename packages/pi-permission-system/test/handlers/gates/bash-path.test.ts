@@ -215,6 +215,49 @@ describe("describeBashPathGate", () => {
     expect(desc.preCheck?.state).toBe("deny");
     expect(desc.decision.value).toBe(".env");
   });
+
+  it("resolves cd-aware policy values while keeping the raw prompt token", async () => {
+    const resolver = makeResolver(
+      makeCheckResult({ state: "deny", matchedPattern: "*" }),
+    );
+    const result = (await describeGate(
+      makeTcc({
+        input: { command: "cd nested && cat src/file.txt" },
+        cwd: "/test/project",
+      }),
+      resolver,
+    )) as GateDescriptor;
+
+    expect(resolver.resolvePathPolicy).toHaveBeenCalledWith(
+      [
+        "/test/project/nested/src/file.txt",
+        "nested/src/file.txt",
+        "src/file.txt",
+      ],
+      undefined,
+    );
+    // The raw token drives the prompt, denial context, and session approval.
+    expect(result.denialContext).toMatchObject({ pathValue: "src/file.txt" });
+    expect(result.decision.value).toBe("src/file.txt");
+  });
+
+  it("does not resolve relative policy values through an unknown cd", async () => {
+    const resolver = makeResolver(
+      makeCheckResult({ state: "deny", matchedPattern: "*" }),
+    );
+    await describeGate(
+      makeTcc({
+        input: { command: 'cd "$DIR" && cat src/foo.ts' },
+        cwd: "/test/project",
+      }),
+      resolver,
+    );
+
+    expect(resolver.resolvePathPolicy).toHaveBeenCalledWith(
+      ["src/foo.ts"],
+      undefined,
+    );
+  });
 });
 
 // Home-relative path characterization (#350) ──────────────────────────────
@@ -229,7 +272,7 @@ describe("describeBashPathGate — home-relative paths", () => {
     // cat ~/.ssh/config → token "~/.ssh/config" extracted.
     const resolver = makePathDispatchResolver(
       {
-        "~/.ssh/config": makeCheckResult({
+        "/mock/home/.ssh/config": makeCheckResult({
           state: "deny",
           matchedPattern: "~/.ssh/*",
         }),
@@ -253,7 +296,7 @@ describe("describeBashPathGate — home-relative paths", () => {
   it("extracts $HOME/... token and builds descriptor on deny", async () => {
     const resolver = makePathDispatchResolver(
       {
-        "$HOME/.ssh/config": makeCheckResult({
+        "/mock/home/.ssh/config": makeCheckResult({
           state: "deny",
           matchedPattern: "$HOME/.ssh/*",
         }),
