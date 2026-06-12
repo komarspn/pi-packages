@@ -127,74 +127,17 @@ Use `scripts/issue-context.sh <N>` to gather all available context for an issue 
 
 ## Code Style
 
-- Use TypeScript.
-- Avoid `any` unless absolutely necessary.
-- Use standard top-level imports only.
-- Keep modules focused and composable (one concern per file).
-- Prefer explicit configuration over hidden behavior.
-- This project uses **pnpm** exclusively — never `npm` or `npx`.
-- When you change a `package.json` dependency, run `pnpm install` and commit the updated `pnpm-lock.yaml` in the same commit — CI installs with `--frozen-lockfile`.
-- pnpm settings (`catalog`, `allowBuilds`, `linkWorkspacePackages`) live in `pnpm-workspace.yaml`, not `.npmrc` — pnpm 11 reads them there.
-- The tsconfig target is ES2024 (`noEmit: true`).
-  ES2023 APIs (`findLast`, `findLastIndex`, `toReversed`, `toSorted`, `toSpliced`, `with`) and ES2024 APIs (`Promise.withResolvers`, `Object.groupBy`, `Map.groupBy`, `Array.fromAsync`) are available and preferred.
-  Do not use APIs introduced after ES2024.
-
-When a rename or extraction adds exports to a barrel file (`types.ts`, `index.ts`), verify at least one consumer imports the symbol from that barrel — not from the source module directly.
-Do not add speculative re-exports; fallow will flag them as dead code.
-
-When adding a public or cross-extension API (a service method, exported seam, or registration hook), document it for third-party authors — input/return contract, error/throw semantics, a minimal wiring example, and known limitations — not just the type signature.
-
+This project uses **pnpm** exclusively — never `npm` or `npx`.
+Before implementing, refactoring, or reviewing code, load the `code-design` skill — it covers naming, SOLID and structural design heuristics, TypeScript conventions, pnpm/ES2024 tooling rules, Pi SDK boundaries, and Biome/ESLint conflict workarounds.
 Use `colgrep` for intent-based codebase exploration and convention discovery; use `grep` for exact symbol matching.
-
-### Biome / ESLint linter conflicts
-
-Biome's `noNonNullAssertion` bans `x!` and ESLint's `no-unnecessary-type-assertion` auto-fixes `x as T` back to `x!`.
-When both linters run on the same file, assertion-based workarounds create an unsolvable loop.
-Fix: restructure the code to eliminate the assertion entirely (explicit `if` guard with early return).
-
-Passing an interface method as a bare value (`writeReviewLog: logger.review`) trips `@typescript-eslint/unbound-method`; the rule's suggested `this: void` fix is itself rejected by `@typescript-eslint/no-invalid-void-type`.
-Fix: wrap in an arrow (`(e, d) => logger.review(e, d)`).
-
-ESLint `prefer-const` fires on a `let` assigned exactly once — even with no initializer (e.g. a forward declaration captured by a closure before assignment).
-`const` without an initializer is a syntax error, so the suggested fix is impossible, but the error still triggers (biome's `useConst` correctly skips it; a `let` reassigned 2+ times is also skipped).
-Fix: `// eslint-disable-next-line prefer-const -- forward-declared let; const requires an initializer`.
-
-Before implementing, refactoring, or reviewing code, load the `code-design` skill for design principles and structural heuristics.
 
 ## Markdown
 
-- Use one sentence per line (unbroken) for better diffs.
-- Always specify a language on fenced code blocks (e.g., ` ```typescript `, ` ```bash `, ` ```text `); use `text` for plain output.
-- Use sequential numbering (`1.` `2.` `3.`) in ordered lists, restarting at `1.` under each new heading — markdownlint's MD029 rejects continued numbering across section boundaries.
-- Do not use bold text (`**...**`) as a substitute for headings — use proper heading syntax; markdownlint's MD036 rejects emphasis used as headings.
-- When embedding markdown that itself contains fenced code blocks, use a 4-backtick outer fence (` ````markdown `).
-- Use compact table style — markdownlint's MD060 enforces consistent column style.
-- Separate adjacent blockquotes with an HTML comment (`<!-- -->`) to satisfy markdownlint's MD028.
-
-Before writing or editing markdown files, load the `markdown-conventions` skill.
+Before writing or editing markdown files, load the `markdown-conventions` skill — it covers the formatting rules (one-sentence-per-line, fence languages, list numbering, table style) and the YAML frontmatter schema for plans and retros.
 
 ## Mermaid
 
 Before authoring or reviewing Mermaid diagrams, load the `mermaid` skill.
-
-## Documentation Frontmatter
-
-Docs under `docs/plans/` and `docs/retro/` use YAML frontmatter for structured metadata.
-Single-package work lives in `packages/<PKG>/docs/{plans,retro}/`; cross-package work lives in the top-level `docs/{plans,retro}/`.
-GitHub renders frontmatter as a table at the top of the file.
-
-Schema (both fields are strings/numbers — quote any title containing backticks or colons):
-
-```yaml
----
-issue: 14                                              # optional: omit for plans that predate issue tracking
-issue_title: "Batch-by-default formatter dispatch"     # required
----
-```
-
-- `issue` stores the number only, never a URL.
-- Do not duplicate frontmatter fields as inline metadata in the body.
-- Other doc types (`README.md`) do not use frontmatter.
 
 ## Testing
 
