@@ -102,6 +102,20 @@ export function makeFakePermissionManager() {
         source: "tool",
         origin: "builtin",
       }),
+    checkPathPolicy: vi
+      .fn<
+        (
+          values: readonly string[],
+          agentName?: string,
+          sessionRules?: Ruleset,
+        ) => PermissionCheckResult
+      >()
+      .mockReturnValue({
+        state: "allow",
+        toolName: "path",
+        source: "special",
+        origin: "builtin",
+      }),
     getToolPermission: vi
       .fn<(toolName: string, agentName?: string) => PermissionState>()
       .mockReturnValue("allow"),

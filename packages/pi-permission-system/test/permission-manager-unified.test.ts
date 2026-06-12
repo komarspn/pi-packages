@@ -3081,3 +3081,137 @@ test("getResolvedPolicyPaths returns false for missing files and null for absent
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+describe("checkPermission — cwd-aware path policy values", () => {
+  const cwd = "/workspace/project";
+
+  it("matches a relative read input against an absolute allowlist", () => {
+    const { manager, cleanup } = makeManagerWithConfig({
+      read: { "*": "ask", [`${cwd}/*`]: "allow" },
+    });
+    try {
+      manager.configureForCwd(cwd);
+      const result = manager.checkPermission("read", { path: "src/App.jsx" });
+      expect(result.state).toBe("allow");
+      expect(result.matchedPattern).toBe(`${cwd}/*`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("keeps legacy relative path rules working after configureForCwd", () => {
+    const { manager, cleanup } = makeManagerWithConfig({
+      read: { "*": "allow", "src/*": "deny" },
+    });
+    try {
+      manager.configureForCwd(cwd);
+      const result = manager.checkPermission("read", { path: "src/App.jsx" });
+      expect(result.state).toBe("deny");
+      expect(result.matchedPattern).toBe("src/*");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("preserves last-match-wins across absolute and relative aliases", () => {
+    const { manager, cleanup } = makeManagerWithConfig({
+      read: {
+        "*": "ask",
+        [`${cwd}/*`]: "allow",
+        "src/*": "deny",
+      },
+    });
+    try {
+      manager.configureForCwd(cwd);
+      const result = manager.checkPermission("read", { path: "src/App.jsx" });
+      // The later "src/*" deny wins over the earlier absolute allow.
+      expect(result.state).toBe("deny");
+      expect(result.matchedPattern).toBe("src/*");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("matches the cross-cutting path surface against absolute allowlists", () => {
+    const { manager, cleanup } = makeManagerWithConfig({
+      path: { "*": "ask", [`${cwd}/*`]: "allow" },
+    });
+    try {
+      manager.configureForCwd(cwd);
+      const result = manager.checkPermission("path", { path: "src/App.jsx" });
+      expect(result.state).toBe("allow");
+      expect(result.matchedPattern).toBe(`${cwd}/*`);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("checkPathPolicy", () => {
+  const cwd = "/workspace/project";
+
+  it("evaluates precomputed policy values against the path surface", () => {
+    const { manager, cleanup } = makeManagerWithConfig({
+      path: { "*": "ask", [`${cwd}/*`]: "allow" },
+    });
+    try {
+      const result = manager.checkPathPolicy([
+        `${cwd}/src/App.jsx`,
+        "src/App.jsx",
+      ]);
+      expect(result.state).toBe("allow");
+      expect(result.matchedPattern).toBe(`${cwd}/*`);
+      expect(result.source).toBe("special");
+      expect(result.toolName).toBe("path");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("preserves last-match-wins across the provided aliases", () => {
+    const { manager, cleanup } = makeManagerWithConfig({
+      path: { "*": "ask", [`${cwd}/*`]: "allow", "src/*": "deny" },
+    });
+    try {
+      const result = manager.checkPathPolicy([
+        `${cwd}/src/App.jsx`,
+        "src/App.jsx",
+      ]);
+      expect(result.state).toBe("deny");
+      expect(result.matchedPattern).toBe("src/*");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("applies session rules over config", () => {
+    const { manager, cleanup } = makeManagerWithConfig({
+      path: { "*": "ask", "src/*": "deny" },
+    });
+    try {
+      const sessionRules: Ruleset = [sessionAllow("path", "src/*")];
+      const result = manager.checkPathPolicy(
+        ["src/App.jsx"],
+        undefined,
+        sessionRules,
+      );
+      expect(result.state).toBe("allow");
+      expect(result.source).toBe("session");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("falls back to the catch-all for an empty value list", () => {
+    const { manager, cleanup } = makeManagerWithConfig({
+      path: { "*": "deny" },
+    });
+    try {
+      const result = manager.checkPathPolicy([]);
+      expect(result.state).toBe("deny");
+      expect(result.matchedPattern).toBe("*");
+    } finally {
+      cleanup();
+    }
+  });
+});
