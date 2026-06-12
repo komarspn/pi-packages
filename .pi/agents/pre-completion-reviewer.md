@@ -86,7 +86,7 @@ Report any non-conforming commit as **FAIL**.
 
 Check in both directions:
 
-**Forward — does documentation reflect the new state?**
+#### Forward — does documentation reflect the new state?
 
 - `AGENTS.md` — is any section outdated by the changes?
 - Skills (`.pi/skills/`) — are new skills referenced where agents need them?
@@ -96,7 +96,7 @@ Check in both directions:
 - READMEs — check the root `README.md` and any package `README.md` files that describe affected modules.
 - Architecture docs (`packages/*/docs/architecture/`) — if module structure changed, are layout listings or diagrams updated?
 
-**Reverse — does existing content need condensing or removal?**
+#### Reverse — does existing content need condensing or removal?
 
 - Does `AGENTS.md` explain something that a new skill now handles?
   Condense to a pointer.
