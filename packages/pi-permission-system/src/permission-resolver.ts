@@ -17,6 +17,15 @@ export interface ScopedPermissionResolver {
     input: unknown,
     agentName?: string,
   ): PermissionCheckResult;
+  /**
+   * Resolve the cross-cutting `path` surface against a caller-supplied set of
+   * equivalent policy values, applying the current session rules. Used by the
+   * bash path gate, which computes cd-aware policy values per token.
+   */
+  resolvePathPolicy(
+    values: readonly string[],
+    agentName?: string,
+  ): PermissionCheckResult;
 }
 
 /**
@@ -48,6 +57,21 @@ export class PermissionResolver implements ScopedPermissionResolver {
     return this.checkPermission(
       surface,
       input,
+      agentName,
+      this.sessionRules.getRuleset(),
+    );
+  }
+
+  /**
+   * Resolve the `path` surface for precomputed policy values, composing the
+   * current session ruleset so callers never thread it by hand.
+   */
+  resolvePathPolicy(
+    values: readonly string[],
+    agentName?: string,
+  ): PermissionCheckResult {
+    return this.permissionManager.checkPathPolicy(
+      values,
       agentName,
       this.sessionRules.getRuleset(),
     );

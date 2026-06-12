@@ -133,6 +133,61 @@ describe("PermissionResolver", () => {
     });
   });
 
+  describe("resolvePathPolicy", () => {
+    it("forwards values and agentName with the current session ruleset", () => {
+      const { resolver, permissionManager } = makeResolver();
+
+      resolver.resolvePathPolicy(["/proj/src/a.ts", "src/a.ts"], "agent-x");
+
+      expect(permissionManager.checkPathPolicy).toHaveBeenCalledWith(
+        ["/proj/src/a.ts", "src/a.ts"],
+        "agent-x",
+        [],
+      );
+    });
+
+    it("applies a recorded session approval on the next call", () => {
+      const pm = makePermissionManager();
+      const sessionRules = new SessionRules();
+      const { resolver } = makeResolver(pm, sessionRules);
+
+      sessionRules.recordSessionApproval(
+        SessionApproval.single("path", "src/*"),
+      );
+      resolver.resolvePathPolicy(["src/a.ts"]);
+
+      const passedRules = vi.mocked(pm.checkPathPolicy).mock.calls[0][2];
+      expect(passedRules).toHaveLength(1);
+      expect(passedRules?.[0]).toMatchObject({
+        surface: "path",
+        pattern: "src/*",
+        action: "allow",
+      });
+    });
+
+    it("returns the PermissionManager's check result", () => {
+      const pm = makePermissionManager();
+      vi.mocked(pm.checkPathPolicy).mockReturnValue({
+        state: "deny",
+        toolName: "path",
+        source: "special",
+        origin: "global",
+        matchedPattern: "src/*",
+      });
+      const { resolver } = makeResolver(pm);
+
+      const result = resolver.resolvePathPolicy(["src/a.ts"]);
+
+      expect(result).toEqual({
+        state: "deny",
+        toolName: "path",
+        source: "special",
+        origin: "global",
+        matchedPattern: "src/*",
+      });
+    });
+  });
+
   describe("checkPermission", () => {
     it("delegates to permissionManager.checkPermission with the given args", () => {
       const { resolver, permissionManager } = makeResolver();

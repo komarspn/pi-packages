@@ -26,10 +26,13 @@ import { makeCheckResult } from "#test/helpers/handler-fixtures";
  */
 export function makeResolver(defaultCheck?: PermissionCheckResult) {
   const resolve = vi.fn<ScopedPermissionResolver["resolve"]>();
+  const resolvePathPolicy =
+    vi.fn<ScopedPermissionResolver["resolvePathPolicy"]>();
   if (defaultCheck) {
     resolve.mockReturnValue(defaultCheck);
+    resolvePathPolicy.mockReturnValue(defaultCheck);
   }
-  return { resolve };
+  return { resolve, resolvePathPolicy };
 }
 
 /**
@@ -92,6 +95,7 @@ export function makeGateRunner(
   overrides: {
     resolveResult?: PermissionCheckResult;
     resolve?: ScopedPermissionResolver["resolve"];
+    resolvePathPolicy?: ScopedPermissionResolver["resolvePathPolicy"];
     recordSessionApproval?: SessionApprovalRecorder["recordSessionApproval"];
     canConfirm?: GatePrompter["canConfirm"];
     prompt?: GatePrompter["prompt"];
@@ -103,6 +107,13 @@ export function makeGateRunner(
     overrides.resolve ??
     vi
       .fn<ScopedPermissionResolver["resolve"]>()
+      .mockReturnValue(
+        overrides.resolveResult ?? makeCheckResult({ matchedPattern: "*" }),
+      );
+  const resolvePathPolicy =
+    overrides.resolvePathPolicy ??
+    vi
+      .fn<ScopedPermissionResolver["resolvePathPolicy"]>()
       .mockReturnValue(
         overrides.resolveResult ?? makeCheckResult({ matchedPattern: "*" }),
       );
@@ -118,7 +129,7 @@ export function makeGateRunner(
       .fn<GatePrompter["prompt"]>()
       .mockResolvedValue({ approved: true, state: "approved" });
   const runner = new GateRunner(
-    { resolve },
+    { resolve, resolvePathPolicy },
     { recordSessionApproval },
     { canConfirm, prompt },
     reporter,
@@ -127,6 +138,7 @@ export function makeGateRunner(
     runner,
     deps: {
       resolve,
+      resolvePathPolicy,
       recordSessionApproval,
       canConfirm,
       prompt,
@@ -212,7 +224,15 @@ export function makePathDispatchResolver(
     }
     return defaultResult;
   });
-  return { resolve };
+  const resolvePathPolicy =
+    vi.fn<ScopedPermissionResolver["resolvePathPolicy"]>();
+  resolvePathPolicy.mockImplementation((values) => {
+    for (const value of values) {
+      if (value in byPath) return byPath[value];
+    }
+    return defaultResult;
+  });
+  return { resolve, resolvePathPolicy };
 }
 
 /**
