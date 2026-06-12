@@ -86,4 +86,6 @@ After shipping, the user asked to bring docs up to date and add an architecture 
 
 1. Recorded this Final Retrospective entry in `packages/pi-colgrep/docs/retro/0389-configurable-startup-indexing.md`.
 2. No prompt or `AGENTS.md` changes: the user declined the proposed architecture-doc-absence nudge for `.pi/prompts/plan-issue.md`.
-   The missing `package-pi-colgrep` skill is recorded above as a follow-up only (not implemented).
+3. Created the previously-missing `package-pi-colgrep` skill at `.pi/skills/package-pi-colgrep/SKILL.md` (follow-up promoted to inline work at the user's request).
+   It mirrors the `package-pi-github-tools` template (intro, architecture file tree, `Exec`-seam SDK boundary, implementation priorities, the `colgrep` CLI facts, configuration, and testing patterns) and points to `docs/architecture/architecture.md` for the full design.
+   This resolves the stale reference in `packages/pi-colgrep/AGENTS.md`.
