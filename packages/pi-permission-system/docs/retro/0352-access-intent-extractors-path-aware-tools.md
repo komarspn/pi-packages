@@ -31,3 +31,24 @@ Produced `docs/plans/0352-access-intent-extractors-path-aware-tools.md` with fiv
 - No new config field (registration is a runtime API), so the loader / `PermissionSystemExtensionConfig` / merge intermediate are untouched — avoids the #332/#347 merge-drop bug class entirely.
 - Follow-up to file: per-tool path maps for extension tools (deferred); reference it in the PR #352 close comment.
 - Attribution is required and encoded in the plan's `## Attribution` section: since we re-implement rather than merge, every implementation/docs commit carries `Co-authored-by: moekyo <shigotods@outlook.com>` (from the PR's commit authorship), and the ship-stage close comment thanks `@moekyo` by name and links the implementing SHA(s).
+
+## Stage: Implementation — TDD (2026-06-12T03:20:40Z)
+
+### Session summary
+
+Implemented all five TDD cycles cleanly: the lean `ToolAccessExtractorRegistry`, `getToolInputPath`, the default-on `feat!` gate change threaded into `ToolCallGatePipeline` + both cross-cutting gates, the `registerToolAccessExtractor` service API, and the docs/schema updates.
+Test count went 1922 → 1951 (+29); full suite, `check`, `lint`, and `fallow dead-code` all green.
+Every implementation/docs commit carries the `Co-authored-by: moekyo <shigotods@outlook.com>` trailer.
+
+### Observations
+
+- The design held exactly as planned — no rework.
+  Keeping `getPathBearingToolPath` (built-in only, for `tool.ts`'s cosmetic suggestion/log values) and adding a separate `getToolInputPath` for the two cross-cutting gates kept the blast radius tight and left the per-tool surface (`normalizeInput`/`PermissionManager`) untouched as scoped.
+- One deviation beyond the plan's file list: `test/service-lifecycle.test.ts` also constructs a `PermissionsService` fake, so adding `registerToolAccessExtractor` to the interface required adding `registerToolAccessExtractor: vi.fn()` there too (folded into Cycle 4).
+  The plan listed the other fakes but missed this one — the interface-breaks-all-implementers rule caught it.
+- Cycle 3 commit churn: the pre-commit `eslint` hook auto-removed `(x as string)` assertions (unnecessary after `typeof` narrowing) and `biome` reflowed the resulting ternary, aborting the commit twice.
+  Resolved by removing the redundant parens and re-staging the formatted output.
+  Worth pre-empting next time: write `typeof x === "string" ? x : undefined` (no cast) from the start.
+- The full suite (not just the affected files) was run before the `feat!` Cycle 3 commit since it changes shared gate behavior — caught nothing, but the right call for a breaking change.
+- Pre-completion reviewer verdict: WARN (no FAILs).
+  Two non-blocking findings: (1) the `package-pi-permission-system` skill was stale — fixed in commit `30824366` (added the extractor-registry / default-on note + testing bullet); (2) the two planning-stage docs commits (`d7e881ac`, `1eece29b`) lack the `Co-authored-by` trailer — accepted as-is, since moekyo did not author the plan prose and all five implementation commits plus the eventual close comment carry the attribution.
