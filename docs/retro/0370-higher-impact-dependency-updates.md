@@ -27,3 +27,24 @@ Confirmed the operator authored the issue, surfaced three genuine ambiguities vi
 
 [#360]: https://github.com/gotgenes/pi-packages/issues/360
 [#382]: https://github.com/gotgenes/pi-packages/issues/382
+
+## Stage: Implementation — Build (2026-06-12T17:45:00Z)
+
+### Session summary
+
+Executed all five plan steps: bumped the Pi SDK trio to `0.79.1` across five packages, raised the `pi-subagents-worktrees` floor to `>=15.0.0` (`^15.0.1` devDep), bumped `typebox` to `^1.2.8` in `pi-colgrep` and `pi-github-tools`, bumped `rollup` to `^4.61.1` in `pi-subagents` (with `verify:public-types` passing), and wrote the project-trust adoption decision at `packages/pi-permission-system/docs/decisions/0001-project-trust-adoption.md`.
+Pre-completion reviewer returned PASS; 3512 tests across seven packages all green.
+
+### Observations
+
+- **Unplanned deviation — Step 2:** `pi-subagents-worktrees` had no devDependency for `@earendil-works/pi-coding-agent`, so pnpm resolved its peer to the stale `0.75.4` even after the Step 1 SDK bump.
+  Fixed by adding `@earendil-works/pi-coding-agent: 0.79.1` as an explicit devDependency to `pi-subagents-worktrees/package.json`.
+  Folded into the Step 2 commit with explanation in the body.
+- **Project-trust investigation findings:** `pi-permission-system` loads project configs unconditionally; the merge order (global → project → project-agent, highest-precedence last) means an untrusted project's `.pi/settings.json` can expand global restrictions.
+  `ctx.isProjectTrusted()` is available in `session_start` (trust resolves before that event), and `handleResourcesDiscover` already handles trust-grant reloads.
+  Decision: adopt `ctx.isProjectTrusted()` guard in a follow-up issue.
+- `typebox@1.1.38` also appears in the lockfile as a transitive dep inside the Pi SDK itself (`@earendil-works/pi-coding-agent@0.79.1` → `typebox@1.1.38`); both versions coexist correctly.
+- Pre-completion reviewer: PASS — all ACs verified, no warnings.
+
+[#360]: https://github.com/gotgenes/pi-packages/issues/360
+[#382]: https://github.com/gotgenes/pi-packages/issues/382
