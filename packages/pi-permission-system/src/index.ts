@@ -131,6 +131,7 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
     permissionManager,
     sessionRules,
     formatterRegistry,
+    accessExtractorRegistry,
   );
 
   // Subscribe to @gotgenes/pi-subagents' child lifecycle events so child
