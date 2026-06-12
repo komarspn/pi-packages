@@ -283,8 +283,9 @@ Skill name patterns use `*` and `?` wildcards (note: surface is `skill`, not `sk
 
 ### `path` Surface
 
-Cross-cutting gate that applies to **all** file access — both Pi tools (`read`, `write`, `edit`, `find`, `grep`, `ls`) and bash commands.
+Cross-cutting gate that applies to **all** file access — built-in Pi tools (`read`, `write`, `edit`, `find`, `grep`, `ls`), bash commands, MCP calls (via `input.arguments.path`), and extension tools (via `input.path` or a registered access extractor).
 A `path` deny cannot be overridden by a per-tool allow.
+Extension and MCP path tools are gated by default — no registration needed — so a `path` deny protects sensitive files from every path-aware tool, not just the built-in six.
 
 ```jsonc
 {
