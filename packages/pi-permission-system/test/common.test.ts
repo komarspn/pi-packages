@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, test, vi } from "vitest";
 import {
   extractFrontmatter,
   getNonEmptyString,
+  isDenyWithReason,
   isPermissionState,
   normalizeOptionalPositiveInt,
   normalizeOptionalStringArray,
@@ -99,6 +100,33 @@ describe("isPermissionState", () => {
     expect(isPermissionState(undefined)).toBe(false);
     expect(isPermissionState(1)).toBe(false);
     expect(isPermissionState({})).toBe(false);
+  });
+});
+
+describe("isDenyWithReason", () => {
+  test("returns true for { action: 'deny' } without a reason", () => {
+    expect(isDenyWithReason({ action: "deny" })).toBe(true);
+  });
+
+  test("returns true for { action: 'deny', reason: '...' }", () => {
+    expect(isDenyWithReason({ action: "deny", reason: "Use pnpm" })).toBe(true);
+  });
+
+  test("returns false for non-deny actions", () => {
+    expect(isDenyWithReason({ action: "allow" })).toBe(false);
+    expect(isDenyWithReason({ action: "ask" })).toBe(false);
+  });
+
+  test("returns false for a non-string reason", () => {
+    expect(isDenyWithReason({ action: "deny", reason: 42 })).toBe(false);
+    expect(isDenyWithReason({ action: "deny", reason: null })).toBe(false);
+  });
+
+  test("returns false for non-object types", () => {
+    expect(isDenyWithReason(null)).toBe(false);
+    expect(isDenyWithReason(undefined)).toBe(false);
+    expect(isDenyWithReason("deny")).toBe(false);
+    expect(isDenyWithReason(["deny"])).toBe(false);
   });
 });
 
