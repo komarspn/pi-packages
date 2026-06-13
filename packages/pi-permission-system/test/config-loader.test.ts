@@ -243,6 +243,49 @@ describe("loadUnifiedConfig", () => {
     });
   });
 
+  it("preserves a deny-with-reason object inside a pattern map", () => {
+    const configPath = join(tempDir, "config.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        permission: {
+          bash: {
+            "git *": "allow",
+            "npm *": { action: "deny", reason: "Use pnpm instead" },
+          },
+        },
+      }),
+    );
+
+    const result = loadUnifiedConfig(configPath);
+    expect(result.config.permission).toEqual({
+      bash: {
+        "git *": "allow",
+        "npm *": { action: "deny", reason: "Use pnpm instead" },
+      },
+    });
+  });
+
+  it("strips a deny object with a non-string reason (malformed)", () => {
+    const configPath = join(tempDir, "config.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        permission: {
+          bash: {
+            "git *": "allow",
+            "npm *": { action: "deny", reason: 42 },
+          },
+        },
+      }),
+    );
+
+    const result = loadUnifiedConfig(configPath);
+    expect(result.config.permission).toEqual({
+      bash: { "git *": "allow" },
+    });
+  });
+
   it("returns no permission when the permission field is absent", () => {
     const configPath = join(tempDir, "config.json");
     writeFileSync(configPath, JSON.stringify({ debugLog: false }));

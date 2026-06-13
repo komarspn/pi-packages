@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { normalize } from "node:path";
-
 import {
+  isDenyWithReason,
   isPermissionState,
   normalizeOptionalPositiveInt,
   normalizeOptionalStringArray,
@@ -15,7 +15,7 @@ import {
   getProjectConfigPath,
 } from "./config-paths";
 import { mergeFlatPermissions } from "./permission-merge";
-import type { FlatPermissionConfig } from "./types";
+import type { FlatPermissionConfig, PatternValue } from "./types";
 
 /**
  * Unified config shape combining runtime knobs and flat permission policy.
@@ -127,7 +127,8 @@ function normalizeOptionalBoolean(value: unknown): boolean | undefined {
 
 /**
  * Normalize a raw `permission` value from parsed JSON into a FlatPermissionConfig.
- * Drops non-object top-level values, invalid PermissionState strings, and
+ * Accepts PermissionState strings and DenyWithReason objects inside pattern
+ * maps. Drops non-object top-level values, invalid PermissionState strings, and
  * invalid action values inside object maps.
  */
 function normalizeFlatPermissionValue(
@@ -147,12 +148,15 @@ function normalizeFlatPermissionValue(
         hasAny = true;
       }
     } else if (typeof val === "object" && val !== null && !Array.isArray(val)) {
-      const map: Record<string, import("./types").PermissionState> = {};
+      const map: Record<string, PatternValue> = {};
       let mapHasAny = false;
       for (const [pattern, action] of Object.entries(
         val as Record<string, unknown>,
       )) {
-        if (isPermissionState(action)) {
+        if (isDenyWithReason(action)) {
+          map[pattern] = action;
+          mapHasAny = true;
+        } else if (isPermissionState(action)) {
           map[pattern] = action;
           mapHasAny = true;
         }
