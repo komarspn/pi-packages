@@ -477,6 +477,123 @@ It is deprecated in favor of the service accessor.
 
 `permissions:decision` broadcasts and `permissions:rpc:prompt` remain on the event bus - fire-and-forget observation and async prompt forwarding are the right abstractions for those channels.
 
+## Target: the authority model
+
+The sections above describe the current implementation.
+This section records the organizing concept the package is moving toward — the spine that the elicitation, forwarding, and yolo machinery should collapse into.
+It is a target, not current state: today these concerns are spread across `PromptingGateway`, `PermissionPrompter`, `PermissionForwarder`, and `yolo-mode.ts`.
+
+### The spine
+
+Every action resolves against an **authority** — an entity empowered to permit or forbid it.
+The only questions are *which* authority and how we reach it.
+
+This sharpens principle 8.
+That principle calls the human "the oracle," borrowing the computer-science term for a black box consulted for an answer the system cannot compute.
+But a permission decision is not epistemic (who *knows* the answer); it is deontic (who has the *right* to decide).
+If a bystander happened to know what the user wanted, their saying "allow" would authorize nothing.
+What makes a decision binding is authority, not knowledge — so the organizing concept is authority, and the entity that holds it is an **`Authorizer`**.
+The human is merely the `Authorizer` at the interactive root; another agent can hold the role equally well.
+
+### Authority lives in three places
+
+1. **Recorded authority** — the ruleset.
+   Config (durable, on disk), session rules (this session), and synthesized defaults/baseline are all prior rulings.
+   `evaluate()` *is* "consult recorded authority": an `allow` or `deny` means recorded authority is sufficient, and the decision is final.
+2. **Live authority** — reached only on `ask`, when recorded authority is silent.
+   An entity empowered to rule *now*, reached through one of three channels (below).
+3. **Absent authority** — nothing recorded, nothing reachable.
+   Least privilege applies: no authority means the action is unauthorized, so it is denied.
+
+The three are one thing at different lifetimes.
+A live ruling, once persisted, *becomes* recorded authority — principle 8's "their decision is a rule."
+The "for this session" dialog option writes a session rule; a future "always" writes config.
+
+### The `Authorizer` role
+
+On `ask`, the gate escalates to **one `Authorizer`, selected once per session from context**, and is told the decision.
+
+1. **`LocalUserAuthorizer`** — the session has UI; prompt the human here.
+2. **`ParentAuthorizer`** — the session is a subagent; escalate up the tree to the parent's authority.
+3. **`DenyingAuthorizer`** — no authority is reachable; deny (least privilege).
+
+There is no "can anyone answer" pre-check.
+`canConfirm()` — today a boolean smeared across the gateway, prompter, and forwarder — dissolves: every `Authorizer` answers, the `DenyingAuthorizer` by denying.
+The three context predicates (`hasUI`, `isSubagent`, yolo) are evaluated once, at selection, instead of repeatedly down the prompt path.
+
+```text
+evaluate(action, recorded authority)
+  ├─ allow / deny ------------------> decided (recorded authority sufficient)
+  └─ ask (recorded authority silent)
+        └─ escalate to the session's Authorizer
+              ├─ LocalUserAuthorizer -> prompt the human here
+              ├─ ParentAuthorizer    -> forward up the tree, await the parent's ruling
+              └─ DenyingAuthorizer    -> deny (no authority reachable)
+                    |
+              (a persisted ruling becomes recorded authority)
+```
+
+### The recursion
+
+Authority is delegated **down** the session tree: the human drives the root, which spawns subagents that hold no inherent authority to approve a novel action.
+So an `ask` a subagent cannot answer **escalates up** to where authority resides.
+Permission-system instances form a tree mirroring the session tree, and `ParentAuthorizer` is the edge that routes a child's escalation toward the human at the root.
+This is the same recursion pi-subagents describes (a subagent is a child Pi), viewed from the permission system's side: the package is itself one of the hooks on that child, and it recurses by forwarding.
+
+### What it consolidates
+
+The model collapses scattered machinery into the spine:
+
+- **`canConfirm()`** disappears — every `Authorizer` answers.
+- **`PermissionForwarder` splits by direction of authority flow.**
+  `requestApproval` is escalation *up* — it is the `ParentAuthorizer`.
+  `processInbox` is serving escalations from *below* — a distinct role (the session acting as authority, or relaying toward it), not an `Authorizer`.
+- **The elicitation thicket** (`GatePrompter`, `PromptingGateway`, `PermissionPrompter`, `ApprovalRequester`) becomes the `Authorizer` interface and its three implementations.
+- **yolo** leaves the decision path entirely (below).
+
+### yolo is recorded authority
+
+yolo is not a channel and not a live concern — it is a standing authorization, and it belongs in the ruleset, not in the prompt path.
+It is a composition-stage rewrite: when enabled, every `ask` action in the composed ruleset is rewritten to `allow`, tagged `origin: "yolo"` so the review log still distinguishes a yolo grant from a policy allow.
+
+```typescript
+const effective = yolo
+  ? composed.map((r) => (r.action === "ask" ? { ...r, action: "allow", origin: "yolo" } : r))
+  : composed;
+```
+
+This is faithful to current behavior exactly: explicit `deny` rules are not `ask`, so they pass through untouched — yolo suppresses prompts but **preserves hard denies**.
+It honors principle 5 (defaults are rules; no side-channel fallbacks): `evaluate()` runs pure over the rewritten ruleset, and the decision path loses all yolo knowledge (`shouldAutoApprovePermissionState` and `canResolveAskPermissionRequest`'s yolo arm dissolve).
+A future "disable everything" mode — overriding denies too — would be a *different*, deliberately named operation: appending a final `{ surface: "*", pattern: "*", action: "allow" }` rule (last-match-wins).
+It is not built, and it would be requested by name, never conflated with yolo.
+
+### Open decisions
+
+These are unresolved and must be settled before implementation, not assumed:
+
+1. **Multi-level escalation.**
+   The clean model says serving an escalation consults *your own* authority, which for a middle subagent is the `ParentAuthorizer` — i.e. grandchild → child → root.
+   The current `processInbox` hard-guards `if (!ctx.hasUI) return`, so only a UI root ever serves: one hop, no grandchildren.
+   In scope (the model unlocks it), or a deliberate one-hop limit we preserve?
+2. **Serving evaluation.**
+   Should a serving session run the escalated request through its *own* recorded authority before prompting?
+   It is more correct (the parent may have a standing rule, including its yolo rewrite) and makes parent-side yolo dissolve for free, but it is a behavior change.
+   Leaning yes; not ratified.
+3. **Access-intent extraction.**
+   The package's center of mass is not the decision engine (tiny, pure) but turning `(toolName, input)` into "what is being accessed" — bash decomposition, MCP target derivation, path extraction, external-directory detection.
+   This is a distinct domain (access intent) that gates should *emit* and a single `resolve(intent)` should answer, so adding a gate cannot widen the resolver surface.
+   The [#393] false-green (a stubbed-but-unrouted resolver method silently passing `allow`) is the probe pointing at it.
+   Raised, not yet designed.
+
+### Naming
+
+The concept and the code role take two grammatical forms of one root, each for what it correctly denotes:
+
+- **`authority`** (mass noun) — the right to decide; used for the concept ("recorded authority," "where authority lives").
+- **`Authorizer`** (count noun) — the entity that holds it; used for the interface and its implementations.
+
+`Authorizer` is domain-idiomatic: AWS Lambda "authorizers" and OAuth's authorization server return allow/deny, so the term already denotes an entity that can refuse.
+
 ## Module structure
 
 ```text
@@ -628,3 +745,4 @@ Seven steps ([#362]–[#368]), all closed.
 [#342]: https://github.com/gotgenes/pi-packages/issues/342
 [#362]: https://github.com/gotgenes/pi-packages/issues/362
 [#368]: https://github.com/gotgenes/pi-packages/issues/368
+[#393]: https://github.com/gotgenes/pi-packages/issues/393
