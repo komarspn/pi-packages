@@ -75,3 +75,22 @@ Attribution (required durable credit):
   The PR commit recorded a placeholder email (`kovalik@example.com`); the GitHub no-reply form (user id `85703878` + login) is used so the trailer links to `@k0valik`'s profile.
 - The ship-stage PR/issue close comment thanks `@k0valik` by name and links the implementing SHA(s).
 - Never use `Closes #395` in a commit (pre-empts the curated close comment); reference as `Refs #395` / `(#395)`.
+
+## Stage: Planning (2026-06-13T01:45:00Z)
+
+### Session summary
+
+Wrote the numbered implementation plan `docs/plans/0395-deny-patterns-custom-reason.md` for the operator-confirmed direction (adopt-with-simplified-design, deny-only, explicit `{ action, reason }` shape).
+The PR-review retro already satisfied the Decide gate, so planning proceeded without re-asking.
+The plan lands the capability across `types.ts`, `common.ts`, `rule.ts`, `normalize.ts`, `config-loader.ts`, `permission-manager.ts`, `denial-messages.ts`, schema, example, and docs, in six TDD steps.
+
+### Observations
+
+- Three concrete simplifications over PR #395, all baked into the plan: (1) a single shared `isDenyWithReason` guard in `common.ts` replaces the PR's two divergent copies; (2) `FlatPermissionConfig` keeps `DenyWithReason` only inside the pattern map (`PermissionState | Record<string, PatternValue>`), not at the surface level, matching runtime; (3) the schema gets a new `$defs/denyWithReason` referenced only from `permissionMap`, so it never accepts a top-level deny-with-reason the runtime rejects.
+- Confirmed during exploration that `evaluate()` returns the matched `Rule` verbatim via `findLast`, so `reason` on `Rule` auto-propagates — no change to `evaluate()` needed; the PR's `rule.test.ts` cases just document the existing last-match-wins behavior.
+- Two parse layers must both preserve the object (`config-loader.normalizeFlatPermissionValue` and `normalize.normalizeFlatConfig`) — the loader currently strips it silently.
+  Plan step 3 tests the loader directly; step 4's end-to-end manager test is the backstop that fails if either layer drops the reason.
+- Design-review checklist: one optional field on two already-wide value types (`Rule`, `PermissionCheckResult`); the shared guard is the missing abstraction collapsing the duplication; `reason` rides existing value-object carriers (no parameter-relay smell).
+  No structural concerns.
+- Classified non-breaking (additive optional field, no default change) → `feat:`, not `feat!:`.
+- Attribution trailer and `@k0valik` close-comment credit carried into the plan's Risks section so the TDD stage applies them per commit.
