@@ -100,7 +100,7 @@ See `@gotgenes/pi-subagents-worktrees` for the pattern.
 
 ## Testing
 
-The fork preserves and substantially extends upstream's `vitest` suite (973 tests across 59 files as of Phase 16).
+The fork preserves and substantially extends upstream's `vitest` suite (981 tests across 61 files as of Phase 17 Step 3).
 All tests must pass before publishing.
 Use `vi.hoisted(...)` for module-level mocks, matching the existing patterns in `test/lifecycle/subagent-session.test.ts`.
 
