@@ -22,7 +22,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { AgentTypeRegistry } from "#src/config/agent-types";
 import { loadCustomAgents } from "#src/config/custom-agents";
-import { SessionLifecycleHandler, ToolStartHandler } from "#src/handlers/index";
+import { InterruptHandler, SessionLifecycleHandler, ToolStartHandler } from "#src/handlers/index";
 import { createChildLifecyclePublisher } from "#src/lifecycle/child-lifecycle";
 import { ConcurrencyLimiter } from "#src/lifecycle/concurrency-limiter";
 import { createSubagentSession, type SubagentSessionDeps } from "#src/lifecycle/create-subagent-session";
@@ -184,6 +184,10 @@ export default function (pi: ExtensionAPI) {
   // Grab UI context from first tool execution + clear lingering widget on new turn
   const toolStart = new ToolStartHandler(runtime);
   pi.on("tool_execution_start", (event, ctx) => toolStart.handleToolExecutionStart(event, ctx));
+
+  // Abort all subagents when the parent agent loop is interrupted (ESC).
+  const interrupt = new InterruptHandler(manager);
+  pi.on("turn_start", (_event, ctx) => interrupt.handleTurnStart(ctx));
 
   // ---- Agent tool ----
 
