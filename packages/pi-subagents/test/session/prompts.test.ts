@@ -125,7 +125,7 @@ describe("buildAgentPrompt", () => {
     expect(prompt).not.toContain("<agent_instructions>");
   });
 
-  it("replace mode uses config systemPrompt directly", () => {
+  it("replace mode includes config systemPrompt last and removes the thin standalone header", () => {
     const config: AgentConfig = {
       name: "custom",
       description: "Custom",
@@ -138,10 +138,11 @@ describe("buildAgentPrompt", () => {
     const prompt = buildAgentPrompt(config, "/workspace", env);
     expect(prompt).toContain("You are a specialized agent.");
     expect(prompt).toContain("/workspace");
-    expect(prompt).toContain("You are a pi coding agent sub-agent");
+    // The thin two-line standalone header is removed in favour of the parent/genericBase prefix.
+    expect(prompt).not.toContain("You are a pi coding agent sub-agent");
   });
 
-  it("replace mode ignores parent prompt", () => {
+  it("replace mode includes parent prompt as base (no bridge/wrapper)", () => {
     const config: AgentConfig = {
       name: "standalone",
       description: "Standalone",
@@ -155,11 +156,57 @@ describe("buildAgentPrompt", () => {
       config,
       "/workspace",
       env,
-      "SECRET parent prompt content",
+      "PARENT parent prompt content",
     );
     expect(prompt).toContain("You are a standalone agent.");
-    expect(prompt).not.toContain("SECRET parent prompt content");
+    // Parent is now included as the cacheable base prefix.
+    expect(prompt).toContain("PARENT parent prompt content");
+    // Replace mode still omits the bridge and agent_instructions wrapper.
     expect(prompt).not.toContain("<sub_agent_context>");
+    expect(prompt).not.toContain("<agent_instructions>");
+  });
+
+  it("replace mode falls back to genericBase when no parent supplied", () => {
+    const config: AgentConfig = {
+      name: "standalone",
+      description: "Standalone",
+      builtinToolNames: [],
+      systemPrompt: "Custom standalone instructions.",
+      promptMode: "replace",
+      inheritContext: false,
+      runInBackground: false,
+    };
+    const prompt = buildAgentPrompt(config, "/workspace", env);
+    // Should use genericBase as the prefix (same fallback as append mode).
+    expect(prompt).toContain("general-purpose coding agent");
+    expect(prompt).not.toContain("You are a pi coding agent sub-agent");
+    expect(prompt).toContain("Custom standalone instructions.");
+  });
+
+  it("replace mode orders: identity → active_agent → env → config.systemPrompt", () => {
+    const config: AgentConfig = {
+      name: "ordered",
+      description: "Ordered",
+      builtinToolNames: [],
+      systemPrompt: "Final custom instructions.",
+      promptMode: "replace",
+      inheritContext: false,
+      runInBackground: false,
+    };
+    const prompt = buildAgentPrompt(
+      config,
+      "/workspace",
+      env,
+      "IDENTITY parent content",
+    );
+    const idxIdentity = prompt.indexOf("IDENTITY parent content");
+    const idxTag = prompt.indexOf('<active_agent name="ordered"/>');
+    const idxEnv = prompt.indexOf("# Environment");
+    const idxCustom = prompt.indexOf("Final custom instructions.");
+    expect(idxIdentity).toBeGreaterThan(-1);
+    expect(idxTag).toBeGreaterThan(idxIdentity);
+    expect(idxEnv).toBeGreaterThan(idxTag);
+    expect(idxCustom).toBeGreaterThan(idxEnv);
   });
 
   it("append mode bridge contains tool reminders", () => {
