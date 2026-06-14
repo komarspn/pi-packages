@@ -264,6 +264,5 @@ The behavior under test (race: `markConsumed()` after `await` is too late) is un
   The design is fully specified by the Phase 17 Step 3 architecture note and the existing class structure.
 
 [#373]: https://github.com/gotgenes/pi-packages/issues/373
-[#374]: https://github.com/gotgenes/pi-packages/issues/374
 [#375]: https://github.com/gotgenes/pi-packages/issues/375
 [#381]: https://github.com/gotgenes/pi-packages/issues/381
