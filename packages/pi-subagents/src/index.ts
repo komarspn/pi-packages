@@ -122,7 +122,7 @@ export default function (pi: ExtensionAPI) {
       });
     },
     onSubagentCreated(record) {
-      // Emit created event for background agents (before startAgent / queue drain).
+      // Emit created event for background agents (before limiter admission).
       pi.events.emit("subagents:created", {
         id: record.id,
         type: record.type,
