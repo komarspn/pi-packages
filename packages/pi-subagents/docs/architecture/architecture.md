@@ -53,7 +53,7 @@ flowchart TB
     subgraph lifecycle["Lifecycle domain"]
         direction TB
         SubagentManager["SubagentManager<br/>(spawn, abort, collection)"]
-        ConcurrencyQueue["ConcurrencyQueue<br/>(scheduling, drain)"]
+        ConcurrencyLimiter["ConcurrencyLimiter<br/>(thunk admission gate)"]
         CreateSubagentSession["createSubagentSession<br/>(assembly factory)"]
         SubagentSession["SubagentSession<br/>(turn loop, steer, dispose)"]
         Subagent["Subagent<br/>(status, behavior: abort/steer/run lifecycle)"]
@@ -283,7 +283,7 @@ src/
 │   ├── subagent-session.ts         born-complete child session: turn loop, steer, dispose
 │   ├── turn-limits.ts              normalizeMaxTurns (turn-count policy)
 │   ├── subagent.ts                 owns full execution lifecycle (run, abort, steer, workspace)
-│   ├── concurrency-queue.ts        background agent scheduling with configurable concurrency limit
+│   ├── concurrency-limiter.ts       background admission gate: schedules run thunks FIFO against the limit
 │   ├── parent-snapshot.ts          immutable spawn-time parent state
 │   ├── child-lifecycle.ts          child-execution lifecycle event publisher
 │   ├── workspace.ts                workspace provider seam (generative extension surface)
@@ -360,7 +360,7 @@ They declare this package as an optional peer dependency and use dynamic import 
 
 - The three tools: `subagent` (née `Agent`), `get_subagent_result`, `steer_subagent`.
 - `SubagentManager` — spawn, abort, resume, collection management, observer wiring.
-- `ConcurrencyQueue` — background agent scheduling with configurable concurrency limit.
+- `ConcurrencyLimiter` — background admission gate: schedules run thunks FIFO against a configurable concurrency limit.
 - `createSubagentSession` — assembly factory: session creation and extension binding; returns a born-complete `SubagentSession`.
 - `SubagentSession` — the born-complete child session: drives the turn loop (`runTurnLoop`/`resumeTurnLoop`), steers, and disposes (firing `disposed` at true session disposal, so resume executions are registry-detected).
 - `child-lifecycle` — publishes the child-execution lifecycle (`spawning`, `session-created` before `bindExtensions()`, `completed`, `disposed`) on `pi.events`.
@@ -905,7 +905,7 @@ Priority = Impact × (6 − Risk).
 | 8    | Consolidate UI and tools test fixtures                                               | D        | 2      | 1    | 10       |
 | 9    | Resolve the cross-package settings-loader duplication                                | A        | 2      | 2    | 8        |
 
-#### Step 1 — Replace ConcurrencyQueue with a thunk-based ConcurrencyLimiter ([#381])
+#### Step 1 — Replace ConcurrencyQueue with a thunk-based ConcurrencyLimiter ([#381]) ✅ Complete
 
 - Targets: `src/lifecycle/concurrency-queue.ts` (→ `concurrency-limiter.ts`), `src/lifecycle/subagent-manager.ts`, `src/index.ts`, `test/lifecycle/concurrency-queue.test.ts`, `test/lifecycle/subagent-manager.test.ts`.
 - Smell: Category C (forward references: the queue's ID-registry design forces a start callback that reaches back into the manager, duplicated between `index.ts` and the test helper) and Category A (dual counting: the queue's `running` counter is fed by `markStarted`/`markFinished` relays in the manager's observer, mirroring state the agents already carry).
@@ -958,7 +958,7 @@ Priority = Impact × (6 − Risk).
 
 #### Step 7 — Consolidate lifecycle test fixtures ([#378])
 
-- Targets: `test/lifecycle/subagent-manager.test.ts` (766 LOC), `test/lifecycle/subagent.test.ts`, `test/lifecycle/subagent-session.test.ts`, `test/lifecycle/create-subagent-session.test.ts`, `test/lifecycle/create-subagent-session-extension-tools.test.ts`, `test/lifecycle/concurrency-queue.test.ts`, `test/helpers/`.
+- Targets: `test/lifecycle/subagent-manager.test.ts` (766 LOC), `test/lifecycle/subagent.test.ts`, `test/lifecycle/subagent-session.test.ts`, `test/lifecycle/create-subagent-session.test.ts`, `test/lifecycle/create-subagent-session-extension-tools.test.ts`, `test/lifecycle/concurrency-limiter.test.ts`, `test/helpers/`.
 - Smell: Category D — fallow reports five clone families across the lifecycle tests.
 - Change: extract the repeated spawn/run/factory arrangements into shared helpers, migrating incrementally (lift-and-shift, never a single-step rewrite of a large test file).
 - Outcome: lifecycle clone families 5 → ≤ 1; package test duplication below 600 lines.
