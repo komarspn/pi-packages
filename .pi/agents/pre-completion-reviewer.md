@@ -158,10 +158,19 @@ Report the result already captured in Step 1.
 If `pnpm fallow dead-code` passed in Step 1, report **PASS**.
 If it failed, report **FAIL** (it was already reported in Step 1 — include the same detail here).
 
+### 2h. Cross-step invariant preservation
+
+**Applicability:** the package has a phased architecture roadmap (`packages/*/docs/architecture/`) AND a modified `src/` file was also a target of an earlier, already-completed roadmap step.
+Skip otherwise.
+
+Read the earlier completed steps for the modified surface and extract their `Outcome:` / `Landed:` invariants (e.g. "every spawned agent has a `promise` at spawn").
+For each, confirm the current change still upholds it — preferably via a test that pins it, otherwise by reading the code.
+Report a regressed invariant as **FAIL**; an invariant that holds but is pinned only by prose (no test) as **WARN**.
+
 ## Severity model
 
-- **FAIL (blocking):** deterministic check failure, unmet acceptance criterion, conventional commit violation, missing named test artifact, `mmdc` parse error.
-- **WARN (non-blocking):** documentation staleness, code design suggestions, Mermaid renderer pitfalls, `mmdc` unavailable.
+- **FAIL (blocking):** deterministic check failure, unmet acceptance criterion, conventional commit violation, missing named test artifact, `mmdc` parse error, regressed cross-step invariant.
+- **WARN (non-blocking):** documentation staleness, code design suggestions, Mermaid renderer pitfalls, `mmdc` unavailable, cross-step invariant pinned only by prose.
 - **PASS:** section verified with no issues.
 - **SKIP:** section not applicable — state the reason.
 
@@ -223,6 +232,15 @@ SKIP — no Mermaid blocks in modified files
 
 ### Dead code
 PASS — pnpm fallow dead-code exits zero
+
+### Cross-step invariants
+PASS — prior roadmap-step invariants on the modified surface still hold
+— or —
+WARN — invariant "<text>" holds but is pinned only by prose, not a test
+— or —
+FAIL — invariant "<text>" from <step> regressed
+— or —
+SKIP — no phased roadmap, or no modified src/ file was a prior step's target
 
 ### Overall
 PASS — ready for /ship-issue

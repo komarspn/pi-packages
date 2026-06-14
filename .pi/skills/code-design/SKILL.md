@@ -203,3 +203,8 @@ Fix: wrap in an arrow (`(e, d) => logger.review(e, d)`).
 ESLint `prefer-const` fires on a `let` assigned exactly once — even with no initializer (e.g. a forward declaration captured by a closure before assignment).
 `const` without an initializer is a syntax error, so the suggested fix is impossible, but the error still triggers (biome's `useConst` correctly skips it; a `let` reassigned 2+ times is also skipped).
 Fix: `// eslint-disable-next-line prefer-const -- forward-declared let; const requires an initializer`.
+
+### void on a promise-returning call
+
+Before adding `void` to silence `@typescript-eslint/no-floating-promises`, confirm the discarded promise carried no semantics (capture for later `await`, ordering, completion signal).
+If the promise was previously assigned or awaited, the `void` is a behavior change, not a formatting fix — give the value an owner (store it, or invert control so the owning object captures it) instead.

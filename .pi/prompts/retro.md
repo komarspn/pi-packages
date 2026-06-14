@@ -1,5 +1,6 @@
 ---
 description: Review this session for workflow improvements and persist retro notes to the package's docs/retro/
+model: anthropic/claude-opus-4-8
 ---
 
 # Review session and persist retro notes

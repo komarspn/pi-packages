@@ -60,9 +60,10 @@ No rework, no user corrections, no CI failures — the only mid-stream fixes wer
 - `wrong-abstraction` (surfaced by operator pushback during the retro) — the `void this.limiter.schedule(() => record.start())` fix is safe but marks an unfinished design seam, not a tidy idiom.
   `run()`/`start()` carry a hard "always resolves, errors captured internally" contract, so `void` is the ESLint-sanctioned annotation (no unhandled-rejection risk).
   But the encapsulation regressed the promise-capture timing: before #374, `record.promise = this.limiter.schedule(...)` set the handle eagerly at spawn (even queued agents had `.promise`); after #374, `.promise` stays undefined until the limiter fires the thunk and `start()` runs, so promise ownership is now split between `Subagent._promise` and the limiter's internal completion handle (which the `void` discards).
-  `waitForAll()` still works only via `pendingPromises()`'s `null`-filter plus re-poll loop, so the in-code comment "a single `allSettled` covers the queued case" is now slightly inaccurate.
-  Not a live defect (no path awaits a queued agent's `.promise` before it is set), but the canonical resolution is the deferred run-lifecycle / result-delivery domain extraction already on the Phase 17+ first-principles-refinement roadmap.
-  Impact: no rework this session; recorded as a follow-up design observation.
+  `waitForAll()` still worked only via `pendingPromises()`'s `null`-filter plus re-poll loop, so the in-code comment "a single `allSettled` covers the queued case" became inaccurate.
+  This regressed Step 1's (#381) documented invariant "every spawned agent has a `promise` at spawn" — a cross-step regression within the same phase, not (as first claimed in this retro) work deferred to a future domain split.
+  Corrected in a follow-up `fix:` (see the second retrospective stage below): `Subagent.scheduleVia(schedule)` captures the limiter promise eagerly inside the agent, restoring the invariant without reintroducing an external `.promise =` write.
+  Impact: one follow-up `fix:` commit (+1 regression test, +2 `scheduleVia` unit tests).
 - `wrong-abstraction` — the plan decomposed the work into 3 TDD steps (promise read-only, notification read-only, doc) but steps 1–3 collapsed into a single atomic commit because both fields live in `subagent.ts` and making each read-only is one type-level change.
   The planning retro half-anticipated this (it flagged steps 1+2 merging) but did not extend the reasoning to step 3.
   Impact: plan/reality granularity mismatch, documented as a deviation; no rework.
@@ -83,9 +84,9 @@ No rework, no user corrections, no CI failures — the only mid-stream fixes wer
 - **Feedback-loop gap analysis** — verification was incremental: affected-file tests after the first edits (turn 81), full suite + `check` + `lint` mid-cycle (turns 102–113), and the `fallow dead-code` gate before review.
   No end-only-verification gap.
 
-### Follow-ups (not actioned this session)
+### Follow-ups
 
-1. The `start()` / limiter promise-ownership split (eager → lazy capture for queued agents) is an intermediary state; fold its resolution into the planned run-lifecycle / result-delivery domain extraction rather than patching `waitForAll`'s comment or the `void` in isolation.
+1. The `start()` / limiter promise-ownership split was reclassified as a regression and **fixed** via `scheduleVia` (see the second retrospective stage), not deferred.
 
 ### Considered but not proposed
 
@@ -96,3 +97,75 @@ No rework, no user corrections, no CI failures — the only mid-stream fixes wer
 ### Changes made
 
 1. `packages/pi-subagents/docs/retro/0374-encapsulate-subagent-start-notification.md` — added the Final Retrospective stage entry (session summary, friction points, diagnostic lenses, follow-ups); no skill or prompt edits landed (the sole proposal was retracted on operator pushback).
+
+## Stage: Regression Correction — Process Retrospective (2026-06-14T18:00:00Z)
+
+### Session summary
+
+Operator pushback on the first retro's "`void` is safe, defer it" framing surfaced that #374 had **regressed a sibling step's invariant**: Step 1 (#381) guaranteed "every spawned agent has a `promise` at spawn," and #374's `void limiter.schedule(() => record.start())` made a queued agent's promise lazy.
+Fixed via `Subagent.scheduleVia` (eager capture, control inverted so no external `.promise =` write returns) in commit `4f08c6c3` (+1 regression test, +2 unit tests; suite 981 → 982), then ran this process retrospective on how the regression slipped through plan, implementation, and review.
+
+### How the regression happened (root-cause chain)
+
+1. **Planning blind spot.**
+   The #374 plan's acceptance criterion was grep-verifiable encapsulation (`\.promise =` only in `subagent.ts`).
+   That measured the *goal* (hide the field) but never the *invariant at risk* (the field is an awaitable handle with an at-spawn timing contract that #381 established).
+   The plan treated `promise` as a field to hide, not as a contract to preserve.
+2. **Implementation masked the semantics.**
+   Converting `record.promise = limiter.schedule(...)` to a bare `limiter.schedule(() => record.start())` tripped `no-floating-promises`; the reflexive `void` fix silenced the lint *and* discarded the eager handle in the same stroke.
+   The lint fix was the exact site of the behavior change, which made it feel mechanical rather than semantic.
+3. **No executable guard.**
+   The #381 invariant lived only in an architecture-doc "Outcome:" bullet (prose).
+   No test pinned "a queued agent has a `promise` at spawn," so the full suite stayed green through the regression.
+4. **Review inherited the blind spot.**
+   The pre-completion reviewer checks deterministic gates + the plan's acceptance criteria; since the criteria never named the cross-step invariant, criteria-driven review could not flag its loss.
+
+The through-line: in a phased refactor, each step's "Outcome:" bullets establish invariants later steps inherit implicitly, and nothing converts those prose invariants into executable guards — so a later step regresses an earlier one with a green suite and a passing review.
+
+### Observations
+
+#### What caused friction (agent side)
+
+- `missing-context` — the plan did not enumerate the invariants that prior Phase 17 steps had established on the shared `Subagent`/limiter surface, so the at-spawn-promise contract was invisible during both planning and implementation.
+  Impact: a shipped regression (latent — `waitForAll` re-polls — but a real invariant break), caught only by operator pushback during the retro, requiring a follow-up `fix:`.
+- `wrong-abstraction` — the proximate trigger was treating a `void` lint fix as mechanical.
+  `void` on a promise-returning call discards whatever the promise carried (here: the eager capture handle); it deserves a semantic check, not a reflex.
+
+#### What went well
+
+- Operator pushback ("I'm sure that rule exists for a reason… are we heading toward a better design, or an awkward intermediary state?") was the single intervention that converted a rationalized smell into a found regression.
+  This is the bidirectional-feedback ideal: a redirecting question, not a correction, that reframed the agent's own analysis.
+
+### Diagnostic details
+
+- **Feedback-loop gap analysis** — every gate (check, lint, test, fallow, pre-completion review) was green across #374; none could see the regression because the invariant was prose, never a test.
+  The gap is upstream of the gates: the invariant was never made executable.
+
+### Diagnostic details — model assignment
+
+- Operator pushback also corrected a misconception: planning was assumed to run on Opus, but session turns 2–45 (`/plan-issue`) ran on `claude-sonnet-4-6`, and `.pi/prompts/plan-issue.md` had **no `model:` directive** — so planning silently inherited the session model.
+  The judgment-heaviest, highest-leverage stage (where this regression originated) was running on an inherited, weaker model by default.
+  Resolved by pinning `/plan-issue` and `/retro` to Opus via frontmatter (the `pi-prompt-template-model` extension was already loaded but unused for model selection).
+  Caveat recorded: a stronger planner raises the odds of noticing an unstated invariant but is not a substitute for the explicit rule — the rule is the dependable fix, the model is a complementary lever.
+
+### Proposals (all accepted and implemented)
+
+1. `/plan-issue` prompt — "Invariants at risk" plan section: list prior phase steps' documented invariants (roadmap `Outcome:`/`Landed:` bullets) and pin each with a named test.
+2. `code-design` skill (ESLint section) — "void on a promise-returning call" guard: before `void`-ing to silence `no-floating-promises`, confirm the discarded promise carried no semantics.
+3. `pre-completion-reviewer` agent — new section `2h. Cross-step invariant preservation`: FAIL on a regressed prior-step invariant, WARN when an invariant holds but is pinned only by prose.
+4. Model pinning — `/plan-issue` and `/retro` pinned to `anthropic/claude-opus-4-8`.
+
+### Changes made
+
+1. `packages/pi-subagents/src/lifecycle/subagent.ts` — added `scheduleVia(schedule)` (eager limiter-promise capture) and `guardedRun()` (shared abort-while-queued guard); `start()` now returns `void`.
+2. `packages/pi-subagents/src/lifecycle/subagent-manager.ts` — `spawn()` queued path uses `record.scheduleVia(...)`; removed the `void` workarounds.
+3. `packages/pi-subagents/test/lifecycle/subagent-manager.test.ts` — added regression test (queued agent has a `promise` at spawn).
+4. `packages/pi-subagents/test/lifecycle/subagent.test.ts` — rewrote `start()` tests for the `void` return; added two `scheduleVia` unit tests.
+5. `packages/pi-subagents/test/helpers/make-subagent.test.ts`, `packages/pi-subagents/test/tools/get-result-tool.test.ts` — updated for the `void`-returning `start()`.
+6. `packages/pi-subagents/docs/architecture/architecture.md` — Step 3 `Landed`/`Correction` notes record the regression and `scheduleVia` fix.
+7. `.pi/prompts/plan-issue.md` — added the "Invariants at risk" section and pinned `model: anthropic/claude-opus-4-8`.
+8. `.pi/prompts/retro.md` — pinned `model: anthropic/claude-opus-4-8`.
+9. `.pi/skills/code-design/SKILL.md` — added the "void on a promise-returning call" ESLint guard.
+10. `.pi/agents/pre-completion-reviewer.md` — added section `2h`, its output block, and severity-model entries.
+11. `AGENTS.md` — added cross-step invariant preservation to the reviewer's documented coverage.
+12. The regression fix landed in commit `4f08c6c3` (`fix:`); these retro/process changes land in the `docs(retro):` commit.

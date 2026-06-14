@@ -1,5 +1,6 @@
 ---
 description: Read a GitHub issue, gather context, and write a numbered plan to the package's docs/plans/
+model: anthropic/claude-opus-4-8
 ---
 
 # Plan a GitHub issue
@@ -124,6 +125,8 @@ Then an H1 title (e.g., `# <short descriptive title>`) — required by markdownl
 - **Test Impact Analysis** — for extraction and refactoring issues: (1) what new unit tests does the extraction enable that were previously impossible or impractical?
   (2) what existing tests become redundant with the new lower-level tests, and can they be simplified or removed?
   (3) which existing tests must stay as-is because they genuinely exercise the layer being extracted?
+- **Invariants at risk** — when the change touches a surface a prior phase step already refactored, list that step's documented invariants (the architecture roadmap's `Outcome:`/`Landed:` bullets) and name the test that pins each — add a test if the invariant lives only in prose.
+  A later step must not regress an earlier step's outcome with a green suite.
 - **TDD Order** — numbered red→green→commit cycles.
   Each item names the test surface, what's covered, and the suggested commit message (`test:`, `feat:`, `feat!:`, `fix:`, `docs:`).
   When a refactor replaces a type, interface, or function that a large test file depends on, use lift-and-shift: introduce the new thing alongside the old, migrate callers and fixtures incrementally across steps, then remove the old in a final step.
