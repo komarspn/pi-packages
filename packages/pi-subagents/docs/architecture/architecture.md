@@ -107,6 +107,8 @@ classDiagram
         +id: string
         +type: SubagentType
         +description: string
+        -state: SubagentState
+        -execution: SubagentExecution
         +status: SubagentStatus
         +result?: string
         +error?: string
@@ -114,13 +116,8 @@ classDiagram
         +lifetimeUsage: LifetimeUsage
         +subagentSession?: SubagentSession
         +notification?: NotificationState
-        +markRunning()
-        +markCompleted()
-        +markAborted()
-        +markSteered()
-        +markError()
-        +markStopped()
-        +resetForResume()
+        +markRunning() delegates
+        +markCompleted() delegates
         +run()
         +resume(prompt, signal)
         +abort(): boolean
@@ -136,6 +133,34 @@ classDiagram
         +wireSignal(signal, onAbort)
         +attachObserver(unsub)
         +releaseListeners()
+    }
+
+    class SubagentState {
+        +status: SubagentStatus
+        +result?: string
+        +error?: string
+        +startedAt: number
+        +completedAt?: number
+        +toolUses: number
+        +lifetimeUsage: LifetimeUsage
+        +compactionCount: number
+        +markRunning() ... markStopped()
+        +resetForResume()
+        +incrementToolUses()
+        +addUsage(delta)
+        +incrementCompactions()
+    }
+
+    class SubagentExecution {
+        +createSubagentSession(params)
+        +snapshot: ParentSnapshot
+        +prompt: string
+        +baseCwd: string
+        +observer?: SubagentLifecycleObserver
+        +getRunConfig?()
+        +getWorkspaceProvider?()
+        +model?, maxTurns?, thinkingLevel?
+        +parentSession?, signal?
     }
 
     class SubagentManager {
@@ -173,6 +198,8 @@ classDiagram
     }
 
     SubagentManager --> Subagent : creates/manages
+    Subagent --> SubagentState : owns (private)
+    Subagent --> SubagentExecution : runs via (mandatory)
     SubagentManager --> ParentSnapshot : receives at spawn
     SubagentsService --> SubagentManager : wraps via adapter
     SubagentManager --> AgentTypeRegistry : resolves types
@@ -283,6 +310,7 @@ src/
 │   ├── subagent-session.ts         born-complete child session: turn loop, steer, dispose
 │   ├── turn-limits.ts              normalizeMaxTurns (turn-count policy)
 │   ├── subagent.ts                 owns full execution lifecycle (run, abort, steer, workspace)
+│   ├── subagent-state.ts           lifecycle status + metrics value object (transitions, accumulators)
 │   ├── concurrency-limiter.ts       background admission gate: schedules run thunks FIFO against the limit
 │   ├── parent-snapshot.ts          immutable spawn-time parent state
 │   ├── child-lifecycle.ts          child-execution lifecycle event publisher
@@ -646,7 +674,8 @@ Bags with 10+ fields are the highest priority for decomposition.
 | `AgentToolDeps`               | 8                                                            | agent-tool                                        | ✓ done    |
 | `AgentMenuDeps`               | 8                                                            | agent-menu                                        | ✓ done    |
 | `ConversationViewerOptions`   | 8                                                            | conversation-viewer                               | Low       |
-| `SubagentInit`                | 8                                                            | subagent                                          | Low       |
+| `SubagentInit`                | 5 (id, type, description, invocation, execution, state)      | subagent (one production site)                    | ✓ done    |
+| `SubagentExecution`           | 12 (4 mandatory: factory, snapshot, prompt, baseCwd)         | subagent (mandatory collaborator)                 | ✓ done    |
 
 ### Complexity hotspots
 
@@ -864,7 +893,7 @@ Updated health metrics (fallow, package-wide including tests):
 | Metric                     | Phase 16 baseline              | Current                                       |
 | -------------------------- | ------------------------------ | --------------------------------------------- |
 | Health score               | 78/100 (B)                     | 78/100 (B)                                    |
-| Source LOC                 | 7,778 (57 files)               | ~7,400 (56 files)                             |
+| Source LOC                 | 7,778 (57 files)               | ~7,400 (57 files)                             |
 | Dead code                  | 0 files, 0 exports             | 0 files, 0 exports                            |
 | Maintainability index      | 90.8 (good)                    | 90.8 (good)                                   |
 | Avg / P90 cyclomatic       | 1.4 / 2                        | 1.4 / 2                                       |
@@ -914,7 +943,7 @@ Priority = Impact × (6 − Risk).
   The settings `onMaxConcurrentChanged` hook wires to `limiter.recheck()` in `index.ts`; `dispose()` calls `limiter.clear()` to drop pending thunks.
 - Outcome: dependency direction is strictly manager → limiter (no callback back-edge; the `prefer-const` eslint-disable in the test helper is deleted); the observer's two queue relays are gone; every spawned agent has a `promise` at spawn, collapsing `waitForAll`'s `while (true)` drain loop and its eslint-disable.
 
-#### Step 2 — Extract `SubagentState`; make `Subagent` execution deps mandatory ([#373])
+#### Step 2 — Extract `SubagentState`; make `Subagent` execution deps mandatory ([#373]) ✅ Complete
 
 - Targets: `src/lifecycle/subagent.ts` (state fields, transition/accumulation methods, constructor, `run()` guards), `src/lifecycle/subagent-manager.ts` (`spawn`), `test/helpers/make-subagent.ts`, `test/lifecycle/subagent.test.ts`, `test/observation/record-observer.test.ts`.
 - Smell: Category B (god interface — ~20 fields) and Category D (constructibility: "optional for tests" fields with compensating runtime throws).
@@ -926,7 +955,9 @@ Priority = Impact × (6 − Risk).
 - Outcome: state-machine and observer tests target `SubagentState` directly (no stub execution); `Subagent` is construct-complete with no optional execution fields and no runtime throws (grep-verifiable: no "not configured for execution" in `subagent.ts`); the record-vs-executor duality is resolved, not type-encoded.
 - Scope boundary: stats stay on `SubagentState` for now.
   Hoisting **metrics** into a projection over the child session's event stream and extracting **result delivery** (`notification`/`resultConsumed`) into its own domain are the remaining two of the four domains, deferred to a later phase per the refinement.
-- The issue ([#373]) is filed under the prior "decompose `SubagentInit` into present-or-absent bags" framing; update its description to this stronger target before implementation.
+- Landed: `SubagentState` (`src/lifecycle/subagent-state.ts`) owns status/result/error/timestamps/stats and the transition/accumulation methods; `Subagent` delegates getters and `markX`/`incrementX`/`addUsage` to it.
+  `subscribeSubagentObserver` targets `SubagentState`, so observer and state-machine tests no longer stub execution.
+  `SubagentExecution` is a mandatory constructor collaborator (production wires it in the single `spawn()` site; passive records build via `make-subagent.ts`), and the two `run()` throws are gone.
 
 #### Step 3 — Encapsulate run start and notification attachment on Subagent ([#374])
 
