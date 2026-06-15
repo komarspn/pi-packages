@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { assembleWidgetState } from "#src/ui/agent-widget";
+import { AgentTypeRegistry } from "#src/config/agent-types";
+import type { SubagentManager } from "#src/lifecycle/subagent-manager";
+import type { AgentActivityTracker } from "#src/ui/agent-activity-tracker";
+import { AgentWidget, assembleWidgetState, type UICtx } from "#src/ui/agent-widget";
 
 // Minimal agent fixture — only the three fields AgentSummary requires.
 function makeAgent(overrides: { id?: string; status?: string; completedAt?: number } = {}) {
@@ -175,5 +178,60 @@ describe("assembleWidgetState", () => {
 			);
 			expect(state.hasActive).toBe(true);
 		});
+	});
+});
+
+describe("AgentWidget.update self-seeds finished agents", () => {
+	// Build a widget over a manager stub whose listAgents() returns a fixed list,
+	// plus a recording UICtx. setWidgetCalls captures the `content` arg of each
+	// setWidget call: a function means the widget is registered/visible; undefined
+	// means it was cleared (the finished agent has aged out).
+	function makeWidget(agents: Array<{ id: string; status: string; completedAt?: number }>) {
+		const manager = { listAgents: () => agents } as unknown as SubagentManager;
+		const registry = new AgentTypeRegistry(() => new Map());
+		const widget = new AgentWidget(manager, new Map<string, AgentActivityTracker>(), registry);
+		const setWidgetCalls: unknown[] = [];
+		const ui: UICtx = {
+			setStatus: () => {},
+			setWidget: (_key, content) => {
+				setWidgetCalls.push(content);
+			},
+		};
+		widget.setUICtx(ui);
+		const lastContent = () => setWidgetCalls.at(-1);
+		return { widget, lastContent };
+	}
+
+	it("seeds a completed agent so it ages out after one turn", () => {
+		const { widget, lastContent } = makeWidget([{ id: "a1", status: "completed", completedAt: 5000 }]);
+		widget.update();
+		// Registered/visible: the last setWidget content is a render callback.
+		expect(typeof lastContent()).toBe("function");
+		// One turn ages the seeded entry to 1; completed agents linger only 1 turn.
+		widget.onTurnStart();
+		expect(lastContent()).toBeUndefined();
+	});
+
+	it("lingers an error agent for two turns before aging out", () => {
+		const { widget, lastContent } = makeWidget([{ id: "a1", status: "error", completedAt: 5000 }]);
+		widget.update();
+		expect(typeof lastContent()).toBe("function");
+		// Error agents linger 2 turns: still visible after the first.
+		widget.onTurnStart();
+		expect(typeof lastContent()).toBe("function");
+		// Cleared after the second.
+		widget.onTurnStart();
+		expect(lastContent()).toBeUndefined();
+	});
+
+	it("does not advance the linger age on repeated update() without a turn", () => {
+		const { widget, lastContent } = makeWidget([{ id: "a1", status: "completed", completedAt: 5000 }]);
+		widget.update();
+		widget.update();
+		widget.update();
+		// update() seeds at most once and never ages — the agent is still visible.
+		expect(typeof lastContent()).toBe("function");
+		widget.onTurnStart();
+		expect(lastContent()).toBeUndefined();
 	});
 });

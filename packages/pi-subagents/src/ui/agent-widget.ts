@@ -184,11 +184,27 @@ export class AgentWidget {
     }
   }
 
+  /**
+   * Seed linger tracking for any newly-observed finished agent.
+   * Replaces the external `markFinished` call NotificationManager used to make:
+   * the widget owns detection of completions it sees via `listAgents()`.
+   * Idempotent — only seeds when an entry is absent, so repeated updates within
+   * a turn neither reset nor advance the age.
+   */
+  private seedFinishedAgents(agents: readonly AgentSummary[]): void {
+    for (const a of agents) {
+      if (a.completedAt && !this.finishedTurnAge.has(a.id)) {
+        this.finishedTurnAge.set(a.id, 0);
+      }
+    }
+  }
+
   /** Force an immediate widget update. */
   update() {
     if (!this.uiCtx) return;
 
     const allAgents = this.manager.listAgents();
+    this.seedFinishedAgents(allAgents);
     const state = assembleWidgetState(allAgents, (id, status) => this.shouldShowFinished(id, status));
 
     if (!state.hasActive && !state.hasFinished) {
