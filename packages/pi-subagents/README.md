@@ -6,11 +6,8 @@ A [pi](https://pi.dev) extension that brings **Claude Code-style autonomous sub-
 Spawn specialized agents that run in isolated sessions — each with its own tools, system prompt, model, and thinking level.
 Run them in foreground or background, steer them mid-run, resume completed sessions, and define your own custom agent types.
 
-> **Fork notice:** This package is a friendly fork of [`tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents), published to npm as `@gotgenes/pi-subagents`.
-> It carries a small number of patches on top of upstream — peer-dep migration to `@earendil-works/pi-*`, a post-`bindExtensions` active-tool re-filter, and an `<active_agent>` system-prompt tag for permission resolution.
-> See [Deviations from upstream](#deviations-from-upstream) at the bottom of this README for details.
->
-> **Status:** Early release.
+> Originally forked from [`tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) by [@tintinweb](https://github.com/tintinweb), now an independently maintained hard fork.
+> See [Comparison with upstream](./docs/comparison-with-upstream.md) for a feature-by-feature comparison and guidance on which to choose.
 
 <img width="600" alt="pi-subagents screenshot" src="https://github.com/gotgenes/pi-subagents/raw/main/media/screenshot.png" />
 
@@ -436,73 +433,18 @@ When `@gotgenes/pi-permission-system` is not installed, the lifecycle events hav
 
 ## Architecture
 
-See `docs/architecture/architecture.md` for the full architecture document with domain decomposition, Mermaid diagrams, and improvement roadmap.
+This extension is a minimal, composable core: it owns agent spawning, execution, and result retrieval, and exposes a typed `SubagentsService` plus lifecycle events that other extensions build on.
 
-```text
-src/
-  index.ts                          # Extension entry: tool/command registration, rendering
-  runtime.ts                        # Session-scoped state bag with methods
-  types.ts                          # Shared type definitions
-  settings.ts                       # Persistent settings (concurrency, turn limits)
-  config/                           # Agent type registry and configuration
-    agent-types.ts                  # Unified agent registry (defaults + custom)
-    default-agents.ts               # Embedded default agent configs
-    custom-agents.ts                # Load user-defined agents from .pi/agents/*.md
-    invocation-config.ts            # Per-call merge of tool params + agent config
-  session/                          # Pure session assembly
-    session-config.ts               # Session configuration assembler
-    prompts.ts                      # Config-driven system prompt builder
-    context.ts                      # Parent conversation context for inherit_context
-    conversation.ts                 # Render a session's messages as formatted text
-    content-items.ts                # Shared message content parsing
-    env.ts                          # Environment detection (git, platform)
-    model-resolver.ts               # Fuzzy model matching
-    session-dir.ts                  # Session directory derivation
-  lifecycle/                        # Agent execution and state tracking
-    agent-manager.ts                # Collection manager + observer wiring
-    agent.ts                        # Full execution lifecycle (run, abort, steer, workspace)
-    create-subagent-session.ts      # Assembly factory: session creation, binding, tool filtering
-    subagent-session.ts             # Born-complete child session: turn loop, steer, dispose
-    child-lifecycle.ts              # Child-execution lifecycle event publisher
-    concurrency-queue.ts            # Background agent scheduling
-    parent-snapshot.ts              # Immutable spawn-time parent state
-    turn-limits.ts                  # Turn-count policy (normalizeMaxTurns)
-    workspace.ts                    # Workspace provider seam
-    usage.ts                        # Token usage tracking
-  observation/                      # Progress tracking and notification
-    record-observer.ts              # Session-event stats observer
-    notification.ts                 # Completion nudges
-    notification-state.ts           # Notification state tracking
-    renderer.ts                     # Notification rendering
-  service/                          # Cross-extension API boundary
-    service.ts                      # SubagentsService interface + Symbol.for() accessors
-    service-adapter.ts              # SubagentsService wrapper around AgentManager
-  tools/                            # LLM-facing tools
-  ui/                               # Widget, conversation viewer, /agents menu
-```
+See [`docs/architecture/architecture.md`](./docs/architecture/architecture.md) for the full architecture document — design principles, domain decomposition, module dependency flow, Mermaid diagrams, and the improvement roadmap.
 
-## Deviations from upstream
+## Relationship to upstream
 
-This fork carries three divergences from [`tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents).
-Each has a corresponding upstream PR:
+This package is an independently maintained hard fork of [`tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) by [@tintinweb](https://github.com/tintinweb).
+It has diverged substantially in scope and architecture: a minimal core with a typed service API and lifecycle events, with tool-restriction policy and worktree isolation delegated to companion packages.
+Upstream remains the batteries-included option, keeping scheduling, cross-extension RPC, model-scope enforcement, and a built-in tool denylist in a single package.
 
-1. **Peer-dep migration to `@earendil-works/pi-*`** — `peerDependencies` and all imports point at `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` (the active scope on npm) instead of the deprecated `@mariozechner/pi-*` scope.
-   Also fixes a latent bug where `ThinkingLevel` was imported from `pi-agent-core` (an undeclared transitive dep that breaks under pnpm).
-   Upstream PR: [tintinweb/pi-subagents#71](https://github.com/tintinweb/pi-subagents/pull/71).
-2. **Post-`bindExtensions` active-tool re-filter** (`src/agent-runner.ts`) — `runAgent` re-runs its active-tool filter after `session.bindExtensions(...)` so the `EXCLUDED_TOOL_NAMES` recursion guard applies to extension-registered tools (which join the active set during `bindExtensions`).
-   Upstream PR: [tintinweb/pi-subagents#72](https://github.com/tintinweb/pi-subagents/pull/72).
-3. **`<active_agent>` system-prompt tag** (`src/prompts.ts`) — `buildAgentPrompt` includes `<active_agent name="${config.name}"/>` in every assembled child system prompt (both `replace` and `append` modes); the tag follows the cacheable parent-prompt prefix in both modes.
-   Downstream extensions like [`@gotgenes/pi-permission-system`](https://github.com/gotgenes/pi-permission-system) parse this tag to resolve per-agent `permission:` frontmatter inside the child session.
-   Upstream PR: [tintinweb/pi-subagents#73](https://github.com/tintinweb/pi-subagents/pull/73).
-4. **Child-execution lifecycle events** (`src/lifecycle/child-lifecycle.ts`) — the child-session execution lifecycle is published as ordered events on `pi.events` (`subagents:child:spawning`, `session-created`, `completed`, `disposed`).
-   `session-created` fires synchronously before `bindExtensions()` so consumers (e.g. `@gotgenes/pi-permission-system`) can register the child session before binding proceeds.
-   This inverts the former outbound `permission-bridge` pattern ([ADR-0002] / [#261]) — the core publishes, consumers subscribe.
-   No upstream equivalent — this feature is specific to the `@gotgenes` fork.
-
-The upstream `vitest` suite plus tests added for each patch all pass on every commit.
+See [Comparison with upstream](./docs/comparison-with-upstream.md) for a full feature-by-feature comparison against the current upstream release and guidance on which to choose.
 
 ## License
 
 MIT — [tintinweb](https://github.com/tintinweb) (upstream) and [Chris Lasher](https://github.com/gotgenes) (fork)
-
-[ADR-0002]: docs/decisions/0002-extensions-on-a-minimal-core.md
