@@ -178,4 +178,108 @@ describe("read_parent_session tool", () => {
       "[model change] \u2192 anthropic/claude-sonnet-4-20250514",
     );
   });
+
+  describe("details", () => {
+    it("returns status details when not in a subagent context", async () => {
+      const { default: sessionTools } = await import("#src/index");
+      const tools = captureTools(sessionTools);
+      const tool = tools.get("read_parent_session")!;
+
+      const ctx = makeCtx("/sessions/--project--/2026-05-20T12-00-00Z_.jsonl");
+      const result = (await tool.execute(
+        "tc1",
+        {},
+        undefined,
+        undefined,
+        ctx,
+      )) as { details: { kind: string; message: string } };
+
+      expect(result.details.kind).toBe("status");
+      expect(result.details.message).toBeTruthy();
+    });
+
+    it("returns status details when parent session file is not found", async () => {
+      const { default: sessionTools } = await import("#src/index");
+      const tools = captureTools(sessionTools);
+      const tool = tools.get("read_parent_session")!;
+
+      mockExistsSync.mockReturnValue(false);
+
+      const ctx = makeCtx(
+        "/sessions/--project--/2026-05-20T12-00-00Z_/tasks/child.jsonl",
+      );
+      const result = (await tool.execute(
+        "tc1",
+        {},
+        undefined,
+        undefined,
+        ctx,
+      )) as { details: { kind: string; message: string } };
+
+      expect(result.details.kind).toBe("status");
+      expect(result.details.message).toBeTruthy();
+    });
+
+    it("returns transcript details with summary counts on success", async () => {
+      const { default: sessionTools } = await import("#src/index");
+      const tools = captureTools(sessionTools);
+      const tool = tools.get("read_parent_session")!;
+
+      mockExistsSync.mockReturnValue(true);
+      const parentEntries = [
+        JSON.stringify({
+          type: "session",
+          version: 3,
+          id: "s1",
+          timestamp: "2026-01-01T00:00:00Z",
+          cwd: "/project",
+        }),
+        JSON.stringify({
+          type: "message",
+          id: "1",
+          parentId: null,
+          timestamp: "2026-01-01T00:00:01Z",
+          message: { role: "user", content: "hello", timestamp: 1 },
+        }),
+        JSON.stringify({
+          type: "message",
+          id: "2",
+          parentId: "1",
+          timestamp: "2026-01-01T00:00:02Z",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "text", text: "hi" },
+              { type: "toolCall", id: "tc1", name: "Read", arguments: {} },
+            ],
+            provider: "anthropic",
+            model: "claude-sonnet",
+          },
+        }),
+      ].join("\n");
+      mockReadFileSync.mockReturnValue(parentEntries);
+
+      const ctx = makeCtx(
+        "/sessions/--project--/2026-05-20T12-00-00Z_/tasks/child.jsonl",
+      );
+      const result = (await tool.execute(
+        "tc1",
+        {},
+        undefined,
+        undefined,
+        ctx,
+      )) as { details: { kind: string; summary: Record<string, number> } };
+
+      expect(result.details).toEqual({
+        kind: "transcript",
+        summary: {
+          totalEntries: 2, // session header filtered out
+          messages: 2,
+          toolCalls: 1,
+          compactions: 0,
+          modelChanges: 0,
+        },
+      });
+    });
+  }); // describe("details")
 });

@@ -14,11 +14,17 @@ import {
   type ExtensionAPI,
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { type SessionSummary, summarizeEntries } from "./entry-summary.js";
 import { formatTranscript } from "./format-transcript.js";
 import {
   deriveParentSessionFile,
   readParentSessionEntries,
 } from "./parent-session.js";
+
+/** Discriminated union stored in tool `details` for the two session-read tools. */
+type SessionToolDetails =
+  | { kind: "transcript"; summary: SessionSummary }
+  | { kind: "status"; message: string };
 
 export default function sessionTools(pi: ExtensionAPI): void {
   pi.registerTool(
@@ -121,9 +127,10 @@ export default function sessionTools(pi: ExtensionAPI): void {
         if (params.limit != null) {
           entries = entries.slice(-params.limit);
         }
+        const summary = summarizeEntries(entries);
         return {
           content: [{ type: "text", text: formatTranscript(entries) }],
-          details: undefined,
+          details: { kind: "transcript", summary } as SessionToolDetails,
         };
       },
     }),
@@ -177,7 +184,10 @@ export default function sessionTools(pi: ExtensionAPI): void {
                 text: "This session is not running inside a subagent — no parent session available.",
               },
             ],
-            details: undefined,
+            details: {
+              kind: "status",
+              message: "Not running inside a subagent",
+            } as SessionToolDetails,
           };
         }
 
@@ -190,7 +200,10 @@ export default function sessionTools(pi: ExtensionAPI): void {
                 text: `Parent session file not found: ${parentFile}`,
               },
             ],
-            details: undefined,
+            details: {
+              kind: "status",
+              message: `Parent session file not found: ${parentFile}`,
+            } as SessionToolDetails,
           };
         }
 
@@ -203,9 +216,10 @@ export default function sessionTools(pi: ExtensionAPI): void {
           entries = entries.slice(-params.limit);
         }
 
+        const summary = summarizeEntries(entries);
         return {
           content: [{ type: "text", text: formatTranscript(entries) }],
-          details: undefined,
+          details: { kind: "transcript", summary } as SessionToolDetails,
         };
       },
     }),

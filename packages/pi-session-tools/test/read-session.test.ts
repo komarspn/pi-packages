@@ -235,4 +235,75 @@ describe("read_session tool", () => {
     const text = (result as { content: { text: string }[] }).content[0].text;
     expect(text).toBe("");
   });
+
+  describe("details", () => {
+    it("returns transcript details with summary counts", async () => {
+      const { default: sessionTools } = await import("#src/index");
+      const tools = captureTools(sessionTools);
+      const tool = tools.get("read_session")!;
+
+      const entries = [
+        {
+          type: "message",
+          message: { role: "user", content: "hello" },
+        },
+        {
+          type: "message",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "text", text: "hi" },
+              { type: "toolCall", id: "tc1", name: "Read", arguments: {} },
+            ],
+            provider: "anthropic",
+            model: "claude-sonnet",
+          },
+        },
+        { type: "compaction", tokensBefore: 1000 },
+        { type: "model_change", provider: "anthropic", modelId: "claude-opus" },
+      ];
+
+      const ctx = makeCtx(entries);
+      const result = (await tool.execute(
+        "tc1",
+        {},
+        undefined,
+        undefined,
+        ctx,
+      )) as {
+        details: { kind: string; summary: Record<string, number> };
+      };
+
+      expect(result.details).toEqual({
+        kind: "transcript",
+        summary: {
+          totalEntries: 4,
+          messages: 2,
+          toolCalls: 1,
+          compactions: 1,
+          modelChanges: 1,
+        },
+      });
+    });
+
+    it("returns transcript details with zero counts when filter produces no entries", async () => {
+      const { default: sessionTools } = await import("#src/index");
+      const tools = captureTools(sessionTools);
+      const tool = tools.get("read_session")!;
+
+      const ctx = makeCtx([
+        { type: "message", message: { role: "user", content: "hello" } },
+      ]);
+      const result = (await tool.execute(
+        "tc1",
+        { types: ["compaction"] },
+        undefined,
+        undefined,
+        ctx,
+      )) as { details: { kind: string; summary: { totalEntries: number } } };
+
+      expect(result.details.kind).toBe("transcript");
+      expect(result.details.summary.totalEntries).toBe(0);
+    });
+  }); // describe("details")
 });
