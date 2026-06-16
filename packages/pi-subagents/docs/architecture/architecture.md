@@ -1002,12 +1002,17 @@ Priority = Impact × (6 − Risk).
   Behavior-preserving: the widget timer runs through every background completion, so self-seeding lands ≤80ms later within the same turn (linger is turn-based).
   Test count: 1009 → 1005 (+3 widget self-seed tests, −7 removed relay/field tests).
 
-#### Step 7 — Consolidate lifecycle test fixtures ([#378])
+#### Step 7 — Consolidate lifecycle test fixtures ([#378]) ✅ Complete
 
-- Targets: `test/lifecycle/subagent-manager.test.ts` (766 LOC), `test/lifecycle/subagent.test.ts`, `test/lifecycle/subagent-session.test.ts`, `test/lifecycle/create-subagent-session.test.ts`, `test/lifecycle/create-subagent-session-extension-tools.test.ts`, `test/lifecycle/concurrency-limiter.test.ts`, `test/helpers/`.
-- Smell: Category D — fallow reports five clone families across the lifecycle tests.
+- Targets: `test/lifecycle/subagent-manager.test.ts`, `test/lifecycle/subagent-session.test.ts`, `test/lifecycle/create-subagent-session.test.ts`, `test/lifecycle/create-subagent-session-extension-tools.test.ts` (deleted), `test/helpers/subagent-session-io.ts`.
+- Smell: Category D — at planning time fallow reported four clone families across the lifecycle tests (the issue's "five" predated Steps 1–6, which renamed the queue and dissolved the `subagent.test.ts`/`concurrency-limiter.test.ts` families).
 - Change: extract the repeated spawn/run/factory arrangements into shared helpers, migrating incrementally (lift-and-shift, never a single-step rewrite of a large test file).
-- Outcome: lifecycle clone families 5 → ≤ 1; package test duplication below 600 lines.
+- Outcome: package test duplication below 600 lines; lifecycle clone families reduced, with the residual deliberately left as the visible test subject (see Landed).
+- Landed: added a shared `createFactorySession` mock-session builder (`test/helpers/subagent-session-io.ts`); grouped the `createSubagentSession` arrange into describe-scoped `beforeEach` hooks with the `createSubagentSession(...)` act kept explicit per test (AAA); extracted a `programTurns` arrange helper for the turn-limit tests; consolidated the manager spawn/queued-pair arrangements; and folded `create-subagent-session-extension-tools.test.ts` (4 post-bind guard tests) into `create-subagent-session.test.ts`, deleting the file and its duplicated scaffolding.
+  Package test duplication: 669 → 512 lines; test files 64 → 63; test count 1005 → 1010 (+5 `createFactorySession` self-tests).
+  Two lifecycle clone families remain (`create-subagent-session.test.ts` ~29 lines, `subagent-manager.test.ts` ~23 lines): both are the repeated `await createSubagentSession(...)` / `spawn(...)` **act** with test-specific arrange, intentionally not extracted because hiding the system-under-test behind a helper is the wrong abstraction for test code (Sandi Metz: "duplication is far cheaper than the wrong abstraction").
+  Lesson: the original "families ≤ 1" target was a weak signal for _test_ code — an early act-wrapping helper that hit the metric was reverted in favour of the AAA structure above; the metric was relaxed deliberately.
+  The three overlapping session-mock builders this surfaced are tracked separately ([#412]).
 
 #### Step 8 — Consolidate UI and tools test fixtures ([#379])
 
@@ -1159,4 +1164,5 @@ The upstream test suite is run periodically as a regression canary for the sessi
 [#379]: https://github.com/gotgenes/pi-packages/issues/379
 [#380]: https://github.com/gotgenes/pi-packages/issues/380
 [#381]: https://github.com/gotgenes/pi-packages/issues/381
+[#412]: https://github.com/gotgenes/pi-packages/issues/412
 [ADR-0002]: ../decisions/0002-extensions-on-a-minimal-core.md
