@@ -22,10 +22,14 @@ beforeEach(() => {
 });
 
 describe("createSubagentSession — assembly", () => {
-  it("returns a born-complete SubagentSession wrapping the created session", async () => {
-    const session = createFactorySession();
-    io.createSession.mockResolvedValue({ session });
+  let session: ReturnType<typeof createFactorySession>;
 
+  beforeEach(() => {
+    session = createFactorySession();
+    io.createSession.mockResolvedValue({ session });
+  });
+
+  it("returns a born-complete SubagentSession wrapping the created session", async () => {
     const sub = await createSubagentSession(
       { snapshot: STUB_SNAPSHOT, type: "Explore" },
       createSubagentSessionDeps({ io, exec, registry: mockAgentLookup }),
@@ -36,9 +40,6 @@ describe("createSubagentSession — assembly", () => {
   });
 
   it("exposes the persisted session file as outputFile", async () => {
-    const session = createFactorySession();
-    io.createSession.mockResolvedValue({ session });
-
     const sub = await createSubagentSession(
       { snapshot: STUB_SNAPSHOT, type: "Explore" },
       createSubagentSessionDeps({ io, exec, registry: mockAgentLookup }),
@@ -48,9 +49,6 @@ describe("createSubagentSession — assembly", () => {
   });
 
   it("binds extensions before returning", async () => {
-    const session = createFactorySession();
-    io.createSession.mockResolvedValue({ session });
-
     await createSubagentSession(
       { snapshot: STUB_SNAPSHOT, type: "Explore" },
       createSubagentSessionDeps({ io, exec, registry: mockAgentLookup }),
@@ -61,9 +59,6 @@ describe("createSubagentSession — assembly", () => {
   });
 
   it("passes the effective cwd and agentDir to the loader, settings, and session", async () => {
-    const session = createFactorySession();
-    io.createSession.mockResolvedValue({ session });
-
     await createSubagentSession(
       { snapshot: STUB_SNAPSHOT, type: "Explore", cwd: "/tmp/worktree" },
       createSubagentSessionDeps({ io, exec, registry: mockAgentLookup }),
@@ -81,9 +76,6 @@ describe("createSubagentSession — assembly", () => {
   });
 
   it("suppresses AGENTS.md/CLAUDE.md/APPEND_SYSTEM.md for subagents", async () => {
-    const session = createFactorySession();
-    io.createSession.mockResolvedValue({ session });
-
     await createSubagentSession(
       { snapshot: STUB_SNAPSHOT, type: "Explore" },
       createSubagentSessionDeps({ io, exec, registry: mockAgentLookup }),
@@ -100,9 +92,6 @@ describe("createSubagentSession — assembly", () => {
   });
 
   it("calls newSession with parentSession when parentSessionId is provided", async () => {
-    const session = createFactorySession();
-    io.createSession.mockResolvedValue({ session });
-
     await createSubagentSession(
       {
         snapshot: STUB_SNAPSHOT,
@@ -118,11 +107,16 @@ describe("createSubagentSession — assembly", () => {
 });
 
 describe("createSubagentSession — lifecycle ordering", () => {
-  it("emits spawning before session-created", async () => {
-    const session = createFactorySession();
-    io.createSession.mockResolvedValue({ session });
-    const lifecycle = createChildLifecycleMock();
+  let session: ReturnType<typeof createFactorySession>;
+  let lifecycle: ReturnType<typeof createChildLifecycleMock>;
 
+  beforeEach(() => {
+    session = createFactorySession();
+    io.createSession.mockResolvedValue({ session });
+    lifecycle = createChildLifecycleMock();
+  });
+
+  it("emits spawning before session-created", async () => {
     await createSubagentSession(
       { snapshot: STUB_SNAPSHOT, type: "Explore" },
       createSubagentSessionDeps({ io, exec, registry: mockAgentLookup, lifecycle }),
@@ -135,10 +129,6 @@ describe("createSubagentSession — lifecycle ordering", () => {
   });
 
   it("emits session-created before bindExtensions()", async () => {
-    const session = createFactorySession();
-    io.createSession.mockResolvedValue({ session });
-    const lifecycle = createChildLifecycleMock();
-
     await createSubagentSession(
       { snapshot: STUB_SNAPSHOT, type: "Explore" },
       createSubagentSessionDeps({ io, exec, registry: mockAgentLookup, lifecycle }),
@@ -151,10 +141,7 @@ describe("createSubagentSession — lifecycle ordering", () => {
   });
 
   it("carries the session id and parent session id in session-created", async () => {
-    const session = createFactorySession();
-    io.createSession.mockResolvedValue({ session });
     io.deriveSessionDir.mockReturnValue("/custom/session/dir");
-    const lifecycle = createChildLifecycleMock();
 
     await createSubagentSession(
       {
@@ -175,10 +162,6 @@ describe("createSubagentSession — lifecycle ordering", () => {
   });
 
   it("does not emit completed or disposed during creation", async () => {
-    const session = createFactorySession();
-    io.createSession.mockResolvedValue({ session });
-    const lifecycle = createChildLifecycleMock();
-
     await createSubagentSession(
       { snapshot: STUB_SNAPSHOT, type: "Explore" },
       createSubagentSessionDeps({ io, exec, registry: mockAgentLookup, lifecycle }),
