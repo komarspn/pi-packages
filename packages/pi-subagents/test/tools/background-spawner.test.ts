@@ -1,49 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 import { type BackgroundParams, spawnBackground } from "#src/tools/background-spawner";
-import type { ResolvedSpawnConfig } from "#src/tools/spawn-config";
 import { AgentActivityTracker } from "#src/ui/agent-activity-tracker";
 import { createToolDeps } from "#test/helpers/make-deps";
+import { createResolvedSpawnConfig } from "#test/helpers/make-spawn-config";
 import { createTestSubagent } from "#test/helpers/make-subagent";
 import { createMockSession, createSubagentSessionStub, toSubagentSession } from "#test/helpers/mock-session";
 import { STUB_SNAPSHOT } from "#test/helpers/stub-ctx";
 
-function makeConfig(overrides: Partial<ResolvedSpawnConfig> = {}): ResolvedSpawnConfig {
-  return {
-    identity: {
-      subagentType: "general-purpose",
-      rawType: "general-purpose",
-      fellBack: false,
-      displayName: "General-purpose",
-    },
-    execution: {
-      prompt: "do something",
-      description: "bg task",
-      model: undefined,
-      effectiveMaxTurns: undefined,
-      thinking: undefined,
-      inheritContext: false,
-      runInBackground: true,
-      agentInvocation: {
-        modelName: undefined,
-        thinking: undefined,
-        maxTurns: undefined,
-        inheritContext: false,
-        runInBackground: true,
-      },
-    },
-    presentation: {
-      modelName: undefined,
-      agentTags: [],
-      detailBase: {
-        displayName: "General-purpose",
-        description: "bg task",
-        subagentType: "general-purpose",
-        modelName: undefined,
-        tags: undefined,
-      },
-    },
+function makeConfig(overrides: Parameters<typeof createResolvedSpawnConfig>[0] = {}) {
+  return createResolvedSpawnConfig({
+    displayName: "General-purpose",
+    prompt: "do something",
+    description: "bg task",
+    runInBackground: true,
     ...overrides,
-  };
+  });
 }
 
 function makeParams(overrides: Partial<BackgroundParams> = {}): BackgroundParams {
@@ -84,18 +55,7 @@ describe("spawnBackground", () => {
       widget,
       runtime.agentActivity,
       makeParams({
-        config: makeConfig({
-          execution: {
-            prompt: "do something",
-            description: "my task",
-            model: undefined,
-            effectiveMaxTurns: undefined,
-            thinking: undefined,
-            inheritContext: false,
-            runInBackground: true,
-            agentInvocation: { modelName: undefined, thinking: undefined, maxTurns: undefined, inheritContext: false, runInBackground: true },
-          },
-        }),
+        config: makeConfig({ description: "my task" }),
       }),
     );
     expect(result.content[0].text).toContain("agent-1");
