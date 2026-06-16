@@ -26,3 +26,24 @@ The plan dissolves the cycle instead of relocating its late seam.
   Two open questions logged (single `AgentToolWidget` vs. split deps; redundancy of foreground `markFinished`).
 - **Not breaking / not public:** `runtime.ts` is internal (not in the rolled `service.ts` type bundle), so `verify:public-types` is not required.
 - **Invariants at risk** flagged against Phase 17 Steps 1 and 5 (forward-ref dance, `index.ts` line budget); grep acceptance checks fold into the final implementation step.
+
+## Stage: Implementation — TDD (2026-06-15T20:19:00Z)
+
+### Session summary
+
+Executed all four planned steps in order: widget self-seeding (`feat`), `NotificationManager` widget-dependency dissolve (`refactor`), direct widget injection + relay-method removal (`refactor`), and the architecture-roadmap update (`docs`).
+Test count went 1009 → 1005 (+3 widget self-seed tests, −7 removed relay/field tests).
+All deterministic checks green; pre-completion reviewer returned WARN (non-blocking).
+
+### Observations
+
+- The tidy-first sequencing held up exactly as planned: Step 2 broke the cycle while the runtime relay methods were still in place (repo stayed green), making Step 3's export/field removal a clean atomic change.
+- The cycle dissolve produced two **stale fallow suppressions** on `AgentWidget.setUICtx`/`onTurnStart` — they were `unused-class-member`-suppressed because the methods were previously reached only through the runtime relay; direct injection made them visibly used.
+  Removed both; amended into the Step 3 refactor commit.
+- Widget-class testing required constructing `AgentWidget` with a cast manager stub (`as unknown as SubagentManager`) and a recording `UICtx`; observability of the private `finishedTurnAge` is via the `setWidget` clear-vs-register signal, which cleanly distinguishes seeded-then-aged-out from never-seeded.
+- `sed` was needed for the runner/spawner test files because the widget arg appeared both inline and as standalone multiline-call lines; a `^\s*runtime,$` line match safely retargeted only the widget positional arg (never `runtime.agentActivity`).
+- Two commit-hygiene corrections: an `index.ts` comment-trim fixup was first amended into the `docs` commit by mistake, then moved into the Step 3 `refactor` commit via `reset --soft` + selective re-stage (fixups must not land in `docs:` commits).
+- **Reviewer verdict: WARN.**
+  Sole finding: `index.ts` is 177 lines (Step 5's aspirational "<170" was already overshot at its own landing, 177); the comment trim kept Step 6 net-neutral.
+  Cosmetic, prose-pinned only, non-blocking.
+- Cross-step invariants verified by grep: no `let widget` / `prefer-const` forward-ref (Step 1), no `runtime.widget` / `.widget =` / `WidgetLike` anywhere (the issue's core outcome).
