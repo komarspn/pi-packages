@@ -5,6 +5,7 @@ import { STUB_SNAPSHOT } from "#test/helpers/stub-ctx";
 import {
   createAgentLookup,
   createChildLifecycleMock,
+  createFactorySession,
   createSubagentSessionDeps,
   createSubagentSessionIO,
 } from "#test/helpers/subagent-session-io";
@@ -14,23 +15,6 @@ const mockAgentLookup = createAgentLookup();
 
 let io: ReturnType<typeof createSubagentSessionIO>;
 
-// ── Session mock factory ───────────────────────────────────────────────────────
-
-function createSession() {
-  const session = {
-    messages: [] as unknown[],
-    subscribe: vi.fn(() => () => {}),
-    prompt: vi.fn().mockResolvedValue(undefined),
-    abort: vi.fn(),
-    steer: vi.fn().mockResolvedValue(undefined),
-    dispose: vi.fn(),
-    getActiveToolNames: vi.fn(() => ["read"]),
-    setActiveToolsByName: vi.fn(),
-    bindExtensions: vi.fn(async () => {}),
-  };
-  return { session };
-}
-
 const exec = vi.fn();
 
 beforeEach(() => {
@@ -39,7 +23,7 @@ beforeEach(() => {
 
 describe("createSubagentSession — assembly", () => {
   it("returns a born-complete SubagentSession wrapping the created session", async () => {
-    const { session } = createSession();
+    const session = createFactorySession();
     io.createSession.mockResolvedValue({ session });
 
     const sub = await createSubagentSession(
@@ -52,7 +36,7 @@ describe("createSubagentSession — assembly", () => {
   });
 
   it("exposes the persisted session file as outputFile", async () => {
-    const { session } = createSession();
+    const session = createFactorySession();
     io.createSession.mockResolvedValue({ session });
 
     const sub = await createSubagentSession(
@@ -64,7 +48,7 @@ describe("createSubagentSession — assembly", () => {
   });
 
   it("binds extensions before returning", async () => {
-    const { session } = createSession();
+    const session = createFactorySession();
     io.createSession.mockResolvedValue({ session });
 
     await createSubagentSession(
@@ -77,7 +61,7 @@ describe("createSubagentSession — assembly", () => {
   });
 
   it("passes the effective cwd and agentDir to the loader, settings, and session", async () => {
-    const { session } = createSession();
+    const session = createFactorySession();
     io.createSession.mockResolvedValue({ session });
 
     await createSubagentSession(
@@ -97,7 +81,7 @@ describe("createSubagentSession — assembly", () => {
   });
 
   it("suppresses AGENTS.md/CLAUDE.md/APPEND_SYSTEM.md for subagents", async () => {
-    const { session } = createSession();
+    const session = createFactorySession();
     io.createSession.mockResolvedValue({ session });
 
     await createSubagentSession(
@@ -116,7 +100,7 @@ describe("createSubagentSession — assembly", () => {
   });
 
   it("calls newSession with parentSession when parentSessionId is provided", async () => {
-    const { session } = createSession();
+    const session = createFactorySession();
     io.createSession.mockResolvedValue({ session });
 
     await createSubagentSession(
@@ -135,7 +119,7 @@ describe("createSubagentSession — assembly", () => {
 
 describe("createSubagentSession — lifecycle ordering", () => {
   it("emits spawning before session-created", async () => {
-    const { session } = createSession();
+    const session = createFactorySession();
     io.createSession.mockResolvedValue({ session });
     const lifecycle = createChildLifecycleMock();
 
@@ -151,7 +135,7 @@ describe("createSubagentSession — lifecycle ordering", () => {
   });
 
   it("emits session-created before bindExtensions()", async () => {
-    const { session } = createSession();
+    const session = createFactorySession();
     io.createSession.mockResolvedValue({ session });
     const lifecycle = createChildLifecycleMock();
 
@@ -167,7 +151,7 @@ describe("createSubagentSession — lifecycle ordering", () => {
   });
 
   it("carries the session id and parent session id in session-created", async () => {
-    const { session } = createSession();
+    const session = createFactorySession();
     io.createSession.mockResolvedValue({ session });
     io.deriveSessionDir.mockReturnValue("/custom/session/dir");
     const lifecycle = createChildLifecycleMock();
@@ -191,7 +175,7 @@ describe("createSubagentSession — lifecycle ordering", () => {
   });
 
   it("does not emit completed or disposed during creation", async () => {
-    const { session } = createSession();
+    const session = createFactorySession();
     io.createSession.mockResolvedValue({ session });
     const lifecycle = createChildLifecycleMock();
 
@@ -207,7 +191,7 @@ describe("createSubagentSession — lifecycle ordering", () => {
 
 describe("createSubagentSession — dispose on creation failure", () => {
   it("disposes the session and emits disposed when bindExtensions throws, then rethrows", async () => {
-    const { session } = createSession();
+    const session = createFactorySession();
     session.bindExtensions = vi.fn().mockRejectedValue(new Error("bind failed"));
     io.createSession.mockResolvedValue({ session });
     io.deriveSessionDir.mockReturnValue("/custom/session/dir");
