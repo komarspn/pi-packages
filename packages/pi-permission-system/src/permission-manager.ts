@@ -65,15 +65,18 @@ export interface ScopedPermissionManager {
     sessionRules?: Ruleset,
   ): PermissionCheckResult;
   /**
-   * Evaluate the cross-cutting `path` surface against a caller-supplied set of
-   * equivalent policy values (e.g. bash tokens already resolved against a
-   * preceding literal `cd`). The values are trusted because they are computed
-   * internally, never read from a field on raw tool input.
+   * Evaluate a path-shaped surface (`path` or `external_directory`) against a
+   * caller-supplied set of equivalent policy values (e.g. bash tokens already
+   * resolved against a preceding literal `cd`, or a path's typed and
+   * symlink-resolved aliases). The values are trusted because they are computed
+   * internally, never read from a field on raw tool input. `surface` defaults
+   * to `path`.
    */
   checkPathPolicy(
     values: readonly string[],
     agentName?: string,
     sessionRules?: Ruleset,
+    surface?: string,
   ): PermissionCheckResult;
   getToolPermission(toolName: string, agentName?: string): PermissionState;
   getConfigIssues(agentName?: string): string[];
@@ -277,6 +280,7 @@ export class PermissionManager implements ScopedPermissionManager {
     values: readonly string[],
     agentName?: string,
     sessionRules?: Ruleset,
+    surface = "path",
   ): PermissionCheckResult {
     const { composedRules } = this.resolvePermissions(agentName);
     const fullRules: Ruleset = sessionRules?.length
@@ -285,11 +289,11 @@ export class PermissionManager implements ScopedPermissionManager {
 
     const lookupValues = values.length > 0 ? [...values] : ["*"];
     return buildCheckResult(
-      "path",
+      surface,
       lookupValues,
       {},
-      "path",
-      "path",
+      surface,
+      surface,
       fullRules,
     );
   }

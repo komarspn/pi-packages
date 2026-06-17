@@ -3279,4 +3279,40 @@ describe("checkPathPolicy", () => {
       cleanup();
     }
   });
+
+  it("evaluates against the external_directory surface when one is provided", () => {
+    const { manager, cleanup } = makeManagerWithConfig({
+      external_directory: { "*": "ask", "/tmp/*": "allow" },
+    });
+    try {
+      const result = manager.checkPathPolicy(
+        ["/tmp/x"],
+        undefined,
+        undefined,
+        "external_directory",
+      );
+      expect(result.state).toBe("allow");
+      expect(result.matchedPattern).toBe("/tmp/*");
+      expect(result.source).toBe("special");
+      expect(result.toolName).toBe("external_directory");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("defaults to the path surface when no surface is provided", () => {
+    const { manager, cleanup } = makeManagerWithConfig({
+      external_directory: { "*": "ask", "/tmp/*": "allow" },
+      path: { "*": "allow" },
+    });
+    try {
+      // No path rule denies; the external_directory allow must NOT apply here.
+      const result = manager.checkPathPolicy(["/tmp/x"]);
+      expect(result.toolName).toBe("path");
+      expect(result.state).toBe("allow");
+      expect(result.matchedPattern).toBe("*");
+    } finally {
+      cleanup();
+    }
+  });
 });

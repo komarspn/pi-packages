@@ -143,6 +143,20 @@ describe("PermissionResolver", () => {
         ["/proj/src/a.ts", "src/a.ts"],
         "agent-x",
         [],
+        "path",
+      );
+    });
+
+    it("forwards an explicit surface to checkPathPolicy", () => {
+      const { resolver, permissionManager } = makeResolver();
+
+      resolver.resolvePathPolicy(["/tmp/x"], "agent-x", "external_directory");
+
+      expect(permissionManager.checkPathPolicy).toHaveBeenCalledWith(
+        ["/tmp/x"],
+        "agent-x",
+        [],
+        "external_directory",
       );
     });
 
