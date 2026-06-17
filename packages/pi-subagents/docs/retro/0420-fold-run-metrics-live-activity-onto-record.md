@@ -43,5 +43,3 @@ Full suite green; type check and lint clean; zero dead code.
 - WARN finding: `package-pi-subagents` SKILL.md `Observation` domain row description ("Session-event stats") is now slightly incomplete for `record-observer` (it also accumulates live-activity fields).
   Intentionally deferred per the planning-stage decision — no symbol removed, and the description will be updated in Step 2 ([#421]) when the observer's role is fully defined after the reader migration.
 - Pre-completion reviewer verdict: **WARN** (one non-blocking finding, deferred per retro).
-
-[#421]: https://github.com/gotgenes/pi-packages/issues/421
