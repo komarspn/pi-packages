@@ -71,6 +71,6 @@ describe("loadWorktreesConfig", () => {
     writeGlobal("{ not valid json");
     expect(loadWorktreesConfig(agentDir, cwd)).toEqual({ worktreeAgents: [] });
     expect(warn).toHaveBeenCalledOnce();
-    expect(warn.mock.calls[0]?.[0]).toContain("Ignoring malformed config");
+    expect(warn.mock.calls[0]?.[0]).toContain("Ignoring malformed settings");
   });
 });
