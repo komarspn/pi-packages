@@ -105,7 +105,8 @@ If a plan's quantitative target (LOC, clone count, complexity) does not fall out
    Running from a package subdirectory detects fewer entry points than CI, producing false positives that become stale suppressions in CI.
    If it exits non-zero, load the `fallow` skill and fix the findings — prefer declaring a real contract (`implements`) or removing dead exports over suppressing; suppress only verified false positives.
    Commit fixes as part of the most recent feat commit (amend) if not yet pushed; otherwise as a `fix:` commit.
-5. Check for unstaged lockfile changes: `git diff --name-only pnpm-lock.yaml`.
+5. Check for unstaged lockfile changes: `git diff --name-only pnpm-lock.yaml pnpm-workspace.yaml`.
+   `pnpm install` can touch `pnpm-workspace.yaml` too (a `minimumReleaseAgeExclude` entry when a dependency is bumped to a freshly-published version).
    If modified, stage and commit it as part of the most recent feat commit (amend if not yet pushed) or as a separate `fix:` commit.
 6. Cross-check the plan's "Module-Level Changes" table against actually-changed files.
    If a listed file was not touched, update it now or note the deviation.
