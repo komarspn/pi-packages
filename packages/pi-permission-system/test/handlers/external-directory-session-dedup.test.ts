@@ -98,6 +98,19 @@ function makeDeduplicatingHandler(prompter?: GatePrompter): {
     },
   );
 
+  // The external-directory gates resolve through checkPathPolicy (#418); route
+  // it through the same configured checkPermission so session-approval dedup
+  // applies to the typed path alias.
+  vi.mocked(permissionManager.checkPathPolicy).mockImplementation(
+    (values, agentName, rules, surface = "path") =>
+      permissionManager.checkPermission(
+        surface,
+        { path: values[0] ?? "*" },
+        agentName,
+        rules,
+      ),
+  );
+
   const events = makeEvents();
   const reporter = new GateDecisionReporter(logger, events);
   const resolvedPrompter: GatePrompter = prompter ?? {
@@ -349,6 +362,18 @@ describe("session shutdown clears external-directory approvals", () => {
           origin: "builtin",
         };
       },
+    );
+
+    // The external-directory tool gate resolves through checkPathPolicy (#418);
+    // route it through the same configured checkPermission.
+    vi.mocked(permissionManager.checkPathPolicy).mockImplementation(
+      (values, agentName, rules, surface = "path") =>
+        permissionManager.checkPermission(
+          surface,
+          { path: values[0] ?? "*" },
+          agentName,
+          rules,
+        ),
     );
 
     const events = makeEvents();

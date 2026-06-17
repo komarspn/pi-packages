@@ -188,11 +188,12 @@ describe("BashProgram", () => {
       });
     });
 
-    it("flags an absolute in-cwd path that resolves externally via a symlink", async () => {
+    it("flags an absolute in-cwd path that resolves externally via a symlink, returning the typed form", async () => {
       // The strict classifier only processes absolute tokens, so the escape
       // surface is `cat /cwd/link/hosts` (absolute) where `link -> /etc`.
-      // Without canonicalization: /projects/my-app/link/hosts looks internal.
-      // With canonicalization: realpathSync resolves it to /etc/hosts.
+      // The boundary decision still uses the canonical form (so the path is
+      // flagged), but the returned value is the typed/lexical form so config
+      // patterns match the path as the user wrote it (#418).
       realpathSync.mockImplementation((p: string) => {
         if (p === "/projects/my-app/link/hosts") return "/etc/hosts";
         return p;
@@ -200,7 +201,9 @@ describe("BashProgram", () => {
       const program = await BashProgram.parse(
         "cat /projects/my-app/link/hosts",
       );
-      expect(program.externalPaths(cwd)).toContain("/etc/hosts");
+      const external = program.externalPaths(cwd);
+      expect(external).toContain("/projects/my-app/link/hosts");
+      expect(external).not.toContain("/etc/hosts");
     });
 
     it("does not flag a token that resolves within a symlinked cwd", async () => {

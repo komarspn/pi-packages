@@ -199,13 +199,19 @@ export class BashProgram {
   }
 
   /**
-   * Deduplicated paths that resolve outside `cwd`.
+   * Deduplicated paths that resolve outside `cwd`, in their lexical (as-typed,
+   * normalized but not symlink-resolved) form.
    *
    * Each candidate is resolved against the effective working directory in force
    * where it appears, projected by folding a sequence of current-shell `cd`
    * commands (joined by `&&`, `||`, `;`, or a newline). A `cd` inside a
    * pipeline or a backgrounded command runs in a subshell and does not update
    * the running directory.
+   *
+   * The outside-`cwd` decision and the dedup identity use the canonical
+   * (symlink-resolved) form, but the returned value is the lexical form so
+   * `external_directory` config patterns match the path as the user typed it
+   * (#418); the gate re-derives the canonical alias for matching.
    */
   externalPaths(cwd: string): string[] {
     const normalizedCwd = canonicalizePath(
@@ -224,36 +230,37 @@ export class BashProgram {
       // display path). Absolute / `~` candidates are base-independent and
       // resolve normally below.
       if (base.kind === "unknown" && isRelativeCandidate(candidate)) {
-        const normalized = canonicalizePath(
-          normalizePathForComparison(candidate, cwd),
-        );
+        const lexical = normalizePathForComparison(candidate, cwd);
+        const canonical = canonicalizePath(lexical);
         if (
-          normalized &&
+          canonical &&
           normalizedCwd !== "" &&
-          !isSafeSystemPath(normalized) &&
-          !seen.has(normalized)
+          !isSafeSystemPath(canonical) &&
+          !seen.has(canonical)
         ) {
-          seen.add(normalized);
-          externalPaths.push(normalized);
+          seen.add(canonical);
+          externalPaths.push(lexical);
         }
         continue;
       }
 
       const resolveBase =
         base.kind === "known" ? resolve(cwd, base.offset) : cwd;
-      const normalized = canonicalizePath(
-        normalizePathForComparison(candidate, resolveBase),
-      );
-      if (!normalized) continue;
+      const lexical = normalizePathForComparison(candidate, resolveBase);
+      if (!lexical) continue;
+      // The boundary decision and dedup identity use the canonical
+      // (symlink-resolved) form, but the returned value is the lexical form so
+      // config patterns match the path as the user typed it (#418).
+      const canonical = canonicalizePath(lexical);
 
       if (
         normalizedCwd !== "" &&
-        !isSafeSystemPath(normalized) &&
-        !isPathWithinDirectory(normalized, normalizedCwd) &&
-        !seen.has(normalized)
+        !isSafeSystemPath(canonical) &&
+        !isPathWithinDirectory(canonical, normalizedCwd) &&
+        !seen.has(canonical)
       ) {
-        seen.add(normalized);
-        externalPaths.push(normalized);
+        seen.add(canonical);
+        externalPaths.push(lexical);
       }
     }
 
