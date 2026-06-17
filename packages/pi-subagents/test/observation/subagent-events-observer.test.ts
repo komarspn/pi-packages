@@ -8,7 +8,6 @@ function makeNotifications(): NotificationSystem {
 	return {
 		cancelNudge: vi.fn(),
 		sendCompletion: vi.fn(),
-		cleanupCompleted: vi.fn(),
 		dispose: vi.fn(),
 	};
 }
@@ -41,7 +40,6 @@ describe("SubagentEventsObserver", () => {
 			observer.onSubagentStarted(createTestSubagent());
 			expect(appendEntry).not.toHaveBeenCalled();
 			expect(notifications.sendCompletion).not.toHaveBeenCalled();
-			expect(notifications.cleanupCompleted).not.toHaveBeenCalled();
 		});
 	});
 
@@ -117,10 +115,9 @@ describe("SubagentEventsObserver", () => {
 			observer.onSubagentCompleted(record);
 
 			expect(notifications.sendCompletion).toHaveBeenCalledExactlyOnceWith(record);
-			expect(notifications.cleanupCompleted).not.toHaveBeenCalled();
 		});
 
-		it("calls notifications.cleanupCompleted (not sendCompletion) when result is already consumed", () => {
+		it("does not call sendCompletion when result is already consumed", () => {
 			const notifications = makeNotifications();
 			const { observer } = makeObserver({ notifications });
 			const record = createTestSubagent({ status: "completed", toolCallId: "tc-1" });
@@ -128,7 +125,6 @@ describe("SubagentEventsObserver", () => {
 
 			observer.onSubagentCompleted(record);
 
-			expect(notifications.cleanupCompleted).toHaveBeenCalledExactlyOnceWith(record.id);
 			expect(notifications.sendCompletion).not.toHaveBeenCalled();
 		});
 

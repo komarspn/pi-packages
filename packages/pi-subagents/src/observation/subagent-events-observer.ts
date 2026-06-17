@@ -65,10 +65,7 @@ export class SubagentEventsObserver implements SubagentManagerObserver {
 		});
 
 		// Skip notification if result was already consumed via get_subagent_result.
-		if (record.notification?.resultConsumed) {
-			this.notifications.cleanupCompleted(record.id);
-			return;
-		}
+		if (record.notification?.resultConsumed) return;
 
 		this.notifications.sendCompletion(record);
 	}

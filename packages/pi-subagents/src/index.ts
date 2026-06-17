@@ -62,7 +62,6 @@ export default function (pi: ExtensionAPI) {
   // widget dependency — keeping the construction graph a cycle-free DAG.
   const notifications = new NotificationManager(
     (msg, opts) => pi.sendMessage(msg, opts),
-    runtime.agentActivity,
   );
 
   // Settings: owns all three in-memory values and handles load/save/emit.
