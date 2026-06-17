@@ -94,6 +94,10 @@ export class Subagent {
 	get toolUses(): number { return this.state.toolUses; }
 	get lifetimeUsage(): Readonly<LifetimeUsage> { return this.state.lifetimeUsage; }
 	get compactionCount(): number { return this.state.compactionCount; }
+	get turnCount(): number { return this.state.turnCount; }
+	get activeTools(): ReadonlyMap<string, string> { return this.state.activeTools; }
+	get responseText(): string { return this.state.responseText; }
+	get maxTurns(): number | undefined { return this.execution.maxTurns; }
 
 	readonly abortController: AbortController;
 	private _promise?: Promise<void>;
