@@ -529,7 +529,7 @@ permission:
 
 ### Project Agent Override
 
-Path: `<cwd>/.pi/agent/agents/<agent>.md`
+Path: `<cwd>/.pi/agents/<agent>.md`
 
 Project agent files are resolved from Pi's current session `cwd`, so they are workspace-specific and do **not** move under `PI_CODING_AGENT_DIR`.
 
