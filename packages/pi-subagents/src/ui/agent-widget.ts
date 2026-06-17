@@ -7,10 +7,10 @@
  */
 
 import { AgentTypeRegistry } from "#src/config/agent-types";
+import type { Subagent } from "#src/lifecycle/subagent";
 import type { SubagentManager } from "#src/lifecycle/subagent-manager";
-import type { AgentActivityTracker } from "#src/ui/agent-activity-tracker";
 import { ERROR_STATUSES, type Theme } from "#src/ui/display";
-import { renderWidgetLines } from "#src/ui/widget-renderer";
+import { renderWidgetLines, type WidgetAgent } from "#src/ui/widget-renderer";
 
 // ---- Types ----
 
@@ -79,7 +79,6 @@ export class AgentWidget {
 
   constructor(
     private manager: SubagentManager,
-    private agentActivity: Map<string, AgentActivityTracker>,
     private registry: AgentTypeRegistry,
   ) {}
 
@@ -129,11 +128,31 @@ export class AgentWidget {
     }
   }
 
+  /** Project a live Subagent record onto a pure-data WidgetAgent snapshot. */
+  private toWidgetAgent(record: Subagent): WidgetAgent {
+    return {
+      id: record.id,
+      type: record.type,
+      status: record.status,
+      description: record.description,
+      toolUses: record.toolUses,
+      startedAt: record.startedAt,
+      completedAt: record.completedAt,
+      error: record.error,
+      lifetimeUsage: record.lifetimeUsage,
+      compactionCount: record.compactionCount,
+      turnCount: record.turnCount,
+      maxTurns: record.maxTurns,
+      activeTools: record.activeTools,
+      responseText: record.responseText,
+      contextPercent: record.getContextPercent(),
+    };
+  }
+
   /** Delegate rendering to the pure widget-renderer module. */
   private renderWidget(tui: any, theme: Theme): string[] {
     return renderWidgetLines({
-      agents: this.manager.listAgents(),
-      activityMap: this.agentActivity,
+      agents: this.manager.listAgents().map(r => this.toWidgetAgent(r)),
       registry: this.registry,
       spinnerFrame: this.widgetFrame,
       terminalWidth: tui.terminal.columns,

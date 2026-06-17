@@ -130,7 +130,7 @@ export default function (pi: ExtensionAPI) {
 
   // Live widget: constructed after the manager (it polls listAgents()) and
   // injected directly into its consumers — no post-construction field write.
-  const widget = new AgentWidget(manager, runtime.agentActivity, registry);
+  const widget = new AgentWidget(manager, registry);
 
   // Grab UI context from first tool execution + clear lingering widget on new turn
   const toolStart = new ToolStartHandler(widget);

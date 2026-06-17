@@ -53,7 +53,7 @@ tools/ → SubagentManager → Subagent → createSubagentSession → session-co
                                      SubagentSession            AgentTypeRegistry → [default-agents, custom-agents]
 
 record-observer ─subscribes─→ AgentSession ←─subscribes─ ui-observer
-widget ─polls─→ AgentActivityTracker map
+widget ─polls─→ Subagent records (listAgents)
 service-adapter ─wraps─→ SubagentManager
 ```
 
