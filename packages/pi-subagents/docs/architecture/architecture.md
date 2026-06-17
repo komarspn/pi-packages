@@ -522,7 +522,7 @@ The governing rule — **no vacant hooks**: the architecture must _admit_ a seam
 A provider seam with no consumer is a speculative abstraction that taxes every reader and that `fallow` flags as dead.
 Latent extensibility is the deliverable; a vacant hook is not.
 
-The [first-principles refinement](#first-principles-refinement-the-deeper-target) below sharpens this two-surface split.
+The [first-principles refinement](#first-principles-refinement-and-the-deeper-target) below sharpens this two-surface split.
 The awaited, behavior-affecting lifecycle events (notably `session-created` before `bindExtensions`) are _hooks_ — the child's own extension surface applied recursively, generative because the core waits on the handler before deciding what to do next.
 The observational surface then carries only fire-and-forget broadcasts of immutable snapshots, which no consumer can use to change the core.
 
@@ -556,14 +556,14 @@ In the target state, pi-subagents publishes events and a provider seam; other pa
 
 - **pi-permission-system** (observational) subscribes to child-session lifecycle events, detects subagent execution context in the child, and gates tool calls at runtime.
 - **pi-subagents-worktrees** (generative) registers a `WorkspaceProvider` that prepares a git worktree at run-start and tears it down after, supplying the child's cwd.
-- **pi-subagents-ui** (future, under reconsideration — see the [first-principles refinement](#first-principles-refinement-the-deeper-target)) subscribes to the broadcast and the query/behavior interfaces; whether the inherited widget, conversation viewer, and `/agents` menu survive is judged on our principles, not preserved by default.
+- **pi-subagents-ui** (future, under reconsideration — see the [first-principles refinement](#first-principles-refinement-and-the-deeper-target)) subscribes to the broadcast and the query/behavior interfaces; whether the inherited widget, conversation viewer, and `/agents` menu survive is judged on our principles, not preserved by default.
 - **Any future extension** (OTel, auditing, cost tracking) subscribes to the same events without pi-subagents knowing.
 
 Composition test: install neither extension, only permissions, only workspaces, or both — the core is byte-for-byte identical in all four cases, and the two extensions never reference each other.
 
 This is achieved across phases: Phase 14 (strip policy), Phase 16 (invert dependencies — extensions on a minimal core), and Phase 18 (reconsider UI).
 
-### First-principles refinement (the deeper target)
+### First-principles refinement and the deeper target
 
 The two-surface model above is correct but coarse.
 Pushing it against our own principles — construct complete, state owns its mutations, tell-don't-ask, dependency inversion — surfaces sharper boundaries that the current code draws through the middle of classes.
@@ -894,6 +894,145 @@ All nine steps are closed: [#381], [#373], [#374], [#375], [#376], [#377], [#378
 [#415] migrated `pi-subagents-worktrees` to `loadLayeredSettings` after the Step 9 published release.
 See [phase-17-core-consolidation.md](history/phase-17-core-consolidation.md) for the full findings, step outcomes, dependency diagram, and tracks.
 
+## Phase 18 Reconsider UI from first principles
+
+After 17 phases the core is in very good shape: health 78/100 (B), zero dead code, zero fallow refactoring targets, average cyclomatic 1.4.
+The one structural debt that remains is not spread thin across the core — it is concentrated in a single place: the UI's live-streaming state (the "activity tier") is woven into the core's runtime, spawn tools, the LLM-facing `subagent` tool, and the notification path.
+This is the entanglement the [first-principles refinement](#first-principles-refinement-and-the-deeper-target) predicted — "the activity/metrics push tier is provisional; its only reactive consumer is the inherited widget" — observed in the code.
+Disentangling it is what lets the core reach a great state, and it is the prerequisite to any "reconsider the UI" decision: today the UI cannot be a clean consumer because the core does its streaming bookkeeping for it.
+
+### Findings
+
+Six findings tell one story — the activity tier has metastasized out of the UI and into the core.
+
+1. **UI state lives on the core runtime.**
+   `SubagentRuntime.agentActivity: Map<string, AgentActivityTracker>` puts a UI streaming-state map on the core composition root.
+   `SubagentRuntime` owns session-scoped lifecycle state; `AgentActivityTracker` (active tools, response text, turn count) is pure rendering state the core never reads.
+   Category C (coupling).
+2. **Core spawn tools wire UI streaming.**
+   `foreground-runner.ts` and `background-spawner.ts` construct `AgentActivityTracker`, call `subscribeUIObserver` (a second session subscription parallel to the core's own `record-observer`), call `setSession`, and populate or delete the activity map and drive the widget (`ensureTimer`, `update`, `markFinished`).
+   Their own doc comments list "AgentActivityTracker creation, UI observer subscription" as responsibilities.
+   Category C (mixed responsibility, parameter relay).
+3. **The LLM-facing tool depends on the widget.**
+   `AgentTool` takes a 4-method `widget` dependency plus `runtime.agentActivity` and calls `this.widget.setUICtx(ctx.ui)`.
+   Every `AgentTool` unit test must stub the widget and the activity map (`createToolDeps`), although the tool's real concern is dispatch — testability friction marking a domain seam.
+   Category C/D.
+4. **Two parallel observers split the run-metric domain.**
+   Each child session gets two subscriptions: `record-observer` accumulates `SubagentState` (tool uses, usage, compactions) and `ui-observer` accumulates `AgentActivityTracker` (active tools, response text, turn count).
+   `turnCount` is a genuine run metric that lives only in the UI tracker, so `notification.ts` and the foreground result text reach into the tracker to recover it.
+   Category C (anemic split, duplication).
+5. **A core observation concern reaches into UI state.**
+   `NotificationManager` holds the activity map and reads `turnCount`/`maxTurns` from it to build notification details, and deletes entries from it.
+   Category C (Law of Demeter).
+6. **The public event contract is both vacant and incomplete.**
+   `SUBAGENT_EVENTS.ACTIVITY = "subagents:activity"` is declared in the service surface and the doc's lifecycle-events table but is never emitted anywhere — a vacant hook the doc's own "no vacant hooks" rule forbids.
+   Meanwhile three emitted channels (`subagents:failed`, `subagents:compacted`, `subagents:created`) are absent from the constant map.
+   Category A/E.
+
+### Health metrics
+
+| Metric                                   | Value                                                              |
+| ---------------------------------------- | ------------------------------------------------------------------ |
+| Health score                             | 78/100 (B)                                                         |
+| Source LOC                               | 7,751 (62 files)                                                   |
+| Dead code                                | 0 files, 0 exports                                                 |
+| Maintainability index                    | 90.9 (good)                                                        |
+| Avg cyclomatic complexity                | 1.4                                                                |
+| P90 cyclomatic complexity                | 2                                                                  |
+| Fallow refactoring targets               | 0                                                                  |
+| Production duplication                   | 11 lines (1 internal clone group in `agent-config-editor.ts`)      |
+| Test duplication                         | 28 clone groups, 503 lines                                         |
+| Activity-tier modules slated for removal | `ui-observer.ts` (61) + `agent-activity-tracker.ts` (84) = 145 LOC |
+
+### Steps
+
+The spine (Steps 1–5) removes the activity-tier entanglement, leaving the core a pure orchestrator whose run state lives in one place and whose UI is a reactive consumer of broadcast events plus discrete queries.
+Steps 6–7 are independent hygiene.
+Step 8 is the user-driven UI reconsideration the disentangled core finally makes possible — a decision about the UI's distribution once it is substitutable, not optional.
+
+The deeper target in the [first-principles refinement](#first-principles-refinement-and-the-deeper-target) — metrics as a pure observer projection rather than mutable fields — is deliberately **not** forced here.
+Folding the live activity onto the record (the single owner of run state, consistent with Phase 17's `SubagentState`) removes the duplication without inventing the asynchronous-observation seam the `improvement-discovery` skill warns is essential, not structural.
+
+1. **Fold run metrics and live activity onto the core record (pure addition).**
+   Target: `lifecycle/subagent-state.ts`, `observation/record-observer.ts`, `lifecycle/subagent.ts`.
+   Extend the single owned run-state value object with `turnCount`, active tools, and response text; have the already-subscribed `record-observer` handle `turn_end`, `tool_execution_start`, `message_start`, `message_update`; expose read-only `turnCount`/`maxTurns`/`activeTools`/`responseText` getters on `Subagent`.
+   `AgentActivityTracker` still exists; nothing reads the new getters yet (tidy-first).
+   Smell: Category C. Outcome: `Subagent` is the single home for all run state; getters available for migration.
+2. **Migrate every activity reader to the record getters.**
+   Target: `ui/widget-renderer.ts`, `ui/conversation-viewer.ts`, `ui/agent-menu.ts`, `tools/foreground-runner.ts`, `observation/notification.ts`.
+   Switch each reader from `AgentActivityTracker` to the record getters added in Step 1 (widget-renderer reads activity off `listAgents()`; viewer/menu drop the `activity` param; notification reads `turnCount`/`maxTurns` off the record).
+   Smell: Category C (Law of Demeter).
+   Outcome: no consumer references `AgentActivityTracker`.
+3. **Delete `AgentActivityTracker` and `ui-observer`; drop the activity map from the runtime and spawn tools.**
+   Target: `ui/agent-activity-tracker.ts` (delete), `ui/ui-observer.ts` (delete), `runtime.ts`, `tools/foreground-runner.ts`, `tools/background-spawner.ts`.
+   The spawn tools stop constructing trackers, subscribing, and populating maps; `SubagentRuntime.agentActivity` is removed.
+   Smell: Category A + C. Outcome: −145 LOC, one session subscription per child, runtime holds zero UI state.
+4. **Make the widget self-drive from lifecycle events.**
+   Target: `ui/agent-widget.ts`, `lifecycle/subagent-manager.ts` (observer), `index.ts`.
+   The widget starts/stops its timer in response to started/created/completed notifications instead of tool calls; spawn tools no longer call `ensureTimer`/`update`/`markFinished`.
+   Smell: Category C (coupling direction).
+   Outcome: the widget is a reactive consumer; no inbound calls from core spawn tools.
+5. **Drop the widget and activity-map dependencies from the `subagent` tool.**
+   Target: `tools/agent-tool.ts`, `test/helpers/make-deps.ts`.
+   `AgentTool` loses its `widget` and `agentActivity` constructor params (UICtx capture stays in `ToolStartHandler`); `createToolDeps` sheds the widget and map stubs.
+   Smell: Category C/D.
+   Outcome: the LLM tool depends only on manager/runtime/settings/registry; fixture drops 2 fields.
+6. **Reconcile the public event contract.**
+   Target: `service/service.ts`, this document's lifecycle-events table.
+   Remove the vacant `ACTIVITY` channel (or emit a real broadcast for it) and add the emitted `failed`/`compacted`/`created` channels so declared constants match emitted events.
+   Smell: Category A/E.
+   Outcome: declared channels equal emitted channels; no vacant hook.
+7. **Consolidate residual test clone families.**
+   Target: `test/settings.test.ts` + `test/layered-settings.test.ts`, `test/lifecycle/create-subagent-session.test.ts`, `test/ui/agent-config-editor.test.ts`.
+   Extract shared fixtures for the clone families fallow reports that the spine does not already rewrite.
+   Smell: Category D. Outcome: test clone groups drop below 15.
+8. **Reconsider the UI direction (first-principles ADR).**
+   Target: `docs/decisions/`, `ui/`.
+   The spine already made the UI _substitutable_; this step decides its _distribution_, not whether the experiment is possible.
+   The goal is **substitutable, not optional**: a human needs some surface, but the specific UI is replaceable — the way Pi ships a default TUI built on the same public API any extension targets.
+   The disentangled core stays byte-for-byte identical whether or not a given UI consumer is installed (the composition test), so a replacement UI is a downstream concern even though _some_ UI is not.
+   Unlike the worktrees provider seam (generative, rationed — one provider the core consults), the UI is an observational consumer (unlimited, the core never waits on it) reading the broadcast-plus-query surface, which is why packaging it is the secondary question and decoupling it was the real win.
+   Two standing concerns are the evidence this decision weighs and the better boundaries the reconsideration is meant to surface:
+   - **Truncated transcript.**
+     The conversation viewer shows a truncated view, yet `Subagent.messages` already exposes the full history and the core already persists each child as a standard Pi session JSONL (`outputFile`) — the limit is the bespoke overlay's rendering, not data access.
+   - **Foreground widget redundancy.**
+     In foreground the tool's inline `onUpdate` stream already shows progress, so the above-editor widget duplicates it; the widget earns its keep only for background agents — a per-mode judgment the fused UI cannot vary.
+   Candidate redesign to record: replace the bespoke overlay with "open the child session in the same viewer Pi uses for any session," following the recursive-Pi insight and the already-persisted session file.
+   Judge the widget, conversation viewer, and `/agents` menu per component — keep, shrink, extract to `@gotgenes/pi-subagents-ui`, or remove — and capture the decision in an ADR that gateways Phase 19.
+   Smell: Category E (organization / boundary).
+   Outcome: a recorded per-component decision motivated by the two concerns; the inherited UI is substitutable and no longer preserved by default.
+
+### Step dependency diagram
+
+```mermaid
+flowchart TB
+    S1["1 — Fold metrics + activity onto record"]
+    S2["2 — Migrate readers to record getters"]
+    S3["3 — Delete tracker + ui-observer, drop activity map"]
+    S4["4 — Widget self-drives on events"]
+    S5["5 — Drop widget dep from subagent tool"]
+    S6["6 — Reconcile public event contract"]
+    S7["7 — Consolidate test clone families"]
+    S8["8 — Reconsider UI direction (ADR)"]
+
+    S1 --> S2 --> S3 --> S4 --> S5 --> S8
+    S6
+    S7
+```
+
+### Parallel tracks
+
+- **Track A — Disentangle the activity tier (spine):** Steps 1, 2, 3.
+  Strictly ordered; each is a safe lift-and-shift over the previous.
+- **Track B — Decouple widget and tool wiring:** Steps 4, 5.
+  Begins once the activity map is gone (Step 3).
+- **Track C — Public-contract hygiene:** Step 6.
+  Independent; can land any time.
+- **Track D — Test consolidation:** Step 7.
+  Independent; can land any time.
+- **Track E — UI reconsideration:** Step 8.
+  Gated on the spine and Track B (the UI must be a clean consumer first).
+
 ## Refactoring history
 
 Phases 1–5, 7–17 are complete.
@@ -919,7 +1058,7 @@ Detailed records are preserved in per-phase history files:
 | 15    | Domain model evolution                              | Complete            | [phase-15-domain-model-evolution.md](history/phase-15-domain-model-evolution.md)     |
 | 16    | Invert dependencies (extensions on a minimal core)  | Complete            | [phase-16-invert-dependencies.md](history/phase-16-invert-dependencies.md)           |
 | 17    | Core consolidation                                  | Complete            | [phase-17-core-consolidation.md](history/phase-17-core-consolidation.md)             |
-| 18    | Reconsider UI (first principles)                    | Planned             | —                                                                                    |
+| 18    | Reconsider UI (first principles)                    | Proposed            | this document, [Phase 18](#phase-18-reconsider-ui-from-first-principles)             |
 
 ### Structural refactoring issues
 
