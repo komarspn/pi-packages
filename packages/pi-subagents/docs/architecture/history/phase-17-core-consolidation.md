@@ -11,7 +11,7 @@ All nine steps are closed: [#381], [#373], [#374], [#375], [#376], [#377], [#378
 
 ## Context
 
-Phase 17 is the consolidation slice of the [first-principles refinement](../architecture.md#first-principles-refinement-the-deeper-target), not the full domain split.
+Phase 17 is the consolidation slice of the [first-principles refinement](../architecture.md#first-principles-refinement-and-the-deeper-target), not the full domain split.
 It lands the first cut of the lifecycle-state domain (Step 2's `SubagentState`) plus the wiring, queue, and duplication cleanups.
 The fuller four-domain split — metrics as a projection, result delivery as its own domain, the hook/broadcast reclassification, and the push/pull (DIP) inversion — is recorded in the refinement and sequenced into later phases.
 
@@ -37,7 +37,7 @@ The syntactic metrics are healthy and stable — the remaining debt is structura
    `SubagentInit` carries ~20 fields, nearly all optional with "required for run(), optional for tests" semantics, and `run()` compensates with runtime throws ("not configured for execution").
    This violates principle 8 (construct complete): the class is simultaneously a passive record (tests build display-only snapshots) and an executor (production wires factory, observer, run config, workspace provider).
    The symptoms are in the tests: external writes `record.promise = …` (manager, queue callback, four test files) and `record.notification = new NotificationState(…)` (seven test sites) are output-argument smells on fields the object should own.
-   This duality is the two most visible of four domains fused into `Subagent`; Phase 17 resolves it (Step 2) and defers the remaining split (metrics, result delivery) to a later phase per the [first-principles refinement](../architecture.md#first-principles-refinement-the-deeper-target).
+   This duality is the two most visible of four domains fused into `Subagent`; Phase 17 resolves it (Step 2) and defers the remaining split (metrics, result delivery) to a later phase per the [first-principles refinement](../architecture.md#first-principles-refinement-and-the-deeper-target).
 2. **Wiring debt in `index.ts`.**
    Two forward references (settings → queue, queue → manager) are replicated with an `eslint-disable prefer-const` dance in `test/lifecycle/subagent-manager.test.ts`; the queue's start callback (`record.promise = record.run()` after a status check) is duplicated verbatim between `index.ts` and the test helper.
    A ~70-line inline `SubagentManagerObserver` literal mixes three concerns (event emission, `appendEntry` persistence, notification dispatch).
@@ -76,7 +76,7 @@ Priority = Impact × (6 − Risk).
 
 - Targets: `src/lifecycle/subagent.ts` (state fields, transition/accumulation methods, constructor, `run()` guards), `src/lifecycle/subagent-manager.ts` (`spawn`), `test/helpers/make-subagent.ts`, `test/lifecycle/subagent.test.ts`, `test/observation/record-observer.test.ts`.
 - Smell: Category B (god interface — ~20 fields) and Category D (constructibility: "optional for tests" fields with compensating runtime throws).
-  The record/executor duality is the two most visible of the four conflated domains (see the first-principles refinement in [architecture.md](../architecture.md#first-principles-refinement-the-deeper-target)).
+  The record/executor duality is the two most visible of the four conflated domains (see the first-principles refinement in [architecture.md](../architecture.md#first-principles-refinement-and-the-deeper-target)).
 - Change: extract the passive-record state — status, result, error, timestamps, and the stats (toolUses, lifetimeUsage, compactionCount) — into a `SubagentState` value object that owns the transition and accumulation methods.
   `Subagent` holds one privately; its existing getters and `markX`/`incrementX`/`addUsage` methods become one-line delegations, so the ~40 read sites and the mutation callers are unchanged.
   This is not reach-through: `SubagentState` is a private owned value, not a foreign collaborator (contrast [#277], which removed reach-through to the raw SDK session).
