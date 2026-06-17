@@ -593,8 +593,12 @@ These were the open decisions; they are now settled.
 The package's center of mass is not the decision engine (tiny, pure) but turning `(toolName, input)` into "what is being accessed" — bash decomposition, MCP target derivation, path extraction, external-directory detection.
 This is a distinct domain (access intent) that gates should *emit* and a single `resolve(intent)` should answer, so adding a gate cannot widen the resolver surface.
 The [#393] false-green (a stubbed-but-unrouted resolver method silently passing `allow`) is the probe pointing at it: the resolver surface today is `resolve` + `resolvePathPolicy` + `checkPermission` + `checkPathPolicy`, widening per gate.
+[#418] is a second probe, from the access-path side: both external-directory gates matched config patterns against the symlink-resolved path because a single `string` carries a path that is simultaneously a containment value (canonical, for the outside-CWD boundary) and a match value (lexical, as the user typed it), with no type distinction — so the canonical form leaked into matching and defeated a configured `/tmp/*` allow.
+The same conflation lives in `BashProgram.externalPaths(): string[]`, which returns only the canonical form and so loses the typed value the matcher needs.
+The fix's `getExternalDirectoryPolicyValues` helper (the union of lexical aliases and the canonical path) is the embryo of the access-path: an `AccessPath` value object holding both forms behind distinct `matchValues()` and boundary accessors would make the misuse a compile error rather than a docstring convention, and let one external-directory policy check replace the two parallel gates that acquired this bug independently.
 The intent must carry **principal identity** (which agent is requesting) so a forwarded request is evaluable on the serving node, and it must define **path portability across cwds** — a subagent in a `pi-subagents-worktrees` worktree resolves paths against a different root than the parent, so cross-session path evaluation is only well-defined once the intent fixes what a path *means*.
 Sequencing: extract access-intent first — it unblocks correct cross-session path evaluation and kills the false-green class; non-path serving, yolo inheritance, and the escalation unification can land alongside.
+The tractable first slice is the access-path value object seeded by [#418]: it removes the path-representation conflation and the duplicate external-directory gate without waiting on principal identity or cross-session portability.
 
 ### Naming
 
@@ -757,3 +761,4 @@ Seven steps ([#362]–[#368]), all closed.
 [#362]: https://github.com/gotgenes/pi-packages/issues/362
 [#368]: https://github.com/gotgenes/pi-packages/issues/368
 [#393]: https://github.com/gotgenes/pi-packages/issues/393
+[#418]: https://github.com/gotgenes/pi-packages/issues/418
