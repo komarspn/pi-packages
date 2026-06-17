@@ -953,11 +953,12 @@ Step 8 is the user-driven UI reconsideration the disentangled core finally makes
 The deeper target in the [first-principles refinement](#first-principles-refinement-and-the-deeper-target) — metrics as a pure observer projection rather than mutable fields — is deliberately **not** forced here.
 Folding the live activity onto the record (the single owner of run state, consistent with Phase 17's `SubagentState`) removes the duplication without inventing the asynchronous-observation seam the `improvement-discovery` skill warns is essential, not structural.
 
-1. **Fold run metrics and live activity onto the core record (pure addition).**
+1. **✅ Fold run metrics and live activity onto the core record (pure addition) — complete (v16.5.0).**
    ([#420]) Target: `lifecycle/subagent-state.ts`, `observation/record-observer.ts`, `lifecycle/subagent.ts`.
    Extend the single owned run-state value object with `turnCount`, active tools, and response text; have the already-subscribed `record-observer` handle `turn_end`, `tool_execution_start`, `message_start`, `message_update`; expose read-only `turnCount`/`maxTurns`/`activeTools`/`responseText` getters on `Subagent`.
    `AgentActivityTracker` still exists; nothing reads the new getters yet (tidy-first).
    Smell: Category C. Outcome: `Subagent` is the single home for all run state; getters available for migration.
+   Landed: `SubagentState` owns `turnCount`/`activeTools`/`responseText` plus their transition methods; `record-observer` populates them on a single subscription; `Subagent` exposes the four read-only getters; +27 tests (1031 → 1058).
 2. **Migrate every activity reader to the record getters.**
    ([#421]) Target: `ui/widget-renderer.ts`, `ui/conversation-viewer.ts`, `ui/agent-menu.ts`, `tools/foreground-runner.ts`, `observation/notification.ts`.
    Switch each reader from `AgentActivityTracker` to the record getters added in Step 1 (widget-renderer reads activity off `listAgents()`; viewer/menu drop the `activity` param; notification reads `turnCount`/`maxTurns` off the record).
@@ -1006,7 +1007,7 @@ Folding the live activity onto the record (the single owner of run state, consis
 
 ```mermaid
 flowchart TB
-    S1["1 — Fold metrics + activity onto record (#420)"]
+    S1["1 — Fold metrics + activity onto record (#420) ✅"]
     S2["2 — Migrate readers to record getters (#421)"]
     S3["3 — Delete tracker + ui-observer, drop activity map (#422)"]
     S4["4 — Widget self-drives on events (#423)"]
@@ -1058,7 +1059,7 @@ Detailed records are preserved in per-phase history files:
 | 15    | Domain model evolution                              | Complete            | [phase-15-domain-model-evolution.md](history/phase-15-domain-model-evolution.md)     |
 | 16    | Invert dependencies (extensions on a minimal core)  | Complete            | [phase-16-invert-dependencies.md](history/phase-16-invert-dependencies.md)           |
 | 17    | Core consolidation                                  | Complete            | [phase-17-core-consolidation.md](history/phase-17-core-consolidation.md)             |
-| 18    | Reconsider UI (first principles)                    | Proposed            | this document, [Phase 18](#phase-18-reconsider-ui-from-first-principles)             |
+| 18    | Reconsider UI (first principles)                    | In progress         | this document, [Phase 18](#phase-18-reconsider-ui-from-first-principles)             |
 
 ### Structural refactoring issues
 
