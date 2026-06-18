@@ -15,8 +15,8 @@ See `docs/architecture/architecture.md` for the full decomposition plan and `doc
 
 The fork carries two original patches from the thin-patch era, still present in the codebase:
 
-1. **Peer-dep rename** — peer dependencies point at `@earendil-works/pi-*` (the active scope) rather than the deprecated `@mariozechner/pi-*` scope.
-2. **Patch 3 (active_agent tag)** — `buildAgentPrompt` includes `<active_agent name="${agentConfig.name}"/>` in every assembled child system prompt (both `replace` and `append` modes); the tag follows the cacheable parent-prompt prefix so `@gotgenes/pi-permission-system` can resolve per-agent `permission:` frontmatter inside the child.
+1. **Peer-dep rename** - peer dependencies point at `@earendil-works/pi-*` (the active scope) rather than the deprecated `@mariozechner/pi-*` scope.
+2. **Patch 3 (active_agent tag)** - `buildAgentPrompt` includes `<active_agent name="${agentConfig.name}"/>` in every assembled child system prompt (both `replace` and `append` modes); the tag follows the cacheable parent-prompt prefix so `@gotgenes/pi-permission-system` can resolve per-agent `permission:` frontmatter inside the child.
 
 Note: Patch 2 (post-bind active-tool re-filter) was simplified in Phase 14 (#239).
 The two-pass pre-bind/post-bind filter dance is gone.
@@ -31,7 +31,7 @@ Refactoring history is preserved in `docs/architecture/history/` (one file per c
 
 ### Domain organization
 
-The extension is organized into seven domains (59 files):
+The extension is organized into seven domains (57 files):
 
 | Domain      | Directory                                                                                                                                                                                                                                                                      | Modules | Responsibility                                                                                                                                                                                                                                                                            |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -40,7 +40,7 @@ The extension is organized into seven domains (59 files):
 | Lifecycle   | `subagent-manager.ts`, `create-subagent-session.ts`, `subagent-session.ts`, `turn-limits.ts`, `subagent.ts`, `subagent-state.ts`, `run-listeners.ts`, `workspace-bracket.ts`, `concurrency-limiter.ts`, `parent-snapshot.ts`, `child-lifecycle.ts`, `workspace.ts`, `usage.ts` | 13      | Spawn, abort, resume, concurrency admission, session assembly factory, born-complete turn loop, status state machine, lifecycle-state value object, per-subagent behavior, per-run listener handles, workspace prepare/dispose lifecycle, child-lifecycle events, workspace provider seam |
 | Observation | `record-observer.ts`, `notification.ts`, `notification-state.ts`, `renderer.ts`, `subagent-events-observer.ts`                                                                                                                                                                 | 5       | Session-event stats, completion nudges, notification rendering, lifecycle-event emission                                                                                                                                                                                                  |
 | Tools       | `tools/`                                                                                                                                                                                                                                                                       | 8       | LLM-facing tools: Agent, get_subagent_result, steer_subagent, spawn-config, result-renderer, helpers                                                                                                                                                                                      |
-| UI          | `ui/`                                                                                                                                                                                                                                                                          | 12      | Widget, conversation viewer, /agents menu, creation wizard, config editor, display helpers                                                                                                                                                                                                |
+| UI          | `ui/`                                                                                                                                                                                                                                                                          | 10      | Widget, conversation viewer, /agents menu, creation wizard, config editor, display helpers                                                                                                                                                                                                |
 | Service     | `service.ts`, `service-adapter.ts`                                                                                                                                                                                                                                             | 2       | Cross-extension API boundary via Symbol.for()                                                                                                                                                                                                                                             |
 
 Entry point (`index.ts`), runtime (`runtime.ts`), shared types (`types.ts`), settings (`settings.ts`), debug (`debug.ts`), and event handlers (`handlers/`) sit at the root.
@@ -52,7 +52,7 @@ tools/ → SubagentManager → Subagent → createSubagentSession → session-co
                                            ↓                                    ↑
                                      SubagentSession            AgentTypeRegistry → [default-agents, custom-agents]
 
-record-observer ─subscribes─→ AgentSession ←─subscribes─ ui-observer
+record-observer ─subscribes─→ AgentSession
 widget ─polls─→ Subagent records (listAgents)
 service-adapter ─wraps─→ SubagentManager
 ```
@@ -60,14 +60,14 @@ service-adapter ─wraps─→ SubagentManager
 ## Implementation Priorities
 
 - Follow the phased plan in `docs/architecture/architecture.md`.
-- **Open for extension, closed for modification** — pi-subagents is a minimal core that publishes events and a service API.
+- **Open for extension, closed for modification** - pi-subagents is a minimal core that publishes events and a service API.
   Other packages hook into these to add permissions, rendering, or telemetry.
-  Pi-subagents has zero knowledge of its consumers — dependency arrows point inward, never outward.
-- Narrow core — the extension owns agent spawning, execution, and result retrieval; everything else is a consumer.
-- **No policy enforcement** — tool restrictions, skill access control, and extension filtering belong in `@gotgenes/pi-permission-system`, not in this package.
+  Pi-subagents has zero knowledge of its consumers - dependency arrows point inward, never outward.
+- Narrow core - the extension owns agent spawning, execution, and result retrieval; everything else is a consumer.
+- **No policy enforcement** - tool restrictions, skill access control, and extension filtering belong in `@gotgenes/pi-permission-system`, not in this package.
   The `disallowed_tools` frontmatter field and `extensions: string[]` allowlist were removed in Phase 14 (#237, #238, #239).
   Users should use `permission:` frontmatter for tool restrictions.
-- Typed API boundary — export `SubagentsService` via `Symbol.for()` accessors so other extensions can spawn agents without importing this package directly (done, #48).
+- Typed API boundary - export `SubagentsService` via `Symbol.for()` accessors so other extensions can spawn agents without importing this package directly (done, #48).
 - Remove scheduling subsystem (done); ad-hoc RPC and group-join (done); output-file porting to Pi session format tracked in #61.
 - Cherry-pick upstream fixes when they align with this fork's scope; do not track upstream as a merge target.
 
@@ -76,17 +76,17 @@ service-adapter ─wraps─→ SubagentManager
 The target architecture is documented in `docs/architecture/architecture.md` under "Target architecture."
 The key phases are:
 
-- **Phase 14** — Strip policy from core: remove `disallowed_tools`, `extensions` filtering, collapse `filterActiveTools` (#237, #238, #239). ✅ Complete
-- **Phase 15** — Domain model evolution: `AgentRecord` → `Agent` with behavior, async `startAgent`, observer pattern, `ConcurrencyQueue` (#227–#232).
-- **Phase 16** — Invert dependencies (extensions on a minimal core, [ADR-0002]): emit child-session lifecycle events and retire `permission-bridge.ts` (#261); add the `WorkspaceProvider` seam (#262); extract worktrees to `@gotgenes/pi-subagents-worktrees` (#263, supersedes #256); remove `isolated`/`extensions: false`/`noSkills` (#264); born-complete child execution, dissolve the runner (#265).
+- **Phase 14** - Strip policy from core: remove `disallowed_tools`, `extensions` filtering, collapse `filterActiveTools` (#237, #238, #239). ✅ Complete
+- **Phase 15** - Domain model evolution: `AgentRecord` → `Agent` with behavior, async `startAgent`, observer pattern, `ConcurrencyQueue` (#227-#232).
+- **Phase 16** - Invert dependencies (extensions on a minimal core, [ADR-0002]): emit child-session lifecycle events and retire `permission-bridge.ts` (#261); add the `WorkspaceProvider` seam (#262); extract worktrees to `@gotgenes/pi-subagents-worktrees` (#263, supersedes #256); remove `isolated`/`extensions: false`/`noSkills` (#264); born-complete child execution, dissolve the runner (#265).
   The earlier "agent collaborator architecture" framing was abandoned.
-- **Phase 17** — Core consolidation: resolve the `Subagent` record/executor duality (extract `SubagentState`, make execution deps mandatory), replace the concurrency queue with a thunk limiter, extract the manager observer from `index.ts`, consolidate test fixtures (#373–#381).
-- **Phase 18** — Reconsider the UI (first principles): the inherited widget, conversation viewer, and `/agents` menu are consumers judged on our principles, not preserved by default.
+- **Phase 17** - Core consolidation: resolve the `Subagent` record/executor duality (extract `SubagentState`, make execution deps mandatory), replace the concurrency queue with a thunk limiter, extract the manager observer from `index.ts`, consolidate test fixtures (#373-#381).
+- **Phase 18** - Reconsider the UI (first principles): the inherited widget, conversation viewer, and `/agents` menu are consumers judged on our principles, not preserved by default.
 
 ## Code Style
 
 Formatting is handled by Biome (`biome check`, `biome format`).
-The repo intentionally does not use Prettier — a top-level `.prettierignore` blocks any harness with project-level write-time Prettier formatting from reformatting files here.
+The repo intentionally does not use Prettier - a top-level `.prettierignore` blocks any harness with project-level write-time Prettier formatting from reformatting files here.
 
 ## Public exports
 
@@ -103,11 +103,11 @@ See the `## For Extension Authors` section of `README.md` for the full wiring ex
 ## Build
 
 This package is otherwise ship-source (Pi runs `./src/index.ts` directly), but it carries the repo's only build step: type-declaration bundles for both public entries ([ADR-0003]).
-`pnpm run build:types` runs `rollup -c rollup.dts.config.mjs` (`rollup-plugin-dts`) to produce `dist/public.d.ts` (service entry) and `dist/settings.d.ts` (settings entry) — internal `#src/*` types inlined, peer-dep types kept external.
+`pnpm run build:types` runs `rollup -c rollup.dts.config.mjs` (`rollup-plugin-dts`) to produce `dist/public.d.ts` (service entry) and `dist/settings.d.ts` (settings entry) - internal `#src/*` types inlined, peer-dep types kept external.
 The bundles are gitignored, regenerated at `prepack`, and shipped via the `package.json` `files` allowlist.
 Never commit `dist/`.
-`pnpm run verify:public-types` (`scripts/verify-public-types.sh`, also a CI step) packs the tarball and type-checks a throwaway consumer against both entries — run it after any change to the public surface, the `exports` map, or the rollup config.
-Sibling packages consume this one from the **published** registry release (the repo sets `linkWorkspacePackages: false`), not via a workspace symlink — a symlink resolves `exports.types` to the gitignored, unbuilt `dist/*.d.ts`.
+`pnpm run verify:public-types` (`scripts/verify-public-types.sh`, also a CI step) packs the tarball and type-checks a throwaway consumer against both entries - run it after any change to the public surface, the `exports` map, or the rollup config.
+Sibling packages consume this one from the **published** registry release (the repo sets `linkWorkspacePackages: false`), not via a workspace symlink - a symlink resolves `exports.types` to the gitignored, unbuilt `dist/*.d.ts`.
 See `@gotgenes/pi-subagents-worktrees` for the pattern.
 
 ## Testing
@@ -123,7 +123,7 @@ When working in this package:
 1. New features and removals follow the phase plan in `docs/architecture/architecture.md`.
    Document architectural decisions in `docs/decisions/`.
 2. The upstream test suite is run periodically as a regression canary for the session assembly core.
-3. Modules marked `← removing` or `← replacing` in the architecture doc's current-state listing are slated for deletion — do not add features to them.
+3. Modules marked `← removing` or `← replacing` in the architecture doc's current-state listing are slated for deletion - do not add features to them.
 
 [ADR-0002]: https://github.com/gotgenes/pi-packages/blob/main/packages/pi-subagents/docs/decisions/0002-extensions-on-a-minimal-core.md
 [ADR-0003]: https://github.com/gotgenes/pi-packages/blob/main/packages/pi-subagents/docs/decisions/0003-publish-bundled-type-declarations.md

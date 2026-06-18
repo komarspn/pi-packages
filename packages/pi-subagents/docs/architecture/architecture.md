@@ -63,9 +63,8 @@ flowchart TB
 
     subgraph observation["Observation domain"]
         direction TB
-        RecordObserver["record-observer<br/>(stats via events)"]
+        RecordObserver["record-observer<br/>(stats + live activity via events)"]
         Notification["notification<br/>(completion nudges)"]
-        UIObserver["ui-observer<br/>(streaming state)"]
     end
 
     subgraph tools["Tools domain"]
@@ -95,7 +94,6 @@ flowchart TB
     SessionConfig --> Prompts & Env
     AgentTypeRegistry --> DefaultAgents & CustomAgents
     RecordObserver -.->|subscribes| SubagentSession
-    UIObserver -.->|subscribes| SubagentSession
     Widget -.->|polls| SubagentManager
 ```
 
@@ -258,7 +256,7 @@ sequenceDiagram
     Asm-->>Factory: SessionConfig
     Factory->>Child: create session + bind extensions
     Factory-->>Ag: SubagentSession (born complete)
-    Note over Ag: agent-observer + ui-observer subscribe to session events
+    Note over Ag: record-observer subscribes to session events
     Ag->>Sub: runTurnLoop(prompt, opts)
     Sub->>Child: prompt + drive turn loop
     Child-->>Sub: result text
@@ -346,10 +344,8 @@ src/
 │   ├── agent-creation-wizard.ts    agent creation (AgentCreationWizard class)
 │   ├── conversation-viewer.ts      scrollable session overlay
 │   ├── message-formatters.ts       pure per-message-type formatters (extracted from conversation-viewer)
-│   ├── agent-activity-tracker.ts   live activity state tracker
 │   ├── agent-file-ops.ts           filesystem abstraction
 │   ├── agent-file-writer.ts        overwrite-guard + write + reload + notify helper
-│   ├── ui-observer.ts              session-event observer for streaming
 │   └── display.ts                  pure formatters and shared types
 │
 └── handlers/                       event handlers
@@ -361,11 +357,10 @@ src/
 
 ### Observation model
 
-Record statistics (tool uses, token usage, compaction counts) are updated by `record-observer.ts`, which subscribes directly to session events.
-UI streaming (active tools, response text, turn counts) is handled by `ui/ui-observer.ts`, which subscribes to the same session events independently.
-Neither observer wraps or forwards the other — both subscribe directly to the session.
+Record statistics (tool uses, token usage, compaction counts) and live activity (active tools, response text, turn counts) are updated by `record-observer.ts`, which subscribes directly to session events.
+This is the single per-child session subscription — all run state lives on the `Subagent` record.
 
-The widget reads agent state by polling a shared `Map<string, AgentActivityTracker>` on `SubagentRuntime` every 80 ms. The conversation viewer subscribes to session events via `Subagent.subscribeToUpdates()` and reads messages via `Subagent.messages` — no direct `AgentSession` reference (#277).
+The widget reads agent state by polling the records exposed via `SubagentManager.listAgents()` every 80 ms. The conversation viewer subscribes to session events via `Subagent.subscribeToUpdates()` and reads messages via `Subagent.messages` — no direct `AgentSession` reference (#277).
 
 ## Cross-extension architecture
 
@@ -965,10 +960,11 @@ Folding the live activity onto the record (the single owner of run state, consis
    Smell: Category C (Law of Demeter).
    Outcome: no consumer references `AgentActivityTracker`.
    Landed: `WidgetAgent` folds the live-activity fields and a `contextPercent` projection; `AgentWidget` projects records; `ConversationViewer`, `AgentsMenuHandler`, `buildDetails`, and `buildNotificationDetails` read off the record; `NotificationSystem.cleanupCompleted` removed; `SubagentEventsObserver` returns early on consumed results; +8 tests (1058 → 1066).
-3. **Delete `AgentActivityTracker` and `ui-observer`; drop the activity map from the runtime and spawn tools.**
+3. **✅ Delete `AgentActivityTracker` and `ui-observer`; drop the activity map from the runtime and spawn tools — complete.**
    ([#422]) Target: `ui/agent-activity-tracker.ts` (delete), `ui/ui-observer.ts` (delete), `runtime.ts`, `tools/foreground-runner.ts`, `tools/background-spawner.ts`.
    The spawn tools stop constructing trackers, subscribing, and populating maps; `SubagentRuntime.agentActivity` is removed.
    Smell: Category A + C. Outcome: −145 LOC, one session subscription per child, runtime holds zero UI state.
+   Landed: deleted `agent-activity-tracker.ts` (84) + `ui-observer.ts` (61) and their unit suites; dropped the `agentActivity` parameter from `runForeground`/`spawnBackground`, the `AgentActivityAccess` interface, and the `AgentToolRuntime`/`SubagentRuntime` activity-map fields; the foreground `observer.onSessionCreated` keeps `recordRef`/`fgId` binding and `widget.ensureTimer`; −34 tests (1066 → 1032).
 4. **Make the widget self-drive from lifecycle events.**
    ([#423]) Target: `ui/agent-widget.ts`, `lifecycle/subagent-manager.ts` (observer), `index.ts`.
    The widget starts/stops its timer in response to started/created/completed notifications instead of tool calls; spawn tools no longer call `ensureTimer`/`update`/`markFinished`.
@@ -1010,7 +1006,7 @@ Folding the live activity onto the record (the single owner of run state, consis
 flowchart TB
     S1["1 — Fold metrics + activity onto record (#420) ✅"]
     S2["2 — Migrate readers to record getters (#421) ✅"]
-    S3["3 — Delete tracker + ui-observer, drop activity map (#422)"]
+    S3["3 — Delete tracker + ui-observer, drop activity map (#422) ✅"]
     S4["4 — Widget self-drives on events (#423)"]
     S5["5 — Drop widget dep from subagent tool (#424)"]
     S6["6 — Reconcile public event contract (#425)"]
