@@ -12,7 +12,6 @@ import { buildDetails, buildTypeListText, textResult } from "#src/tools/helpers"
 import { renderAgentResult } from "#src/tools/result-renderer";
 import { type ModelInfo, resolveSpawnConfig } from "#src/tools/spawn-config";
 import type { ParentSessionInfo, Subagent } from "#src/types";
-import { type UICtx } from "#src/ui/agent-widget";
 import { type AgentDetails, getDisplayName } from "#src/ui/display";
 
 // ---- Deps interfaces ----
@@ -32,15 +31,6 @@ export interface AgentToolRuntime {
 	getSessionInfo(): { parentSessionFile: string; parentSessionId: string };
 }
 
-/**
- * Narrow widget interface the Agent tool uses.
- * The tool only captures UI context; the widget self-drives its timer from
- * lifecycle notifications. AgentWidget satisfies it structurally.
- */
-export interface AgentToolWidget {
-	setUICtx(ctx: UICtx): void;
-}
-
 /** Narrow settings accessor — only the fields the Agent tool reads. */
 export type AgentToolSettings = {
 	readonly defaultMaxTurns: number | undefined;
@@ -56,7 +46,6 @@ export class AgentTool {
 	constructor(
 		private readonly manager: AgentToolManager,
 		private readonly runtime: AgentToolRuntime,
-		private readonly widget: AgentToolWidget,
 		private readonly settings: AgentToolSettings,
 		private readonly registry: AgentTypeRegistry,
 		private readonly agentDir: string,
@@ -70,11 +59,8 @@ export class AgentTool {
 		params: Record<string, unknown>,
 		signal: AbortSignal | undefined,
 		onUpdate: ((update: AgentToolResult<any>) => void) | undefined,
-		ctx: any,
+		_ctx: any,
 	) {
-		// Ensure we have UI context for widget rendering
-		this.widget.setUICtx(ctx.ui as UICtx);
-
 		// Reload custom agents so new .pi/agents/*.md files are picked up without restart
 		this.registry.reload();
 

@@ -149,7 +149,7 @@ export default function (pi: ExtensionAPI) {
 
   // ---- Agent tool ----
 
-  pi.registerTool(new AgentTool(manager, runtime, widget, settings, registry, getAgentDir()).toToolDefinition());
+  pi.registerTool(new AgentTool(manager, runtime, settings, registry, getAgentDir()).toToolDefinition());
 
   // ---- get_subagent_result tool ----
 

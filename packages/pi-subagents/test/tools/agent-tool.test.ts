@@ -12,7 +12,7 @@ function makeCtx(overrides: Record<string, unknown> = {}) {
 }
 
 function makeTool(deps: ReturnType<typeof createToolDeps>) {
-	return new AgentTool(deps.manager, deps.runtime, deps.widget, deps.settings, deps.registry, deps.agentDir);
+	return new AgentTool(deps.manager, deps.runtime, deps.settings, deps.registry, deps.agentDir);
 }
 
 async function execute(
@@ -62,16 +62,6 @@ describe("AgentTool", () => {
 		reloadSpy.mockRestore();
 	});
 
-	it("sets UI context on runtime at start of execute", async () => {
-		const deps = createToolDeps();
-		const ctx = makeCtx();
-		await execute(deps, {
-			prompt: "test",
-			description: "test",
-			subagent_type: "general-purpose",
-		}, ctx);
-		expect(deps.widget.setUICtx).toHaveBeenCalledWith(ctx.ui);
-	});
 });
 
 describe("AgentTool — resume path", () => {

@@ -5,7 +5,6 @@ import {
 	type AgentToolManager,
 	type AgentToolRuntime,
 	type AgentToolSettings,
-	type AgentToolWidget,
 } from "#src/tools/agent-tool";
 import { createTestSubagent } from "./make-subagent";
 import { STUB_SNAPSHOT } from "./stub-ctx";
@@ -15,15 +14,13 @@ const defaultRegistry = new AgentTypeRegistry(() => new Map());
 
 /**
  * Fixture shape returned by `createToolDeps`.
- * Contains the six `AgentTool` constructor params as separate fields so tests
+ * Contains the five `AgentTool` constructor params as separate fields so tests
  * can construct the class directly or use individual pieces for spawner/runner tests.
  */
 export type AgentToolFixture = {
 	manager: AgentToolManager;
 	/** Mock runtime satisfying `AgentToolRuntime` (context queries). */
 	runtime: AgentToolRuntime;
-	/** Mock widget satisfying `AgentToolWidget` (UI-context capture only). */
-	widget: AgentToolWidget;
 	settings: AgentToolSettings;
 	registry: AgentTypeRegistry;
 	agentDir: string;
@@ -39,10 +36,6 @@ export type AgentToolFixture = {
  * ```
  */
 export function createToolDeps(overrides: Partial<AgentToolFixture> = {}): AgentToolFixture {
-	const widget: AgentToolWidget = {
-		setUICtx: vi.fn(),
-	};
-
 	const runtime: AgentToolRuntime = {
 		buildSnapshot: vi.fn((_inheritContext: boolean): ParentSnapshot => STUB_SNAPSHOT),
 		getModelInfo: vi.fn(() => ({
@@ -63,7 +56,6 @@ export function createToolDeps(overrides: Partial<AgentToolFixture> = {}): Agent
 			getRecord: vi.fn().mockReturnValue(createTestSubagent()),
 		},
 		runtime,
-		widget,
 		settings: { defaultMaxTurns: undefined as number | undefined, maxConcurrent: 4 },
 		registry: defaultRegistry,
 		agentDir: "/home/user/.pi",

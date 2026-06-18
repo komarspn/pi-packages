@@ -30,14 +30,6 @@ describe("createToolDeps", () => {
 		});
 	});
 
-	describe("widget defaults", () => {
-		it("setUICtx is a vi.fn stub", () => {
-			const { widget } = createToolDeps();
-			widget.setUICtx({} as any);
-			expect(widget.setUICtx).toHaveBeenCalledOnce();
-		});
-	});
-
 	describe("other fields", () => {
 		it("agentDir is a non-empty string", () => {
 			expect(createToolDeps().agentDir).toBeTypeOf("string");
