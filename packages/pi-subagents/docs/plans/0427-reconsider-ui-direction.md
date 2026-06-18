@@ -103,11 +103,12 @@ The ADR records the _direction_ (native session machinery over a bespoke rendere
 
 The single `/agents` command bundles four unrelated jobs.
 Decision (direction): split them; do not keep all in one command.
+The operator does not value managing agent definitions through the menu at all — creating or editing agents is firmly better done with other tools (directly in Pi, or a real text editor / IDE), so both of those surfaces are **removed outright**, not merely deprioritized.
 
 - **Create new agent (wizard)** → **remove.**
-  Lowest value: an operator can generate a new agent `.md` by asking a Pi agent directly, which is more capable than a fixed wizard.
-- **Agent types (list + config editor)** → **remove / deprioritize.**
-  Low value: viewing and editing agent definitions is better served by opening the `.md` files directly.
+  An operator generates a new agent `.md` by asking a Pi agent directly (more capable than a fixed wizard) or by writing the file in an editor — the wizard earns no keep.
+- **Agent types (list + config editor)** → **remove.**
+  Viewing and editing agent definitions is better served by opening the `.md` files directly in an editor/IDE; the in-menu config editor earns no keep.
 - **Running agents (visibility)** → **keep the responsibility, re-home it.**
   _Something_ must own running-agent visibility; it moves onto the background widget (Decision A) plus the native session navigation (Decision B), not a bespoke in-menu overlay.
 - **Settings (concurrency / max turns / grace turns)** → **extract to a focused command** (e.g. `/subagents:settings`).
@@ -201,8 +202,8 @@ These are recorded in the ADR as Phase 19 spike entry criteria, not resolved her
   With N background agents running, what is the operator's gesture to pick which child to view and to cycle between them — driven from the background widget, a dedicated command, or both?
 - **Settings command namespace.**
   Confirm the final command name/namespace for the extracted settings surface (`/subagents:settings` vs another form) against how sibling packages register namespaced commands.
-- **Creation-wizard removal.**
-  Confirm (by trying it once, as the operator noted) that "generate via a Pi agent" fully covers the wizard's value before deleting it in Phase 19.
+
+The agent create/edit surfaces are _not_ open questions: the operator firmly removes both (managing agent definitions belongs in an editor/IDE or a Pi agent, not the menu).
 
 [#422]: https://github.com/gotgenes/pi-packages/issues/422
 [#423]: https://github.com/gotgenes/pi-packages/issues/423

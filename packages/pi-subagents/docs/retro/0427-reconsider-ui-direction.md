@@ -20,7 +20,7 @@ The plan writes `docs/decisions/0004-reconsider-ui-direction.md` plus an archite
 - **Per-component decisions recorded:**
   (A) foreground widget shrinks to background-agents-only;
   (B) conversation viewer replaced by native session navigation (remove the bespoke `ConversationViewer`);
-  (C) `/agents` menu dissolved — drop the creation wizard, drop/deprioritize the agent-types editor, re-home running-agent visibility onto the widget + session navigation, extract settings to a focused `/subagents:settings` command;
+  (C) `/agents` menu dissolved — **remove** both agent-management surfaces outright (creation wizard and agent-types config editor; managing definitions belongs in an editor/IDE or a Pi agent, not the menu), re-home running-agent visibility onto the widget + session navigation, extract settings to a focused `/subagents:settings` command;
   (D) distribution = keep surviving UI in-core (substitutable, _not_ extracted to `@gotgenes/pi-subagents-ui`).
 - **Key SDK finding — `switchSession`.**
   `@earendil-works/pi-coding-agent@0.79.1` exposes `ExtensionActions.switchSession(sessionPath, { withSession })`.
