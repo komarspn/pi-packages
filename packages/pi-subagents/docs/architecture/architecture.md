@@ -974,11 +974,13 @@ Folding the live activity onto the record (the single owner of run state, consis
    Smell: Category C (coupling direction).
    Outcome: the widget is a reactive consumer; no inbound calls from core spawn tools.
    Landed: `AgentWidget implements SubagentManagerObserver` (starts the 80 ms loop on `onSubagentStarted`/`onSubagentCreated`, re-renders on `onSubagentCompleted`/`onSubagentCompacted`); a new `CompositeSubagentObserver` fans the manager's single observer slot out to `[eventsObserver, widget]` (wired in `index.ts`, keeping `SubagentManager` unchanged); dropped the `widget` parameter and `ForegroundWidgetDeps`/`BackgroundWidgetDeps` interfaces from both spawners, deleted `AgentWidget.markFinished` (redundant with `seedFinishedAgents`), made `ensureTimer` private, and narrowed `AgentToolWidget` to `setUICtx`; +11 tests (1032 → 1043, then −4 with the dropped spawner widget-driving tests → 1039).
-5. **Drop the widget and activity-map dependencies from the `subagent` tool.**
+5. **✅ Drop the widget dependency from the `subagent` tool — complete.**
    ([#424]) Target: `tools/agent-tool.ts`, `test/helpers/make-deps.ts`.
-   `AgentTool` loses its `widget` and `agentActivity` constructor params (UICtx capture stays in `ToolStartHandler`); `createToolDeps` sheds the widget and map stubs.
+   `AgentTool` loses its `widget` constructor param (UICtx capture stays in `ToolStartHandler`); `createToolDeps` sheds the widget stub.
+   The activity-map (`agentActivity`) dependency this step originally named was already removed from the tool and runtime in Step 3 ([#422]), so only `widget` remained to drop.
    Smell: Category C/D.
-   Outcome: the LLM tool depends only on manager/runtime/settings/registry; fixture drops 2 fields.
+   Outcome: the LLM tool depends only on manager/runtime/settings/registry; fixture drops 1 field.
+   Landed: removed the `widget` constructor param and the redundant `this.widget.setUICtx(ctx.ui)` call from `AgentTool.execute`, deleted the `AgentToolWidget` interface and its `UICtx` import, updated the sole `index.ts` call site, and dropped the `widget` field/stub plus two now-obsolete tests (`agent-tool` UICtx capture, `make-deps` widget defaults) — UICtx capture is pinned by `handlers/tool-start.test.ts`; −2 tests (1039 → 1037).
 6. **Reconcile the public event contract.**
    ([#425]) Target: `service/service.ts`, this document's lifecycle-events table.
    Remove the vacant `ACTIVITY` channel (or emit a real broadcast for it) and add the emitted `failed`/`compacted`/`created` channels so declared constants match emitted events.
@@ -1012,7 +1014,7 @@ flowchart TB
     S2["2 — Migrate readers to record getters (#421) ✅"]
     S3["3 — Delete tracker + ui-observer, drop activity map (#422) ✅"]
     S4["4 — Widget self-drives on events (#423) ✅"]
-    S5["5 — Drop widget dep from subagent tool (#424)"]
+    S5["5 — Drop widget dep from subagent tool (#424) ✅"]
     S6["6 — Reconcile public event contract (#425)"]
     S7["7 — Consolidate test clone families (#426)"]
     S8["8 — Reconsider UI direction, ADR (#427)"]
