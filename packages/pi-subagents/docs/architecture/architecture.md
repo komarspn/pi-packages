@@ -481,11 +481,14 @@ If Pi gains a native service registry ([earendil-works/pi#4207]), these accessor
 
 The core emits events on `pi.events` that any extension can observe:
 
-| Channel               | Payload                                     | When                 |
-| --------------------- | ------------------------------------------- | -------------------- |
-| `subagents:started`   | `{ id, type, description }`                 | Agent begins running |
-| `subagents:completed` | `{ id, type, status, result?, error? }`     | Agent finishes       |
-| `subagents:activity`  | `{ id, toolName?, textDelta?, turnCount? }` | Streaming progress   |
+| Channel               | Payload                                                                             | When                                          |
+| --------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------- |
+| `subagents:started`   | `{ id, type, description }`                                                         | Agent begins running                          |
+| `subagents:completed` | `{ id, type, description, status, result?, error?, toolUses, durationMs, tokens? }` | Agent finishes successfully                   |
+| `subagents:failed`    | same as `completed` (`buildEventData` shape)                                        | Agent ends in `error`/`stopped`/`aborted`     |
+| `subagents:compacted` | `{ id, type, description, reason, tokensBefore, compactionCount }`                  | Child session compacts                        |
+| `subagents:created`   | `{ id, type, description, isBackground }`                                           | Background agent created (pre-admission)      |
+| `subagents:steered`   | `{ id, message }`                                                                   | Steering message delivered to a running agent |
 
 These are fire-and-forget broadcast events — no request IDs, no reply channels.
 
@@ -981,11 +984,12 @@ Folding the live activity onto the record (the single owner of run state, consis
    Smell: Category C/D.
    Outcome: the LLM tool depends only on manager/runtime/settings/registry; fixture drops 1 field.
    Landed: removed the `widget` constructor param and the redundant `this.widget.setUICtx(ctx.ui)` call from `AgentTool.execute`, deleted the `AgentToolWidget` interface and its `UICtx` import, updated the sole `index.ts` call site, and dropped the `widget` field/stub plus two now-obsolete tests (`agent-tool` UICtx capture, `make-deps` widget defaults) — UICtx capture is pinned by `handlers/tool-start.test.ts`; −2 tests (1039 → 1037).
-6. **Reconcile the public event contract.**
+6. **✅ Reconcile the public event contract — complete.**
    ([#425]) Target: `service/service.ts`, this document's lifecycle-events table.
    Remove the vacant `ACTIVITY` channel (or emit a real broadcast for it) and add the emitted `failed`/`compacted`/`created` channels so declared constants match emitted events.
    Smell: Category A/E.
    Outcome: declared channels equal emitted channels; no vacant hook.
+   Landed: removed `SUBAGENT_EVENTS.ACTIVITY` (breaking) and added `FAILED`/`COMPACTED`/`CREATED`/`STEERED` — `subagents:steered` (from `steer-tool.ts`) was also emitted-but-undeclared, so all four emitted agent-lifecycle channels are now declared; corrected the stale `subagents:completed` payload in the lifecycle-events table to the real `buildEventData` shape; +1 test (1037 → 1038).
 7. **Consolidate residual test clone families.**
    ([#426]) Target: `test/settings.test.ts` + `test/layered-settings.test.ts`, `test/lifecycle/create-subagent-session.test.ts`, `test/ui/agent-config-editor.test.ts`.
    Extract shared fixtures for the clone families fallow reports that the spine does not already rewrite.
@@ -1015,7 +1019,7 @@ flowchart TB
     S3["3 — Delete tracker + ui-observer, drop activity map (#422) ✅"]
     S4["4 — Widget self-drives on events (#423) ✅"]
     S5["5 — Drop widget dep from subagent tool (#424) ✅"]
-    S6["6 — Reconcile public event contract (#425)"]
+    S6["6 — Reconcile public event contract (#425) ✅"]
     S7["7 — Consolidate test clone families (#426)"]
     S8["8 — Reconsider UI direction, ADR (#427)"]
 
