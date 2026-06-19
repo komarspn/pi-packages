@@ -995,7 +995,7 @@ Folding the live activity onto the record (the single owner of run state, consis
    Extract shared fixtures for the clone families fallow reports that the spine does not already rewrite.
    Smell: Category D. Outcome: test clone groups drop below 15.
    Landed: extracted `test/helpers/tmp-settings-dirs.ts` (global+project tmp-dir fixture) and `test/helpers/capture-warn.ts` (a `console.warn` capture helper), each with a paired self-test; table-drove the `create-subagent-session` post-bind membership cases and the `agent-config-editor` menu + confirm-remove cases into `it.each`; pi-subagents test clone groups dropped from 24 to 14 (below the <15 target); +9 tests (1038 → 1047).
-8. **Reconsider the UI direction (first-principles ADR).**
+8. **✅ Reconsider the UI direction (first-principles ADR) — complete.**
    ([#427]) Target: `docs/decisions/`, `ui/`.
    The spine already made the UI _substitutable_; this step decides its _distribution_, not whether the experiment is possible.
    The goal is **substitutable, not optional**: a human needs some surface, but the specific UI is replaceable — the way Pi ships a default TUI built on the same public API any extension targets.
@@ -1010,6 +1010,8 @@ Folding the live activity onto the record (the single owner of run state, consis
    Judge the widget, conversation viewer, and `/agents` menu per component — keep, shrink, extract to `@gotgenes/pi-subagents-ui`, or remove — and capture the decision in an ADR that gateways Phase 19.
    Smell: Category E (organization / boundary).
    Outcome: a recorded per-component decision motivated by the two concerns; the inherited UI is substitutable and no longer preserved by default.
+   Landed: [ADR-0004](../decisions/0004-reconsider-ui-direction.md) records the per-component decision — (A) shrink the widget to background agents only; (B) remove the bespoke `ConversationViewer`, replacing it with native session navigation over the persisted child JSONL (`switchSession`/`loadEntriesFromFile`, mechanism gated on a Phase 19 spike); (C) dissolve the `/agents` command (remove the create wizard and the agent-types config editor, re-home running-agent visibility onto the widget + session navigation, extract settings to a focused `/subagents:settings` command); (D) keep the surviving UI in-core (substitutable, not extracted).
+   The ADR gateways Phase 19, which implements these decisions under its own plan; no runtime code changed in this step.
 
 ### Step dependency diagram
 
@@ -1022,7 +1024,7 @@ flowchart TB
     S5["5 — Drop widget dep from subagent tool (#424) ✅"]
     S6["6 — Reconcile public event contract (#425) ✅"]
     S7["7 — Consolidate test clone families (#426) ✅"]
-    S8["8 — Reconsider UI direction, ADR (#427)"]
+    S8["8 — Reconsider UI direction, ADR (#427) ✅"]
 
     S1 --> S2 --> S3 --> S4 --> S5 --> S8
     S6
@@ -1067,7 +1069,7 @@ Detailed records are preserved in per-phase history files:
 | 15    | Domain model evolution                              | Complete            | [phase-15-domain-model-evolution.md](history/phase-15-domain-model-evolution.md)     |
 | 16    | Invert dependencies (extensions on a minimal core)  | Complete            | [phase-16-invert-dependencies.md](history/phase-16-invert-dependencies.md)           |
 | 17    | Core consolidation                                  | Complete            | [phase-17-core-consolidation.md](history/phase-17-core-consolidation.md)             |
-| 18    | Reconsider UI (first principles)                    | In progress         | this document, [Phase 18](#phase-18-reconsider-ui-from-first-principles)             |
+| 18    | Reconsider UI (first principles)                    | Complete            | this document, [Phase 18](#phase-18-reconsider-ui-from-first-principles)             |
 
 ### Structural refactoring issues
 
