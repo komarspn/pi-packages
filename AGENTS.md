@@ -163,6 +163,8 @@ Before writing or debugging tests, load the `testing` skill for Vitest mock patt
 Use Conventional Commits.
 Commit at meaningful checkpoints without waiting for an explicit reminder.
 Prefer small, reviewable commits that leave the repository in a valid state.
+Do not gate a commit (or any `&&` step) on a check piped through `tail`/`head` — a pipeline's exit status is the filter's, so a failed `pnpm run lint`/`check` is masked and the commit still runs.
+Run the check unpiped, or test `${PIPESTATUS[0]}`.
 Do not edit `CHANGELOG.md` — release-please owns it.
 Before naming a remediation in a breaking-change migration note (CLI flag, config key, API call), verify it exists in the real surface (SDK types, `--help`, schema) — do not infer a config key by analogy.
 The note ships to the `BREAKING CHANGE:` footer, the release-please CHANGELOG (uneditable), and the issue close comment.
