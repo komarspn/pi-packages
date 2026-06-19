@@ -67,6 +67,26 @@ When delegating lint-fix or refactoring work to a background agent:
 - Only add `eslint-disable` comments or make type-safe transformations (removing unused imports, adding type annotations).
 - Include `pnpm -r run test` as a verification step before reporting completion.
 
+### Parallel peer sessions (git worktrees)
+
+Run two agents in parallel by giving each its own git worktree and its own interactive Pi session.
+Use `/worktree <issue>` (the project-local `.pi/extensions/worktree.ts` command) or `scripts/worktree-new.sh <issue> [initial-command]` directly.
+The launcher creates branch `issue-<N>-<slug>` off `origin/main`, checks out a worktree at `~/development/pi/pi-packages-worktrees/issue-<N>`, runs `pnpm install`, and spawns a new WezTerm tab whose CWD is the worktree, launching `pi --approve "/plan-issue <N>"`.
+
+Key properties:
+
+- CWD is set at spawn (`wezterm cli spawn --cwd`), never via `cd` — the peer session is born in its worktree, so the `pi-permission-system` `external_directory` gate never fires for its own work.
+- `--approve` is required: Pi keys project trust by directory path, so each fresh worktree is untrusted and would otherwise block on a startup trust prompt.
+- The initial slash command is passed as Pi's first positional message, which interactive mode runs through `session.prompt()` — the same path as typed input — so the prompt template expands and runs on startup.
+- Tear down with `scripts/worktree-rm.sh <issue> [--delete-branch]`.
+
+Guardrails:
+
+- Partition work by package — one package per peer.
+  Two peers touching `pnpm-lock.yaml`, `release-please-config.json`, or the same package's source is the main parallel-work hazard.
+- `ship-issue` and the release-please PR still assume linear `main`; whoever ships second must rebase their branch onto `main` first (a non-fast-forward push is rejected by design).
+- A first launch in each worktree reinstalls `.pi/npm/` (gitignored, so it does not carry over) — a one-time cost Pi handles automatically.
+
 ### Session naming convention
 
 Each prompt template calls `set_session_name` (from `pi-session-tools`) to label the session automatically:
