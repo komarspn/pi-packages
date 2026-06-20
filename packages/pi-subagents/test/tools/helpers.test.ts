@@ -7,7 +7,7 @@ import { createTestSubagent } from "#test/helpers/make-subagent";
 function makeRegistry(opts: {
   defaults?: string[];
   users?: string[];
-  resolve?: (name: string) => { description: string; model: string | undefined };
+  resolve?: (name: string) => { description: string; model: string | undefined; enabled?: boolean };
 }): TypeListRegistry {
   return {
     getDefaultAgentNames: () => opts.defaults ?? [],
@@ -110,6 +110,33 @@ describe("buildTypeListText", () => {
     const result = buildTypeListText(registry, "/home/.pi");
     expect(result).toContain("Custom agents:");
     expect(result).toContain("- my-agent: My custom agent");
+  });
+
+  it("excludes disabled agents from the default agents list", () => {
+    const registry = makeRegistry({
+      defaults: ["general-purpose", "Plan"],
+      resolve: (name) =>
+        name === "Plan"
+          ? { description: "Planning agent", model: undefined, enabled: false }
+          : { description: "General purpose agent", model: undefined },
+    });
+    const result = buildTypeListText(registry, "/home/.pi");
+    expect(result).toContain("- general-purpose: General purpose agent");
+    expect(result).not.toContain("Plan");
+  });
+
+  it("excludes disabled agents from the custom agents list", () => {
+    const registry = makeRegistry({
+      defaults: ["general-purpose"],
+      users: ["my-agent", "disabled-custom"],
+      resolve: (name) =>
+        name === "disabled-custom"
+          ? { description: "disabled custom agent", model: undefined, enabled: false }
+          : { description: "My custom agent", model: undefined },
+    });
+    const result = buildTypeListText(registry, "/home/.pi");
+    expect(result).toContain("- my-agent: My custom agent");
+    expect(result).not.toContain("disabled-custom");
   });
 
   it("omits Custom agents section when no user agents exist", () => {
