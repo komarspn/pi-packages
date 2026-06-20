@@ -994,7 +994,7 @@ Target files:
 - `src/index.ts` — register the new navigation surface (command and/or widget gesture, per the spike).
 
 ADR-0004 Decision B: "Tell-Don't-Ask — hand Pi the session path; Pi owns the viewer."
-Mechanism (confirmed by the Step 1 spike, [ADR-0004] addendum): a **read-only** transcript rendered from `parseSessionEntries(readFileSync(record.outputFile, "utf8"))`, surfaced through a flat command — **not** `switchSession` (a full takeover that invalidates the root's in-flight turn) and **not** `loadEntriesFromFile` (declared in the SDK `.d.ts` but absent from its runtime exports in both `0.79.1` and `0.79.8`).
+Mechanism (confirmed by the Step 1 spike, [ADR-0004] addendum): a **read-only** transcript rendered from `parseSessionEntries(readFileSync(record.outputFile, "utf8"))`, surfaced through a flat command — **not** `switchSession` (a full takeover that invalidates the root's in-flight turn) and **not** `loadEntriesFromFile` (a test-only export of the SDK's `core/session-manager` module that the package's public barrel does not re-export, in both `0.79.1` and `0.79.8`).
 `Subagent.outputFile` already exposes the persisted child session JSONL path via `subagentSession?.outputFile` — no new SDK dependency.
 The new surface stands up while the old `viewAgentConversation`/`ConversationViewer` path still works; the bespoke viewer is removed only by the terminal cut (Step 5).
 

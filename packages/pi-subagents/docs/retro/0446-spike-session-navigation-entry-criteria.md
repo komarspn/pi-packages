@@ -32,11 +32,12 @@ Four `docs:` commits; pre-completion reviewer returned WARN, whose findings were
 
 ### Observations
 
-- **Key divergence from the plan (Finding 0):** the plan's Design Overview assumed `loadEntriesFromFile(path)` would be the read mechanism, but it is **declared in the SDK `.d.ts` yet not exported at runtime** — `dist/index.js` omits it from the `session-manager` re-export, so it resolves to `undefined`.
-  Only `parseSessionEntries` is exported.
-  The viable path is `parseSessionEntries(readFileSync(outputFile, "utf8"))`.
-  The addendum records this as Finding 0 and the architecture.md Step 4 mechanism line was corrected.
-- **Upgrade check (operator question):** verified the omission is **not** version-specific — the latest `0.79.8` tarball has the identical `index.js` re-export line as the pinned `0.79.1`, so an SDK bump does not restore `loadEntriesFromFile`.
+- **Key divergence from the plan (Finding 0):** the plan's Design Overview assumed `loadEntriesFromFile(path)` would be the read mechanism, but it is **not part of the package's public surface** — it lives in the deep `core/session-manager` module (marked `/** Exported for testing */`) and the public barrel (`src/index.ts` → `dist/index.{d.ts,js}`) re-exports only a curated subset that includes `parseSessionEntries` but not `loadEntriesFromFile`; the `exports` map exposes only `"."`, so the deep import is unsupported too.
+  This is **not** a types/runtime mismatch — both barrels agree, and `tsc` rejects the import with `TS2305`.
+  My first harness reached a runtime `is not a function` only because Vitest/esbuild strips types without type-checking; `pnpm run check` (`tsc`) would have caught it at compile time.
+  My earlier "types/runtime mismatch" framing in the addendum/architecture was wrong and was corrected in a follow-up `docs:` commit.
+  Viable path: `parseSessionEntries(readFileSync(outputFile, "utf8"))` (`parseSessionEntries` is public).
+- **Upgrade check (operator question):** verified the omission is **not** version-specific — the latest `0.79.8` barrel omits it identically to the pinned `0.79.1`, so an SDK bump does not surface `loadEntriesFromFile`.
   No upgrade pursued (out of scope for a docs-only spike); noted the routine `0.79.1` → `0.79.8` freshness gap as a separate, unrelated item.
 - **Doc-sync landed now, not deferred:** the reviewer flagged architecture.md line 997 ("Mechanism (confirmed by Step 1): `switchSession` … or `loadEntriesFromFile`") as actively contradicting the spike.
   Since the spike now exists, I marked Step 1 ✅ (heading + Mermaid node `S1`), corrected the Phase 18 summary line, and rewrote the Step 4 mechanism line to `parseSessionEntries(readFileSync(...))` — closing the WARN.

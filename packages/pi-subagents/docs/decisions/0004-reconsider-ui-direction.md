@@ -133,14 +133,21 @@ The Phase 19 Step 1 spike ([#446]) resolved all four entry criteria.
 Evidence comes from the bundled `@earendil-works/pi-coding-agent` SDK surface (`packages/pi-subagents/node_modules/@earendil-works/pi-coding-agent/dist`) and a throwaway vitest harness run against a **real child session JSONL** (a 43-entry subagent session: 1 `session` header carrying a `parentSession` backref, 1 `model_change`, 1 `thinking_level_change`, 40 `message` entries).
 The harness was discarded after observation; no production source changed.
 
-### Finding 0 — `loadEntriesFromFile` is not exported at runtime
+### Finding 0 — `loadEntriesFromFile` is not part of the package's public surface
 
 The original "Relevant Pi SDK surface" section cited `loadEntriesFromFile` as the read-only alternative to a switch.
-The spike found that, while `loadEntriesFromFile` is **declared** in `core/session-manager.d.ts` and re-listed in the package root `index.d.ts`, the published runtime `dist/index.js` re-export from `./core/session-manager.js` **omits** it — only `parseSessionEntries` is actually exported to a consumer.
-Importing `loadEntriesFromFile` from `@earendil-works/pi-coding-agent` yields `undefined` at runtime (a types/runtime mismatch in the SDK).
-This is not version-specific: the omission is identical in both the pinned `0.79.1` and the latest `0.79.8` (same `index.js` re-export line), so an SDK upgrade does not resolve it — Step 4 should not chase one.
-The viable read-only path is therefore `parseSessionEntries(readFileSync(outputFile, "utf8"))`, which the harness confirmed returns the full `FileEntry[]` transcript with no session switch and no active-session mutation.
+The spike found it is **not reachable** from `@earendil-works/pi-coding-agent`, and that this is not a types/runtime mismatch — the type barrel and the runtime barrel agree, both omitting it.
+`loadEntriesFromFile` is defined in the deep module `core/session-manager.ts` (annotated `/** Exported for testing */`), but the public barrel `src/index.ts` (→ `dist/index.d.ts` + `dist/index.js`) re-exports only a curated subset of that module — including `parseSessionEntries` but **not** `loadEntriesFromFile`.
+The `package.json` `exports` map exposes only `"."` → the barrel, so the deep import `@earendil-works/pi-coding-agent/dist/core/session-manager.js` is not a supported entry point either.
+`tsc` correctly rejects `import { loadEntriesFromFile } from "@earendil-works/pi-coding-agent"` with `TS2305: Module … has no exported member 'loadEntriesFromFile'`; the throwaway Vitest harness only reached a runtime `is not a function` because esbuild strips types without type-checking (the package's own `pnpm run check` would have caught it at compile time).
+This is not version-specific: the barrel omits it identically in both the pinned `0.79.1` and the latest `0.79.8`, so an SDK upgrade does not surface it — Step 4 should not chase one.
+The viable read-only path is therefore `parseSessionEntries(readFileSync(outputFile, "utf8"))` — `parseSessionEntries` _is_ public (both types and runtime) — which the harness confirmed returns the full `FileEntry[]` transcript with no session switch and no active-session mutation.
 Step 4 ([#445]) should read the file itself and call `parseSessionEntries`, not `loadEntriesFromFile`.
+
+Upstream references:
+
+- Barrel that omits it: [`packages/coding-agent/src/index.ts`](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/index.ts).
+- Test-annotated definition: [`packages/coding-agent/src/core/session-manager.ts`](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/session-manager.ts).
 
 ### Criterion 1 — Root-continuity during a session switch: avoid the switch
 
