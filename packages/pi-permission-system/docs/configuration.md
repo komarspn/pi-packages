@@ -631,17 +631,18 @@ permission:
 
 The extension integrates via Pi's lifecycle hooks:
 
-| Hook                 | Behavior                                                                                                                 |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `before_agent_start` | Filters the active tool set (restrict-only), removes denied tool entries from the system prompt, and hides denied skills |
-| `tool_call`          | Enforces permissions for every tool invocation                                                                           |
-| `input`              | Intercepts `/skill:<name>` requests and enforces skill policy                                                            |
+| Hook                 | Behavior                                                                                                                            |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `before_agent_start` | Filters the active tool set (restrict-only), narrows the `Available tools:` system-prompt listing to match, and hides denied skills |
+| `tool_call`          | Enforces permissions for every tool invocation                                                                                      |
+| `input`              | Intercepts `/skill:<name>` requests and enforces skill policy                                                                       |
 
 Additional behaviors:
 
 - Unknown/unregistered tools are blocked before permission checks (prevents bypass attempts)
 - Tool filtering is restrict-only: the active set starts from pi's already-active tools (`pi.getActiveTools()`) and only ever has denied tools removed — the permission system never activates a tool pi left off by default (e.g. `find`, `grep`, `ls`)
-- The `Available tools:` system prompt section is rewritten to match the filtered active tool set
+- The `Available tools:` system prompt section is narrowed to match the filtered active tool set: denied tools' lines are dropped, the rest are kept, and the section is removed entirely only when no tool is allowed
+- The narrowed prompt is recomputed and returned on every turn but is byte-stable for a stable policy/agent, so the provider's prompt cache (tools + system prefix) is preserved rather than rewritten each turn
 - Extension-provided tools like `task`, `mcp`, and third-party tools are handled by exact registered name
 - Generic extension-tool approval prompts include a bounded input preview; built-in file tools use concise human-readable summaries
 - Permission review logs include bounded `toolInputPreview` values for non-bash/non-MCP tool calls

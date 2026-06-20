@@ -143,7 +143,7 @@ Otherwise `makeSurfaceCheck` stubs only `checkPermission`, the new method return
 - Test permission resolution (allow/deny/ask decisions across tools, bash, MCP, skills, special).
 - Test wildcard matching (bash patterns, skill globs) including over-match and under-match cases.
 - Test policy merge precedence: global → project → per-agent frontmatter.
-- Test system-prompt sanitization (denied tools removed, allowed tools preserved).
+- Test system-prompt sanitization (denied tool lines narrowed out of the `Available tools:` listing, allowed tools preserved).
 - Test the external-directory guard for path-bearing file tools, including extension and MCP tools (default-on path gating, #352).
 - Test config loading, validation issues, and tolerance of deprecated keys.
 - To test the file-based permission-forwarding round-trip (a subagent's `ask` reaching the parent), do not `await` the child's `pi.fire("tool_call", …)` directly — `PermissionForwarder.requestApproval` polls for a response with a 10-minute timeout when forwarding to the parent.

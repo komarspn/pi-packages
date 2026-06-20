@@ -637,17 +637,17 @@ src/
 ├── permission-gate.ts        Pure deny/ask/allow gate (injected IO)
 ├── permission-prompter.ts    Yolo-mode, review logging, UI/forwarding branch; PromptPermissionDetails type
 ├── permission-dialog.ts      Dialog options (once / session / deny)
-├── permission-resolver.ts    `ScopedPermissionResolver` interface - narrow `{ resolve }` role the gate factories / runner / pipeline depend on; `PermissionResolver` concrete class - holds `ScopedPermissionManager` + `SessionRules`, owns `resolve` / `checkPermission` / `getToolPermission` / `getConfigIssues` / `getPolicyCacheStamp`; extracted from `PermissionSession` (#340); the query methods (`getToolPermission` / `getConfigIssues` / `getPolicyCacheStamp`) are now consumed by `AgentPrepHandler` / `SessionLifecycleHandler` (#341)
+├── permission-resolver.ts    `ScopedPermissionResolver` interface - narrow `{ resolve }` role the gate factories / runner / pipeline depend on; `PermissionResolver` concrete class - holds `ScopedPermissionManager` + `SessionRules`, owns `resolve` / `checkPermission` / `getToolPermission` / `getConfigIssues`; extracted from `PermissionSession` (#340); the query methods (`getToolPermission` / `getConfigIssues`) are now consumed by `AgentPrepHandler` / `SessionLifecycleHandler` (#341)
 ├── decision-reporter.ts      `DecisionReporter` interface + `GateDecisionReporter` class - owns `SessionLogger` and event bus; writes review-log entries and emits decision events (#322)
 ├── gate-prompter.ts          `GatePrompter` interface - `canConfirm()` + `prompt(details)`; the prompting role `GateRunner` needs, bound to context by the implementor (#323)
 ├── prompting-gateway.ts      `PromptingGateway` class - context-owning `GatePrompter` implementation; owns the stored `ExtensionContext`, the can-prompt policy (UI / subagent / yolo-mode), and `prompt(details)` delegation; `PromptingGatewayLifecycle` interface drives `activate`/`deactivate` from `PermissionSession` (#339)
 ├── session-approval-recorder.ts `SessionApprovalRecorder` interface - records a granted session-scoped approval into the session ruleset; implemented by `SessionRules` (#323, #341)
 │
-├── permission-session.ts     `PermissionSession` class - state/lifecycle owner: owns context lifecycle, session-rule lifecycle (`reset`/`shutdown`/`reload`), cache keys, skill entries, agent-name resolution, the config gateway, the Tell-Don't-Ask gate inputs, and `notify(message)` (Tell-Don't-Ask UI warn over the owned context, no-op before activation — dissolves the `index.ts` forward-reference cycle, #363); `implements ToolCallGateInputs` (the pipeline's input contract); the resolve role moved to `PermissionResolver` (#340), the recorder role to `SessionRules`, and the three fig-leaf handler role interfaces (`GateHandlerSession` / `AgentPrepSession` / `SessionLifecycleSession`) were retired — handlers depend on the concrete class + `PermissionResolver` (#341)
+├── permission-session.ts     `PermissionSession` class - state/lifecycle owner: owns context lifecycle, session-rule lifecycle (`reset`/`shutdown`/`reload`), skill entries, agent-name resolution, the config gateway, the Tell-Don't-Ask gate inputs, and `notify(message)` (Tell-Don't-Ask UI warn over the owned context, no-op before activation — dissolves the `index.ts` forward-reference cycle, #363); `implements ToolCallGateInputs` (the pipeline's input contract); the resolve role moved to `PermissionResolver` (#340), the recorder role to `SessionRules`, and the three fig-leaf handler role interfaces (`GateHandlerSession` / `AgentPrepSession` / `SessionLifecycleSession`) were retired — handlers depend on the concrete class + `PermissionResolver` (#341)
 ├── handlers/                 Handler classes with narrow constructor injection
 │   ├── index.ts              Barrel re-exports
 │   ├── lifecycle.ts          SessionLifecycleHandler (session: `PermissionSession` + resolver: `PermissionResolver` (getConfigIssues) + serviceLifecycle: `ServiceLifecycle`) (#341, #320)
-│   ├── before-agent-start.ts AgentPrepHandler (session: `PermissionSession` + resolver: `PermissionResolver` (getToolPermission / getPolicyCacheStamp / skill check) + toolRegistry); shouldExposeTool pure helper (#341)
+│   ├── before-agent-start.ts AgentPrepHandler (session: `PermissionSession` + resolver: `PermissionResolver` (getToolPermission / skill check) + toolRegistry); shouldExposeTool pure helper; recomputes the active set + system-prompt override every fire, no memoization (#341, #437)
 │   ├── permission-gate-handler.ts PermissionGateHandler (session: `PermissionSession` + toolRegistry + pipeline + skillInputPipeline + runner); `GateRunner` and `GateDecisionReporter` are built in `index.ts` and injected (#325, #329, #341); validateRequestedTool + getEventInput + extractSkillNameFromInput pure helpers
 │   └── gates/               Pure descriptor factories + runner
 │       ├── types.ts          GateOutcome, ToolCallContext
@@ -690,7 +690,7 @@ src/
 ├── canonicalize-path.ts       Best-effort symlink resolution via `realpathSync` — walks up to longest existing ancestor and re-appends non-existent tail; ENOENT/ENOTDIR safe, EACCES/ELOOP fall back to lexical form
 ├── path-utils.ts              Path normalization, within-directory (case-insensitive on Windows via `path.relative`), outside-CWD (canonical), safe-system-path, path-bearing-tool, Pi infrastructure read; `canonicalNormalizePathForComparison` for containment decisions only (never pattern matching); `getExternalDirectoryPolicyValues` unions the lexical and canonical aliases for external_directory pattern matching (#418)
 ├── node-modules-discovery.ts  Global node_modules resolution (walk-up + npm root -g fallback)
-├── system-prompt-sanitizer.ts Remove denied tools from system prompt
+├── system-prompt-sanitizer.ts Narrow Available tools section + filter guidelines to the active set (#437)
 ├── skill-prompt-sanitizer.ts  Skill prompt filtering by policy
 ├── denial-messages.ts         Centralized denial message formatter - DenialContext type, EXTENSION_TAG, formatDenyReason/formatUnavailableReason/formatUserDeniedReason
 ├── permission-prompts.ts      User-facing ask-prompt formatting + pre-check error messages
@@ -715,8 +715,7 @@ src/
 ├── status.ts                  Footer status bar integration
 ├── yolo-mode.ts               Auto-approve logic
 ├── common.ts                  Shared parsing utilities
-├── types.ts                   Core type definitions (PermissionState, FlatPermissionConfig, etc.)
-└── before-agent-start-cache.ts Memoization for prompt sanitization
+└── types.ts                   Core type definitions (PermissionState, FlatPermissionConfig, etc.)
 ```
 
 ## Refactoring history
