@@ -82,11 +82,12 @@ This gives the agent access to:
 - `.pi/prompts/` — slash commands (`/plan-improvements`, `/plan-issue`, `/tdd-plan`, `/ship-issue`, etc.)
 - Root `AGENTS.md` — monorepo-wide conventions
 
-#### Developer workflow
+#### Standard workflow
 
 Development is driven by slash commands.
 A discovery command, `/plan-improvements`, updates a package's architecture document and opens GitHub Issues for the work it identifies.
 Each issue is then taken through a manual loop until it ships.
+In the standard workflow a single session works one issue at a time, committing directly to a linear `main`.
 
 ```mermaid
 flowchart LR
@@ -113,6 +114,73 @@ flowchart LR
 
 Each issue repeats stages 2–5.
 Every stage can run in its own session; the prompt templates set a stage-encoded session name and write a `## Stage:` entry to a `docs/retro/NNNN-<slug>.md` file that bridges context across sessions.
+
+#### Parallel worktree workflow
+
+When two issues are independent — ideally in different packages — run them in parallel, each in its own git worktree and interactive Pi session off a short-lived branch.
+`/worktree #N` (or `scripts/worktree-new.sh <issue>`) creates branch `issue-N-<slug>` off `origin/main`, checks out a worktree under `~/development/pi/pi-packages-worktrees/`, runs `pnpm install`, and opens a new terminal tab running `pi --approve "/plan-issue #N"`.
+The peer session is born in its worktree (CWD set at spawn, never `cd`), so it has the full project config and never trips the `pi-permission-system` external-directory gate on its own files.
+
+Each peer runs the same plan → implement loop as the standard workflow.
+Shipping, though, is split across two sessions: `main` stays linear, and the trunk `/ship-issue` assumes a single writer, so a peer cannot push to `main` directly.
+
+```mermaid
+flowchart TB
+    Root["Root session — main"]
+
+    Root -->|"/worktree 42"| A1
+    Root -->|"/worktree 43"| B1
+
+    subgraph PeerA["Peer A — worktree issue-42"]
+        direction TB
+        A1["/plan-issue 42"] --> A2["/tdd-plan or /build-plan"] --> A3["/ship-worktree 42"]
+    end
+
+    subgraph PeerB["Peer B — worktree issue-43"]
+        direction TB
+        B1["/plan-issue 43"] --> B2["/tdd-plan or /build-plan"] --> B3["/ship-worktree 43"]
+    end
+
+    A3 -->|"rebased branch, hand off"| Land["Root — /land-worktree N<br/>ff-merge, push, CI, close, release, teardown"]
+    B3 -->|"rebased branch, hand off"| Land
+```
+
+The convergence is a peer-to-root handoff.
+The peer rebases its branch onto the latest `origin/main`; the root fast-forward-merges it into `main`.
+Because both sessions share one `.git`, the root sees the branch ref directly — the peer never pushes the branch or force-pushes anything.
+
+```mermaid
+sequenceDiagram
+    participant Peer as Peer (issue-N worktree)
+    participant Root as Root (main)
+    participant Origin as origin/main
+
+    Note over Peer: /ship-worktree N
+    Peer->>Peer: lint, fallow dead-code, /retro (committed on branch)
+    Peer->>Origin: git fetch
+    Peer->>Peer: git rebase origin/main
+    Peer-->>Root: hand off — run /land-worktree N
+    Root->>Origin: git pull --ff-only
+    Note over Root: git merge --ff-only the peer branch
+    Root->>Origin: git push (main advances)
+    Root->>Root: verify CI, then issue_close
+    Root->>Origin: merge release-please PR (serialized)
+    Note over Root: scripts/worktree-rm.sh N --delete-branch
+```
+
+| Stage            | Command                                      | Session | What happens                                                                                 |
+| ---------------- | -------------------------------------------- | ------- | -------------------------------------------------------------------------------------------- |
+| Launch           | `/worktree #N`                               | root    | Creates the branch + worktree, installs deps, opens a peer session running `/plan-issue #N`. |
+| Plan + implement | `/plan-issue` → `/tdd-plan` or `/build-plan` | peer    | The standard loop, inside the worktree.                                                      |
+| Ship prep        | `/ship-worktree #N`                          | peer    | Lint + `fallow dead-code`, `/retro` committed on the branch, then rebase onto `origin/main`. |
+| Land             | `/land-worktree #N`                          | root    | ff-merge into `main`, push, verify CI, close the issue, release, and tear down the worktree. |
+
+Guardrails:
+
+- One package per peer — two peers touching `pnpm-lock.yaml`, `release-please-config.json`, or the same package's source is the main hazard.
+- Release is the root's serialized responsibility — only the root merges the single release-please PR, so peers never race on it.
+- Whoever lands second rebases first — if `/land-worktree`'s ff-merge is rejected because `main` advanced, the peer re-runs `/ship-worktree #N` to rebase onto the new `origin/main`, then the root retries.
+- Tear down a worktree manually with `scripts/worktree-rm.sh <issue> [--delete-branch]`.
 
 Package-specific context (architecture, priorities, testing strategy) lives in skills.
 Load the relevant skill before working on a package:
