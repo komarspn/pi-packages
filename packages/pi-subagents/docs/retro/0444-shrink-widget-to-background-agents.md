@@ -24,3 +24,20 @@ Confirmed the change is single-package (`pi-subagents`), non-breaking, and `Rele
 - Verified `clearWidget`'s stale-purge has no regression: foreground agents are never seeded into `finishedTurnAge`, so purging against the background-only list is correct.
 - Doc grep surfaced one stale prose line (`README.md:64` "showing all active agents"); SKILL.md and `comparison-with-upstream.md` references remain accurate.
 - Deferred (Open Question): relabeling the widget heading `Agents` → `Background agents` — out of scope for this issue.
+
+## Stage: Implementation — TDD (2026-06-20T19:47:34Z)
+
+### Session summary
+
+Executed all three planned TDD cycles plus one reviewer-driven cleanup: (1) `test:` migrated the `agent-widget.test.ts` fixtures to a background invocation, (2) `feat:` added the private `listBackgroundAgents()` accessor and routed both `update()` and `renderWidget()` through it, (3) `docs:` updated `README.md` and marked roadmap Step 3 ✅.
+Test count went from 24 to 26 in `agent-widget.test.ts` (two new background-only filtering tests); full pi-subagents suite is 1064 passing.
+
+### Observations
+
+- The tidy-first fixture migration worked exactly as planned — adding `invocation: { runInBackground: true }` was inert (suite stayed green) until the filter landed, so step 2 was a pure addition with no fixture churn.
+- New-test fixtures default the shared `makeWidget` helper to background invocation via `{ invocation: { runInBackground: true }, ...a }`, letting per-agent `invocation` override for the mixed/foreground cases in the new `describe` block.
+- `widget-renderer.ts` needed no change, as the plan predicted — the filter at the single `listBackgroundAgents()` funnel is sufficient.
+- Pre-completion reviewer: PASS.
+  One non-blocking naming WARN — `clearWidget`'s `allAgents` parameter and JSDoc were stale after the refactor (it now receives only background agents); fixed in a follow-up `refactor:` commit (`backgroundAgents`).
+  Landed as a separate commit rather than amending the feat commit because HEAD was already the `docs:` commit and the fix must not land in a `docs:` commit.
+- All gates green: `pnpm run check`, root `pnpm run lint`, full vitest (1064), `pnpm fallow dead-code`.
