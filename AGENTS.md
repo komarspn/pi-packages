@@ -82,6 +82,7 @@ Key properties:
 
 - CWD is set at spawn (`wezterm cli spawn --cwd`), never via `cd` — the peer session is born in its worktree, so the `pi-permission-system` `external_directory` gate never fires for its own work.
 - `--approve` is required: Pi keys project trust by directory path, so each fresh worktree is untrusted and would otherwise block on a startup trust prompt.
+- The launcher also runs `mise trust` on the worktree: `mise` gates trust by config-file path too, so a fresh worktree's `mise.toml` `[env]` block (the `scripts/bin` `npm -> pnpm` PATH shims) is skipped until trusted — trusting before `pnpm install` keeps the shims on PATH for both the install and the peer session.
 - The initial slash command is passed as Pi's first positional message, which interactive mode runs through `session.prompt()` — the same path as typed input — so the prompt template expands and runs on startup.
 - Tear down with `scripts/worktree-rm.sh <issue> [--delete-branch]`.
 

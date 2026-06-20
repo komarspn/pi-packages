@@ -120,6 +120,7 @@ Every stage can run in its own session; the prompt templates set a stage-encoded
 When two issues are independent — ideally in different packages — run them in parallel, each in its own git worktree and interactive Pi session off a short-lived branch.
 `/worktree #N` (or `scripts/worktree-new.sh <issue>`) creates branch `issue-N-<slug>` off `origin/main`, checks out a worktree under `~/development/pi/pi-packages-worktrees/`, runs `pnpm install`, and opens a new terminal tab running `pi --approve "/plan-issue #N"`.
 The peer session is born in its worktree (CWD set at spawn, never `cd`), so it has the full project config and never trips the `pi-permission-system` external-directory gate on its own files.
+The launcher trusts the new worktree for both Pi (`--approve`) and `mise` (`mise trust`) — each tool gates trust by path, so a fresh worktree would otherwise block on a prompt or silently skip the `mise.toml` `[env]` PATH shims.
 
 Each peer runs the same plan → implement loop as the standard workflow.
 Shipping, though, is split across two sessions: `main` stays linear, and the trunk `/ship-issue` assumes a single writer, so a peer cannot push to `main` directly.

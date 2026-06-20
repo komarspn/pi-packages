@@ -92,6 +92,14 @@ fi
 
 printf '\nworktree : %s\nbranch   : %s (from %s)\n\n' "$worktree" "$branch" "$base"
 
+# Trust the worktree's mise config. mise gates trust by config-file path, so a
+# fresh worktree is untrusted and mise would skip its [env] block — dropping the
+# scripts/bin PATH shims (e.g. npm -> pnpm) for both the install below and the
+# peer session. Trusting before install ensures the shims are on PATH.
+if command -v mise >/dev/null && [[ -f "$worktree/mise.toml" ]]; then
+  mise trust "$worktree/mise.toml" >/dev/null && printf 'mise: trusted %s/mise.toml\n' "$worktree"
+fi
+
 # Each worktree needs its own node_modules (pnpm's global store keeps this fast).
 printf 'installing dependencies (pnpm install)...\n'
 (cd "$worktree" && pnpm install)
