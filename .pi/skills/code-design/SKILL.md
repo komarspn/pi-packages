@@ -164,6 +164,8 @@ When a new capability is needed in a library module, accept it as a parameter or
 Before redeclaring a Pi SDK type locally, check whether it's already exported from `@earendil-works/pi-ai` or `@earendil-works/pi-coding-agent`.
 Import directly when the exported type matches; redeclare only when narrowing is intentional (ISP).
 
+When a design or an `ask_user` option hinges on calling an SDK method, confirm it on the exact type the code holds (e.g. `pi: ExtensionAPI`), not an analogous adjacent type — the per-event `ctx` or internal runtime may bind a getter the public surface omits (e.g. `getSystemPrompt`, #437).
+
 When writing event handlers that consume Pi SDK types, prefer lean local payload interfaces over full SDK event types.
 The SDK may not export all event interfaces, and exported types often require fields the handler does not read.
 Define a minimal interface with only the fields the handler uses.

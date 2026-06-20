@@ -50,4 +50,53 @@ Test count went 2033 → 2029 (net `-4`: removed the gate/cache test files and g
 - **Pre-completion reviewer: PASS** (no WARN).
   Confirmed the Step-2 narrowing does not regress Step-1's per-turn skill-filter invariant (pinned by the `filters a denied skill ... on every turn` test) nor the #385 restrict-only invariant.
 
+## Stage: Final Retrospective (2026-06-20T01:17:03Z)
+
+### Session summary
+
+Shipped #437 end-to-end in one long session — investigation → issue filing → planning → TDD → ship — landing `@gotgenes/pi-permission-system@15.0.0`.
+The dominant lesson is a `missing-context` near-miss: I offered "retire the sanitizer and read Pi's rebuilt prompt via `pi.getSystemPrompt()`" as the recommended `ask_user` option, the operator chose it, and I then disproved it (no `getSystemPrompt` on `ExtensionAPI`), forcing a re-ask.
+The recovery was clean — the corrected briefing surfaced the prompt-cache dimension (operator's insight) and produced a better design (Option B, byte-stable narrowing).
+
+### Observations
+
+#### What went well
+
+- **Source-level disproof before committing.**
+  Tracing the compiled SDK across `runner.js:749`, `loader.js:149`, and `agent-session.js:1810` to establish that the `pi` the factory receives has no `getSystemPrompt` (only the stale per-event `ctx` does) caught a design-invalidating assumption during planning, before the plan was committed.
+  Reading the installed `.js` — not just the `.d.ts` — was decisive.
+- **Operator's caching insight shaped a testable invariant.**
+  The "the system prompt ought to be frozen" framing turned a correctness fix into a byte-stability requirement, encoded as `narrow(full) === narrow(narrowed)` tests at both the sanitizer and handler levels.
+  A strategic user contribution, not mechanical oversight.
+- **Clean TDD execution.**
+  The two-commit split (refactor detangle → `fix!:` narrow) kept each commit valid; verification ran incrementally (`check` after interface changes, per-file `vitest`, full suite + `lint` + `fallow` at the end); the pre-completion reviewer returned PASS with no WARN.
+
+#### What caused friction (agent side)
+
+- `missing-context` (self-identified, operator-impacting) — I asserted `pi.getSystemPrompt()` exists on the `ExtensionAPI` surface by analogy to `ctx.getSystemPrompt()` and `AgentSession.systemPrompt` (`agent-session.js:1810`), and offered "retire + read via it" as the recommended first `ask_user` option.
+  It does not exist on `ExtensionAPI` (`loader.js:149`); the public `pi` surface omits the getter the runner binds on the per-event `ctx`.
+  Impact: one wasted operator decision + a full re-ask round + a long re-briefing; no shipped defect (caught during planning).
+  Same class as #385's non-existent `activeTools` config — asserting a Pi API/mechanism without verifying the exact surface the code holds.
+- `other` (minor, self-identified) — removing the `getPolicyCacheStamp` `describe` block left an orphaned `})`; the autoformatter flagged the parse error immediately and a one-line tail fix resolved it.
+  One retry, no rework.
+- `missing-context` (minor, planning) — the plan's Module-Level Changes did not anticipate that removing the prompt-state cache key would orphan `getPolicyCacheStamp` (its sole consumer).
+  Caught and removed cleanly at TDD time; `fallow dead-code` confirmed no orphans; recorded as a deviation in the Step-1 commit.
+
+#### What caused friction (user side)
+
+- None that cost rework.
+  Opportunity (not criticism): the wasted first-round decision was entirely agent-side — verifying `pi.getSystemPrompt()` on `ExtensionAPI` before presenting it would have spared the operator an invalid choice.
+  The operator's "discuss further / tell me more" response was exemplary and forced the corrected briefing.
+
+### Diagnostic details
+
+- **Model-performance correlation** — one subagent (`pre-completion-reviewer`, default model): judgment-heavy review, 38 tool uses, returned PASS plus confirmation of the cross-step invariants.
+  Appropriate fit.
+  A `deepseek-v4-flash` selection appears among the session `model_change` entries, but the investigation, planning, and implementation turns show opus/sonnet-level reasoning depth, so that selection likely carried no substantive turn.
+- **Escalation-delay / feedback-loop** — no gaps: the deep SDK investigation was productive exploration (not repeated tool calls on one error), and verification ran incrementally rather than only at the end.
+
+### Changes made
+
+1. `.pi/skills/code-design/SKILL.md` (Pi SDK boundaries) — added a rule: confirm an SDK method on the exact type the code holds (e.g. `pi: ExtensionAPI`), not an analogous adjacent type, before a design or `ask_user` option depends on it (the `getSystemPrompt` / `#437` case).
+
 [#437]: https://github.com/gotgenes/pi-packages/issues/437
