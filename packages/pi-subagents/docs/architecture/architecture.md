@@ -966,7 +966,7 @@ Outcome: new `subagents-settings.ts` (~80 LOC) and focused command registered; `
 
 `Release: independent`
 
-### Step 3 — Shrink widget to background agents only ([#444])
+### ✅ Step 3 — Shrink widget to background agents only ([#444])
 
 Smell: Category C (coupling) — the widget shows all agents including foreground ones, duplicating the `subagent` tool's inline `onUpdate` stream for foreground runs.
 Target files:
@@ -1063,7 +1063,7 @@ Outcome: test clone groups ≤ 10 (from 16); `subagent-manager.test.ts` uses sha
 flowchart LR
     S1["✅ Step 1 - Spike (#446)"]
     S2["✅ Step 2 - Settings command (#447)"]
-    S3["Step 3 - Background widget (#444)"]
+    S3["✅ Step 3 - Background widget (#444)"]
     S4["Step 4 - Native session nav (#445)"]
     S5["Step 5 - Dissolve /agents + viewer (#442)"]
     S6["Step 6 - Remove definition mgmt (#441)"]

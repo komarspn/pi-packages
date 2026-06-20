@@ -61,7 +61,7 @@ Background agents return an ID immediately and notify you on completion.
 
 ## UI
 
-The extension renders a persistent widget above the editor showing all active agents:
+The extension renders a persistent widget above the editor showing active background agents (foreground runs are rendered inline by the `subagent` tool's progress stream):
 
 ```text
 ● Agents
