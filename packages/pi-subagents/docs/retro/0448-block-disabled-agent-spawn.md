@@ -22,3 +22,21 @@ The plan adds a disabled-type gate in `resolveSpawnConfig` (returning an explici
 - For the tool-description fix, chose to filter inside `buildTypeListText` rather than re-define `getDefaultAgentNames` / `getUserAgentNames` semantics; those two methods have `buildTypeListText` as their sole consumer (verified by grep), but keeping their meaning intact is cleaner.
 - Classified as non-breaking `fix:` — the change aligns code with the documented README/registry contract; explicit spawning of a disabled agent was undocumented buggy behavior.
 - Not in any architecture roadmap step (no `#448` reference in `docs/`), so **ship independently**.
+
+## Stage: Implementation — TDD (2026-06-20T12:40:00Z)
+
+### Session summary
+
+Completed 2 TDD cycles and all post-step verification gates.
+Step 1 added a 3-line enabled-type gate in `resolveSpawnConfig` (reusing `isValidType`) and 2 new test cases in `test/tools/spawn-config.test.ts`.
+Step 2 added an `isEnabled` predicate filter in `buildTypeListText` and 2 new test cases in `test/tools/helpers.test.ts`.
+Test count delta: 1047 → 1051 (+4).
+
+### Observations
+
+- No deviations from the plan.
+  Both changes were as small as designed: 3 lines in `spawn-config.ts`, 2 lines in `helpers.ts`.
+- Extended the `makeRegistry` stub's `resolve` type in `test/tools/helpers.test.ts` to include an optional `enabled` field, so the `isEnabled` predicate could be exercised without touching production code.
+- The `makeAgentConfig` helper was added to `test/tools/spawn-config.test.ts` (mirroring the pattern in `test/config/agent-types.test.ts`) rather than importing from a shared fixture, since the existing spawn-config test fixture infrastructure didn't need modification.
+- All three plan-enumerated cross-step invariants held green throughout: `resolveAgentConfig` disabled-config behavior, unknown-type fallback, and `getAllTypes` disabled-agent listing.
+- Pre-completion reviewer: **PASS** — all deterministic checks, code design, test artifacts, and cross-step invariants clean.
