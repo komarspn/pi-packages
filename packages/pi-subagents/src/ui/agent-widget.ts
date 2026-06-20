@@ -193,10 +193,10 @@ export class AgentWidget implements SubagentManagerObserver {
 
   /**
    * Unregister the widget, clear the status bar, stop the interval timer, and
-   * purge stale `finishedTurnAge` entries for agents no longer in `allAgents`.
+   * purge stale `finishedTurnAge` entries for agents no longer in `backgroundAgents`.
    * Called only from `update`'s idle path — not from `dispose`.
    */
-  private clearWidget(allAgents: readonly AgentSummary[]): void {
+  private clearWidget(backgroundAgents: readonly AgentSummary[]): void {
     if (this.widgetRegistered) {
       this.uiCtx!.setWidget("agents", undefined);
       this.widgetRegistered = false;
@@ -208,7 +208,7 @@ export class AgentWidget implements SubagentManagerObserver {
     }
     if (this.widgetInterval) { clearInterval(this.widgetInterval); this.widgetInterval = undefined; }
     for (const [id] of this.finishedTurnAge) {
-      if (!allAgents.some(a => a.id === id)) this.finishedTurnAge.delete(id);
+      if (!backgroundAgents.some(a => a.id === id)) this.finishedTurnAge.delete(id);
     }
   }
 
