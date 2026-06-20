@@ -84,7 +84,6 @@ export interface ScopedPermissionManager {
   ): PermissionCheckResult;
   getToolPermission(toolName: string, agentName?: string): PermissionState;
   getConfigIssues(agentName?: string): string[];
-  getPolicyCacheStamp(agentName?: string): string;
 }
 
 export interface PermissionManagerOptions extends PolicyLoaderOptions {
@@ -142,10 +141,6 @@ export class PermissionManager implements ScopedPermissionManager {
 
   getResolvedPolicyPaths(): ResolvedPolicyPaths {
     return this.loader.getResolvedPolicyPaths();
-  }
-
-  getPolicyCacheStamp(agentName?: string): string {
-    return this.loader.getCacheStamp(agentName);
   }
 
   private resolvePermissions(agentName?: string): ResolvedPermissions {

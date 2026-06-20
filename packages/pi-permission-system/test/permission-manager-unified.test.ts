@@ -1586,7 +1586,6 @@ describe("PermissionManager — configureForCwd and agentDir option", () => {
     expect(typeof scoped.checkPermission).toBe("function");
     expect(typeof scoped.getToolPermission).toBe("function");
     expect(typeof scoped.getConfigIssues).toBe("function");
-    expect(typeof scoped.getPolicyCacheStamp).toBe("function");
   });
 
   it("construction with { agentDir } reads global config from getGlobalConfigPath(agentDir)", () => {

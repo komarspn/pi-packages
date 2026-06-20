@@ -106,8 +106,4 @@ export class PermissionResolver implements ScopedPermissionResolver {
   getConfigIssues(agentName?: string): string[] {
     return this.permissionManager.getConfigIssues(agentName);
   }
-
-  getPolicyCacheStamp(agentName?: string): string {
-    return this.permissionManager.getPolicyCacheStamp(agentName);
-  }
 }
