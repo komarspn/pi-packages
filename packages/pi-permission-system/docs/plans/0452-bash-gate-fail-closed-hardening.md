@@ -27,6 +27,9 @@ Once the gate fails closed and records every error, the worst case for any prese
 - Make the bash tool gate **fail closed** when a non-empty command parses to zero command units: default to `ask` instead of resolving the opaque whole-command string (which lets `cd X && git push` ride a permissive top-level `*`).
 - Make the tree-sitter parser **resilient**: a transient init failure must not poison the parser for the process lifetime (no cached rejected promise).
 - **Surface the config footgun**: emit a non-fatal config warning when a permissive top-level `*: allow` is set with no `bash` `*` policy, so bash silently inherits `allow`.
+- **Make the boundary structurally fail-closed**: register a single `tool_call` adapter that is the only SDK-facing entry point, owns the `try/catch → block`, and is the only place an internal `GateOutcome` is translated to the SDK result shape — so "we didn't decide" can never silently mean "allow."
+- **Make every tool call traceable**: guarantee exactly one terminal decision per call, add a `debugLog`-gated per-call trace and a `session_shutdown` decision summary, so an evaluated-and-allowed call is distinguishable from a never-evaluated one without hand-reconciling logs.
+- **Add totality tests**: a metamorphic property (wrapping any `ask`/`deny` command in `cd X && …` must not weaken the decision) and a boundary contract test (a throwing handler must block), to catch the fail-open class in development rather than production.
 - **This change is breaking** (more restrictive): commands that previously passed silently on the error path or via the empty-parse fallback will now block or prompt.
   Use `fix!:` with a `BREAKING CHANGE:` footer on the behavior-changing commits.
 
@@ -35,7 +38,8 @@ Once the gate fails closed and records every error, the worst case for any prese
 - Reproducing or directly fixing the specific `model_change`-cascade / denial / compaction triggers — they are addressed indirectly by making the gate fail closed and observable, not by a targeted mechanism fix.
 - The `git`-vs-`rm` asymmetry (some `git` commands bypass while `rm` stays gated in the same period).
   I could not reconcile this from the source; it is documented as diagnosable-on-recurrence (the new review-log entries will pinpoint it) and deferred to a follow-up issue only if it recurs with new logs.
-- Adding the per-`handleToolCall` debug instrumentation the reporter suggested — the review-log entries on the error and unparseable paths give the needed trace without per-call debug spam.
+- The reporter's suggested *unconditional* `console.log` instrumentation on every `handleToolCall` — A5 instead adds a `debugLog`-gated per-call trace plus a `session_shutdown` summary, so the trace is available on demand without per-call spam in normal operation.
+- Full cross-artifact reconciliation against Pi's session JSONL — A5's in-process counters are the cheaper first tier; reading Pi's session file is a deferred follow-up (see Open Questions).
 - Any change to the `/permission-system` command, the config schema (no new field), or the merge precedence model.
 
 ## Background
@@ -70,40 +74,57 @@ Constraints from AGENTS.md / package skill that apply:
 
 ## Design Overview
 
-Four independent, defense-in-depth changes.
+Five defense-in-depth changes plus totality tests.
+A1 is the structural keystone — it closes the whole fail-open class at one boundary; A2–A4 fix the specific defects that boundary would otherwise have to absorb; A5 makes the now-guaranteed decision observable.
 Each is individually correct; together they guarantee no silent allow.
 
-### A1 — Fail-closed handler
+### A1 — Fail-closed boundary adapter (single chokepoint)
 
-Wrap the entire body of `handleToolCall` in `try/catch`.
-On catch: write a review-log entry and return a block.
+The fail-open holes exist because "allow" is the *implicit default* at five different exits: the pipeline's trailing `return { action: "allow" }`, `GateRunner.run`'s null/bypass allow, the handler's `{}` return, `applyPermissionGate`'s fall-through, and — critically — a thrown handler, which the SDK does **not** convert to a block.
+Rather than patch each exit, close the class at one boundary.
+
+Introduce a single SDK-facing adapter that is the only function registered for `pi.on("tool_call")`.
+It is the sole place an internal decision is translated to the SDK result shape, and it owns the `try/catch → block`:
 
 ```typescript
-async handleToolCall(event, ctx): Promise<{ block?: true; reason?: string }> {
-  try {
-    this.session.activate(ctx);
-    // …existing validate → build tcc → pipeline.evaluate…
-    return outcome.action === "block" ? { block: true, reason: outcome.reason } : {};
-  } catch (error) {
-    const reason = formatGateErrorReason(error); // user-facing, generic
-    this.reporter.writeReviewLog("permission_request.blocked", {
-      toolName: bestEffortToolName(event),
-      command: bestEffortCommand(event),
-      resolution: "gate_error",
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return { block: true, reason };
-  }
+// src/handlers/tool-call-boundary.ts
+/** The only tool_call handler the SDK sees. Guarantees fail-closed: a thrown
+ *  gate becomes a Block, and the internal GateOutcome → SDK-shape translation
+ *  happens here and nowhere else. */
+export function createFailClosedToolCall(
+  gate: (event: unknown, ctx: ExtensionContext) => Promise<GateOutcome>,
+  reporter: DecisionReporter,
+  audit: DecisionAudit,
+): (event: unknown, ctx: ExtensionContext) => Promise<{ block?: true; reason?: string }> {
+  return async (event, ctx) => {
+    try {
+      const outcome = await gate(event, ctx);
+      audit.recordDecision(outcome.action);
+      return outcome.action === "block" ? { block: true, reason: outcome.reason } : {};
+    } catch (error) {
+      audit.recordError();
+      reporter.writeReviewLog("permission_request.blocked", {
+        toolName: bestEffortToolName(event),
+        command: bestEffortCommand(event),
+        resolution: "gate_error",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { block: true, reason: formatGateErrorReason(error) };
+    }
+  };
 }
 ```
 
-This requires a new constructor dependency: the `DecisionReporter` (narrow interface — `writeReviewLog` / `emitDecision`), already constructed in `index.ts` and passed to `GateRunner`.
-The handler now coordinates the fail-closed decision, so recording it is within its responsibility.
-Use the `DecisionReporter` interface type, not the concrete `GateDecisionReporter` class (DIP / narrow-interface rule).
-The catch helpers (`bestEffortToolName`, `bestEffortCommand`) read from the raw `event` defensively and never throw, so a failure inside `session.activate` still logs and blocks.
+Correspondingly, `PermissionGateHandler.handleToolCall` changes its return type from the loose SDK shape (`{ block?: true; reason? }`) to the internal **total** type `GateOutcome` (`{ action: "allow" } | { action: "block"; reason }`, already defined in `handlers/gates/types.ts`).
+Its validation-block path returns `{ action: "block", reason }` instead of `{ block: true, reason }`.
+The domain handler is now SDK-shape-free, and the `reporter` (plus the new `audit`) dependency lives on the boundary, **not** the handler — so the handler constructor does not widen.
+Use the `DecisionReporter` interface type, not the concrete `GateDecisionReporter` (DIP / narrow-interface rule).
 
-Fail-closed choice = **block** (not `ask`) for an *unexpected* exception: we may not know the command, and the prompt infrastructure itself may be the thing that threw.
-This is the safest fail-closed outcome for an internal error.
+`index.ts` registers `pi.on("tool_call", createFailClosedToolCall((e, c) => gates.handleToolCall(e, c), reporter, audit))`.
+
+The catch helpers (`bestEffortToolName`, `bestEffortCommand`, `formatGateErrorReason`) read from the raw `event` defensively and never throw, so a failure inside `session.activate` still logs and blocks.
+
+Fail-closed choice = **block** (not `ask`) for an *unexpected* exception: the command may be unknown and the prompt infrastructure itself may be what threw — block is the unambiguous safe outcome for an internal error.
 
 ### A2 — Resilient parser init
 
@@ -126,6 +147,8 @@ export function memoizeAsyncWithRetry<T>(factory: () => Promise<T>): () => Promi
 
 `bash-program.ts` replaces the module-scoped `parserPromise` + `getParser` with `const getParser = memoizeAsyncWithRetry(initParser)`.
 On success the behavior is identical (single shared parser); on a transient init failure the next tool call retries instead of inheriting a permanently rejected promise.
+A parser-init failure no longer needs a dedicated health signal: the throw from `getParser()` propagates to the A1 boundary, which records it as a `gate_error` review-log entry — so the failure is visible (and the tool blocked) for free.
+This is why a separate "parser health" mechanism is intentionally **not** added.
 
 ### A3 — Fail-closed empty-parse fallback
 
@@ -179,10 +202,37 @@ return { merged, issues: allIssues };
 
 No reach-through: the detector takes the plain map and returns a string; `loadAndMergeConfigs` owns the push.
 
+### A5 — Decision-per-call trace and shutdown summary
+
+The reporter could not distinguish "evaluated and allowed" from "never evaluated" because the allow path writes nothing, and the user-facing review log intentionally stays quiet on allow (noise control).
+With A1 the boundary now produces exactly one terminal decision per call; make that decision *observable* without flooding the review log.
+
+A `DecisionAudit` collaborator (owned by the boundary) holds per-session counters: `toolCalls`, `allowed`, `blocked`, `errors`.
+
+```typescript
+// src/decision-audit.ts
+export class DecisionAudit {
+  recordDecision(action: "allow" | "block"): void; // also bumps toolCalls
+  recordError(): void;                              // also bumps toolCalls
+  writeSummary(logger: PermissionSystemLogger): void;
+}
+```
+
+- When `debugLog` is enabled, the boundary writes one compact `permission.decision` debug entry per call (tool, action, matched pattern) — a full trace on demand, off by default.
+- On `session_shutdown` (already hooked by `SessionLifecycleHandler`), `writeSummary` emits one `permission.session_summary` debug line with the counters.
+  `toolCalls !== allowed + blocked + errors` is an invariant violation logged at warning level — a cheap structural self-check that flags any future regression that re-opens a silent path.
+
+This is in-process self-audit.
+Full reconciliation against Pi's own session JSONL (the cross-artifact check the reporter did by hand) needs to read Pi's session file and is a deferred follow-up (see Open Questions).
+
 ## Module-Level Changes
 
-- `src/handlers/permission-gate-handler.ts` — add a `reporter: DecisionReporter` constructor parameter; wrap `handleToolCall` in `try/catch` that logs `resolution: "gate_error"` and returns a block; add the defensive `bestEffortToolName` / `bestEffortCommand` / `formatGateErrorReason` helpers (placed below `handleToolCall`, stepdown order).
-- `src/index.ts` — pass `reporter` (the existing `GateDecisionReporter` instance) into the `PermissionGateHandler` constructor (the sole call site; must land in the same commit as the constructor change).
+- `src/handlers/tool-call-boundary.ts` — **new** module: `createFailClosedToolCall(gate, reporter, audit)` (the sole `pi.on("tool_call")` target) plus the defensive `bestEffortToolName` / `bestEffortCommand` / `formatGateErrorReason` helpers.
+- `src/decision-audit.ts` — **new** module: `DecisionAudit` (counters + `recordDecision` / `recordError` / `writeSummary`).
+- `src/handlers/permission-gate-handler.ts` — change `handleToolCall`'s return type from `{ block?: true; reason? }` to the internal total `GateOutcome`; the validation-block path returns `{ action: "block", reason }`.
+  No constructor change (the reporter lives on the boundary).
+- `src/handlers/lifecycle.ts` — `SessionLifecycleHandler` gains the `DecisionAudit` (injected) and calls `audit.writeSummary(logger)` in `handleSessionShutdown`.
+- `src/index.ts` — construct `DecisionAudit`; register `pi.on("tool_call", createFailClosedToolCall((e, c) => gates.handleToolCall(e, c), reporter, audit))` instead of the bare handler; pass `audit` into `SessionLifecycleHandler`.
 - `src/async-cache.ts` — **new** module exporting `memoizeAsyncWithRetry`.
 - `src/handlers/gates/bash-program.ts` — replace `parserPromise` + `getParser()` with `memoizeAsyncWithRetry(initParser)`; remove the now-dead module-scoped `let parserPromise`.
 - `src/handlers/gates/bash-command.ts` — add the empty-commands fail-closed branch and the `isTriviallyEmptyCommand` helper.
@@ -194,7 +244,7 @@ No reach-through: the detector takes the plain map and returns a string; `loadAn
 
 Greps performed / to confirm during implementation:
 
-- No removed/renamed exports (all changes are additive or internal), so no consumer breakage beyond the `index.ts` call site.
+- The only consumer breakage is internal: `handleToolCall`'s return-type change (`{ block?: true }` → `GateOutcome`) breaks every test that asserts the SDK shape (`tool-call.test.ts`, `tool-call-events.test.ts`) — fold those updates into the A1 step (they now assert `GateOutcome` from the handler, or `{ block: true }`/`{}` from the boundary).
 - `getParser` / `parserPromise` are file-local to `bash-program.ts` (no external importers) — confirm before deleting the `let`.
 - Grep `docs/` for any sample review-log output or documented "allow"/fallback wording that the new `gate_error` / `<unparseable-bash-command>` entries would make stale.
 
@@ -203,11 +253,14 @@ Greps performed / to confirm during implementation:
 1. **New unit tests enabled by these changes:**
    - `test/async-cache.test.ts` — `memoizeAsyncWithRetry`: caches on success (single factory call across N calls); drops a rejected result so the next call re-invokes the factory; surfaces the rejection to the caller each time it fails.
    - `test/handlers/gates/bash-command.test.ts` — empty `commands` + non-empty command → `ask` with the sentinel `matchedPattern`; empty `commands` + whitespace/comment-only command → whole-string resolve (unchanged).
-   - A focused handler test (new `test/handlers/tool-call-error-handling.test.ts`) constructing `PermissionGateHandler` directly with a stub pipeline that **throws** → asserts `{ block: true }` and a `gate_error` review-log entry on the injected reporter mock.
-     Constructing the handler directly (not via `makeHandler`, which builds a real pipeline) keeps the throw injectable.
+   - `test/handlers/tool-call-boundary.test.ts` (new) — the boundary contract: an `allow` `GateOutcome` → `{}`; a `block` outcome → `{ block: true, reason }`; a **throwing** gate → `{ block: true }` plus a `gate_error` review-log entry and `audit.recordError()`.
+     A header comment cites that the SDK's `emitToolCall` lacks a try/catch (unlike `emitUserBash`), documenting why the boundary must absorb the throw.
+   - `test/handlers/gates/bash-command-metamorphic.test.ts` (new) — the totality property: for a table of `ask`/`deny` commands, `resolveBashCommandCheck` over `cd /x && <cmd>` yields a decision no weaker than the bare `<cmd>` (deny ≥ ask ≥ allow).
+     A focused parametrized table over real parse+resolve, not a full fuzzer (tree-sitter fuzzing is brittle); it pins A3 directly.
+   - `test/decision-audit.test.ts` (new) — counters increment per recorded decision/error; `writeSummary` emits the summary line; a forced `toolCalls !== allowed + blocked + errors` mismatch logs the warning-level invariant violation.
    - `test/config-loader.test.ts` (or a new `detect-permissive-bash-fallback.test.ts`) — detector returns a warning for `{*: "allow"}` with no `bash.*`; returns `undefined` when `bash.*` is set, when `bash` is a bare string, or when top-level `*` is not `allow`.
 2. **Tests that become redundant:** none — all additive.
-3. **Tests that must stay as-is:** the existing `resolveBashCommandCheck` chain / most-restrictive tests (#301 / #306) — they pin that the non-empty path is untouched; the `makeHandler`-based `tool-call.test.ts` happy-path tests pin that A1's try/catch does not change the normal allow/block flow.
+3. **Tests that must stay as-is:** the existing `resolveBashCommandCheck` chain / most-restrictive tests (#301 / #306) — they pin that the non-empty path is untouched; the `makeHandler`-based `tool-call.test.ts` happy-path tests pin that the normal allow/block flow is unchanged (updated only for the `GateOutcome` return shape).
 
 ## Invariants at risk
 
@@ -217,7 +270,8 @@ This change touches surfaces refactored by earlier roadmap steps; keep their pin
   Pinned by `test/handlers/gates/bash-command.test.ts` chain tests.
 - #308 (single `BashProgram.parse` per evaluate) — A2 changes `getParser` caching, not the parse-once contract.
   Pinned by `test/handlers/gates/tool-call-gate-pipeline.test.ts`.
-- The `makeHandler` real-pipeline wiring (#341 / handler-fixtures) — A1 adds a constructor dep; update `makeHandler` to pass a reporter mock so all existing handler tests keep compiling/passing in the same commit.
+- The `makeHandler` real-pipeline wiring (#341 / handler-fixtures) — A1 changes `handleToolCall`'s return type to `GateOutcome`; update `makeHandler`'s callers and the `tool-call*.test.ts` assertions in the same commit so all existing handler tests keep compiling/passing.
+  `makeHandler` itself needs no reporter (the reporter moved to the boundary), but the boundary tests construct their own reporter/audit mocks.
 
 ## TDD Order
 
@@ -230,20 +284,24 @@ This change touches surfaces refactored by earlier roadmap steps; keep their pin
    Red: detector tests (warn / no-warn matrix).
    Green: add and export `detectPermissiveBashFallback`; call it in `loadAndMergeConfigs`.
    Commit: `feat(pi-permission-system): warn when a permissive top-level "*" leaves bash ungated (#452)`.
-3. **A1 fail-closed handler.**
-   First update `test/helpers/handler-fixtures.ts` (`makeHandler`) to construct the handler with a reporter mock, and add `test/handlers/tool-call-error-handling.test.ts` (throwing pipeline → block + `gate_error` log).
-   Green: add the `reporter` constructor dep to `PermissionGateHandler`, wrap `handleToolCall` in try/catch, update the `index.ts` call site (same commit — single call site).
-   Run `pnpm run check` (interface change).
-   Commit: `fix!(pi-permission-system): fail closed when the tool-call gate throws (#452)` with a `BREAKING CHANGE:` footer covering the whole fail-closed shift (this commit and step 4) and the remediation: set an explicit permissive `bash` policy (e.g. `"bash": { "*": "allow" }`) to opt back into permissive behavior.
+3. **A1 fail-closed boundary + `GateOutcome` handler return.**
+   Red: add `test/handlers/tool-call-boundary.test.ts` (allow/block/throw contract); update `tool-call.test.ts` / `tool-call-events.test.ts` to the new `GateOutcome` return shape.
+   Green: add `src/handlers/tool-call-boundary.ts` and a minimal `src/decision-audit.ts` (counters only — `recordDecision`/`recordError`; `writeSummary` lands in step 5); change `handleToolCall` to return `GateOutcome`; register the boundary in `index.ts` (same commit — interface + sole call site).
+   Run `pnpm run check` (return-type change) and the full suite (shared handler fixtures).
+   Commit: `fix!(pi-permission-system): route tool calls through a fail-closed boundary (#452)` with a `BREAKING CHANGE:` footer covering the whole fail-closed shift (this commit and step 4) and the remediation: set an explicit permissive `bash` policy (e.g. `"bash": { "*": "allow" }`) to opt back into permissive behavior.
 4. **A3 fail-closed empty-parse fallback.**
-   Red: `bash-command.test.ts` empty-non-empty → `ask`; empty-trivial → whole-string resolve.
+   Red: `bash-command.test.ts` empty-non-empty → `ask`; empty-trivial → whole-string resolve; plus `bash-command-metamorphic.test.ts` (the `cd X && <cmd>` no-weaker property).
    Green: add the empty-commands branch + `isTriviallyEmptyCommand`.
    Commit: `fix(pi-permission-system): prompt instead of allowing an unparseable bash command (#452)` (the breaking footer is already carried by step 3; reference it in the body).
-5. **Docs + SKILL alignment.**
-   Update `docs/configuration.md`, `README.md` (if applicable), and the package SKILL note.
+5. **A5 decision audit + shutdown summary.**
+   Red: `test/decision-audit.test.ts` (counters, summary line, invariant-violation warning); extend the boundary test for the `debugLog`-gated per-call trace.
+   Green: complete `DecisionAudit.writeSummary`; thread `audit` into `SessionLifecycleHandler.handleSessionShutdown` and the `debugLog`-gated per-call trace in the boundary; wire `audit` in `index.ts`.
+   Commit: `feat(pi-permission-system): trace tool-call decisions and emit a session summary (#452)`.
+6. **Docs + SKILL alignment.**
+   Update `docs/configuration.md`, `README.md` (if applicable), and the package SKILL note (fail-closed boundary, `gate_error` / `<unparseable-bash-command>` / `permission.session_summary` entries).
    Commit: `docs(pi-permission-system): document fail-closed gate behavior and bash fallback warning (#452)`.
 
-Run the full package suite (`pnpm --filter @gotgenes/pi-permission-system exec vitest run`) before the final commit, since `handler-fixtures.ts` is a shared helper touched in step 3.
+Run the full package suite (`pnpm --filter @gotgenes/pi-permission-system exec vitest run`) after steps 3 and 5, which touch shared handler fixtures and composition-root wiring.
 
 ## Risks and Mitigations
 
@@ -254,8 +312,13 @@ Run the full package suite (`pnpm --filter @gotgenes/pi-permission-system exec v
   **Mitigation:** documented in the breaking note with a real opt-out (`"bash": { "*": "allow" }`); only triggers on the rare empty-parse path.
 - **Risk:** the `git`-vs-`rm` asymmetry is a distinct, still-unexplained bug that these changes do not fix.
   **Mitigation:** the new review-log entries make any recurrence visible and attributable; a follow-up issue is filed only if it recurs with fresh logs.
-- **Risk:** A1's new `reporter` dependency widens the handler constructor to six params.
-  **Mitigation:** `DecisionReporter` is a narrow two-method interface and recording the fail-closed decision is squarely the handler's job; design-review checklist run, no LoD/output-arg smell introduced.
+- **Risk:** the A1 boundary + `GateOutcome` return-type change ripples through `tool-call*.test.ts` assertions.
+  **Mitigation:** the change is mechanical (assert `GateOutcome` from the handler, SDK shape from the boundary) and folded into the A1 step; the reporter moving to the boundary keeps the handler constructor from widening.
+- **Risk:** A5's audit adds per-call work.
+  **Mitigation:** counters are O(1); the per-call trace is gated behind `debugLog`; the summary is one line on `session_shutdown`.
+- **Risk:** scope growth — five changes plus an audit in one issue.
+  **Mitigation:** the steps are independently committable; A5 (step 5) is separable to a follow-up if review prefers, but the A1 boundary is the structural keystone and must land here.
+  A `DecisionAudit` stub (counters only) is introduced in step 3 so the boundary signature is stable before A5 completes it.
 
 ## Open Questions
 
@@ -264,3 +327,7 @@ Run the full package suite (`pnpm --filter @gotgenes/pi-permission-system exec v
   Revisit if blocking proves disruptive in practice.
 - Should A4's detector also warn for other surfaces (`mcp`, `skill`) that inherit a permissive top-level `*`?
   Deferred to a follow-up; this issue is scoped to the bash bypass.
+- Full reconciliation of A5's in-process counters against Pi's own session JSONL (the cross-artifact check the reporter performed by hand) is deferred — it requires reading Pi's session file, a heavier mechanism than this issue warrants.
+  The in-process summary is the cheaper first tier.
+- Should `GateOutcome` gain an explicit first-class `ask` variant (today `ask` is resolved inside `applyPermissionGate`, and `GateOutcome` carries only `allow`/`block`)?
+  Deferred: the two-variant total type is sufficient for the boundary's fail-closed translation; widening it is a larger decision-model refactor better tracked on its own.
