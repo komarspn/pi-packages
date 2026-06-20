@@ -950,7 +950,7 @@ Outcome: ADR-0004 updated with all four entry-criteria answers; Step 4 unblocked
 
 `Release: independent`
 
-### Step 2 — Extract settings to a focused `/subagents-settings` command ([#447])
+### ✅ Step 2 — Extract settings to a focused `/subagents-settings` command ([#447])
 
 Smell: Category E (naming/organization) — settings are buried inside the monolithic `/agents` command per ADR-0004 Decision C. This step is purely additive: it stands up the new surface without touching `agent-menu.ts`.
 Target files:
@@ -1062,7 +1062,7 @@ Outcome: test clone groups ≤ 10 (from 16); `subagent-manager.test.ts` uses sha
 ```mermaid
 flowchart LR
     S1["✅ Step 1 - Spike (#446)"]
-    S2["Step 2 - Settings command (#447)"]
+    S2["✅ Step 2 - Settings command (#447)"]
     S3["Step 3 - Background widget (#444)"]
     S4["Step 4 - Native session nav (#445)"]
     S5["Step 5 - Dissolve /agents + viewer (#442)"]
