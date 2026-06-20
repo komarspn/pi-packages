@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import { basename, isAbsolute, join, resolve } from "node:path";
+import { memoizeAsyncWithRetry } from "#src/async-cache";
 import { canonicalizePath } from "#src/canonicalize-path";
 import {
   classifyTokenAsPathCandidate,
@@ -37,8 +38,6 @@ interface TSParser {
   delete(): void;
 }
 
-let parserPromise: Promise<TSParser> | null = null;
-
 async function initParser(): Promise<TSParser> {
   // Use named imports — web-tree-sitter exports Parser as a named class.
   const { Parser, Language } = await import("web-tree-sitter");
@@ -53,10 +52,10 @@ async function initParser(): Promise<TSParser> {
   return parser;
 }
 
-function getParser(): Promise<TSParser> {
-  parserPromise ??= initParser();
-  return parserPromise;
-}
+// Memoize on success but drop a rejected result so a transient init failure
+// (e.g. a slow WASM load) is retried on the next tool call instead of poisoning
+// the parser for the process lifetime.
+const getParser = memoizeAsyncWithRetry(initParser);
 
 // ── Parsed bash command representation ───────────────────────────────────────
 
