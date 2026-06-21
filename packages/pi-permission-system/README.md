@@ -109,6 +109,15 @@ Within a surface map like `bash` or `mcp`, **last matching rule wins** — put b
 
 For the full reference — all surfaces, runtime knobs, per-agent overrides, merge semantics, and common recipes — see [docs/configuration.md](docs/configuration.md).
 
+## Upgrading
+
+### 16.0.0 — the bash gate now fails closed
+
+The permission gate fails closed: an internal gate error blocks the tool (with a `gate_error` review-log entry) instead of running it ungated, and a non-empty bash command that cannot be parsed resolves to `ask` (sentinel `<unparseable-bash-command>`) rather than falling through to a permissive top-level `*`.
+Commands that previously slipped through silently on the error or empty-parse path now block or prompt.
+
+If you relied on the old permissive behavior for bash, set an explicit permissive bash policy — `"bash": { "*": "allow" }` — which also suppresses the new startup warning emitted when a top-level `"*": "allow"` leaves bash ungated.
+
 ## Documentation
 
 | Document                                                                                                                       | Contents                                                                                |
