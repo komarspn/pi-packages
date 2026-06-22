@@ -1010,6 +1010,12 @@ The new surface stands up while the old `viewAgentConversation`/`ConversationVie
 
 Outcome: operator views any subagent's session through Pi's native machinery — live for a running agent, a file snapshot for an evicted one; the new surface coexists with the old viewer until Step 5.
 
+Landed ([#445], sliced): #445 shipped the first releasable vertical slice — the `/subagent-sessions` command (`src/ui/session-navigator.ts`), the pure selection/sourcing/text-render core (`src/ui/session-navigation.ts`), and the typed `agentMessages` accessor (`SessionMessage` on `SubagentSession`/`Subagent`).
+It is **live-source only** behind a renderer-agnostic `TranscriptSource` seam, rendered via Pi's `serializeConversation` text.
+With the `manager.listAgents()`-only candidate set, no listed record is ever session-disposed (dispose-and-delete are atomic), so the file-snapshot branch has no reachable caller and was deferred to keep `fallow dead-code` clean.
+Two follow-ups complete the step behind the same seam: (a) upgrade the renderer from `serializeConversation` text to Pi's per-entry TUI components; (b) broaden the candidate set to evicted agents and add the file-snapshot source (`parseSessionEntries` → `buildSessionContext`).
+The step heading stays unchecked until both land.
+
 `Release: independent` (spike-gated)
 
 ### Step 5 — Dissolve `/agents` and remove the conversation-viewer subtree ([#442])
