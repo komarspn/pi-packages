@@ -500,6 +500,9 @@ Everything else — permissions, worktree/workspace isolation, UI, telemetry —
 
 The rationale and the full reasoning chain that led here are recorded in [`docs/decisions/0002-extensions-on-a-minimal-core.md`](../decisions/0002-extensions-on-a-minimal-core.md).
 
+A separate, longer-horizon note — [`client-server-opportunities.md`](./client-server-opportunities.md) — records what Pi's eventual client-server split (Mario Zechner's session-sync unification) would unlock for pi-subagents: viewing live subagent sessions, viewing suspended ones, and operators interacting with a subagent through an editor.
+That architecture is not on the near-term roadmap; the note captures the opportunity so it is on record.
+
 ### Two extension surfaces
 
 Extensions attach through exactly two surfaces, distinguished by the direction of information flow.
