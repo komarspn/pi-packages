@@ -918,9 +918,9 @@ The end state deletes `agent-menu.ts` — the god-command that bundles four unre
 Rather than surgically mutate that doomed module (and the #1 churn hotspot `index.ts`) once per option, Phase 19 first stands up the replacement surfaces additively, then removes the now-orphaned subtree in a single terminal cut.
 This keeps every responsibility's old surface live until its replacement exists (ADR-0004's no-interim-regression invariant), turns the three replacement steps into genuinely parallel work (none touch `agent-menu.ts`), and reduces `index.ts` edits from four surgical removals to one deregistration.
 
-Seven steps in three phases:
+Seven numbered steps in three phases, plus two follow-ups (Steps 4a–4b) carved from the #445 slice:
 
-- **Phase A — stand up replacements (additive):** spike, settings command, background widget, native session navigation (Steps 1–4).
+- **Phase A — stand up replacements (additive):** spike, settings command, background widget, native session navigation and its renderer/source follow-ups (Steps 1–4, 4a–4b).
 - **Phase B — dissolve `/agents` (terminal cut):** delete the orphaned subtree in two deletion commits, one per subtree (Steps 5–6).
 - **Phase C — test health:** consolidate the test clones that survive the cut (Step 7).
 
@@ -1013,10 +1013,34 @@ Outcome: operator views any subagent's session through Pi's native machinery —
 Landed ([#445], sliced): #445 shipped the first releasable vertical slice — the `/subagent-sessions` command (`src/ui/session-navigator.ts`), the pure selection/sourcing/text-render core (`src/ui/session-navigation.ts`), and the typed `agentMessages` accessor (`SessionMessage` on `SubagentSession`/`Subagent`).
 It is **live-source only** behind a renderer-agnostic `TranscriptSource` seam, rendered via Pi's `serializeConversation` text.
 With the `manager.listAgents()`-only candidate set, no listed record is ever session-disposed (dispose-and-delete are atomic), so the file-snapshot branch has no reachable caller and was deferred to keep `fallow dead-code` clean.
-Two follow-ups complete the step behind the same seam: (a) upgrade the renderer from `serializeConversation` text to Pi's per-entry TUI components; (b) broaden the candidate set to evicted agents and add the file-snapshot source (`parseSessionEntries` → `buildSessionContext`).
+Two follow-ups complete the step behind the same seam: Step 4a ([#462]) upgrades the renderer from `serializeConversation` text to Pi's per-entry TUI components (gates Step 5 for rendering parity); Step 4b ([#463]) broadens the candidate set to evicted agents and adds the file-snapshot source (`parseSessionEntries` → `buildSessionContext`, independent).
 The step heading stays unchecked until both land.
 
 `Release: independent` (spike-gated)
+
+### Step 4a — Upgrade native-navigation renderer to Pi TUI components ([#462])
+
+Smell: Category C (coupling) — the #445 slice renders the transcript as `serializeConversation` plain text, while the bespoke `ConversationViewer` it replaces renders richer per-message formatting.
+Until the native renderer reaches parity, the terminal cut (Step 5) cannot delete the bespoke viewer without a fidelity regression.
+This step swaps the renderer behind the existing `TranscriptSource` seam (`src/ui/session-navigation.ts` / `session-navigator.ts`) for Pi's per-entry components (`AssistantMessageComponent` / `ToolExecutionComponent` / …); selection and sourcing are untouched.
+
+Gates Step 5: per [ADR-0004]'s no-interim-regression invariant, the native navigator must reach rendering parity with the bespoke viewer before Step 5 deletes it.
+
+Outcome: native session navigation renders at parity with the removed `ConversationViewer`; Step 5 can delete the bespoke viewer with no fidelity regression.
+
+`Release: independent`
+
+### Step 4b — File-snapshot source for evicted agents ([#463])
+
+Smell: Category C (coupling) — the #445 slice sources transcripts live from `manager.listAgents()` only; an agent evicted by the 10-minute cleanup sweep has a persisted session JSONL but no live record, so it is unreachable.
+This step adds the file-snapshot `TranscriptSource` branch (`parseSessionEntries(readFile(outputFile))` → drop the `SessionHeader` → `buildSessionContext(...).messages`) and broadens the candidate set to enumerate evicted agents, behind the same seam; the renderer is untouched.
+
+Independent: this is a new capability the bespoke viewer never had, so it gates nothing and is not a Step 5 prerequisite.
+Best sequenced after Step 4a (shared renderer), but carries no hard dependency.
+
+Outcome: the operator can view a fully-evicted agent's transcript from its persisted session file; the dual-source design recorded in [ADR-0004] Addendum 2 is fully realized.
+
+`Release: independent`
 
 ### Step 5 — Dissolve `/agents` and remove the conversation-viewer subtree ([#442])
 
@@ -1079,20 +1103,25 @@ flowchart LR
     S1["✅ Step 1 - Spike (#446)"]
     S2["✅ Step 2 - Settings command (#447)"]
     S3["✅ Step 3 - Background widget (#444)"]
-    S4["Step 4 - Native session nav (#445)"]
+    S4["Step 4 - Native session nav slice (#445)"]
+    S4a["Step 4a - Renderer to TUI components (#462)"]
+    S4b["Step 4b - File-snapshot source (#463)"]
     S5["Step 5 - Dissolve /agents + viewer (#442)"]
     S6["Step 6 - Remove definition mgmt (#441)"]
     S7["Step 7 - Test clones (#443)"]
 
     S1 --> S4
+    S4 --> S4a
+    S4 --> S4b
     S2 --> S5
     S3 --> S5
-    S4 --> S5
+    S4a --> S5
     S5 --> S6
     S6 --> S7
 ```
 
-The terminal cut (Step 5) depends on all three replacements — settings (Step 2), widget (Step 3), and session navigation (Step 4) — because each of the four `/agents` options must have its responsibility re-homed before its branch can die.
+The terminal cut (Step 5) depends on all three replacements — settings (Step 2), widget (Step 3), and session navigation **at rendering parity** (Step 4a, which completes the #445 slice) — because each of the four `/agents` options must have its responsibility re-homed, and the viewer replacement at parity, before its branch can die.
+Step 4b (file-snapshot source) is a new capability and gates nothing.
 The old `S1 → S6 → S7` chain hid the widget dependency; this diagram makes it explicit.
 
 ### Parallel tracks
@@ -1100,6 +1129,7 @@ The old `S1 → S6 → S7` chain hid the widget dependency; this diagram makes i
 - **Track A — Replacements (Steps 1–4):** the spike gates session navigation (Step 1 → Step 4); settings (Step 2) and the background widget (Step 3) are independent of the spike and of each other.
   None of these steps edits `agent-menu.ts`, so they carry no shared-file collision on the menu — genuinely parallelizable, unlike the prior plan's Steps 2/3/5, which all collided on `agent-menu.ts` and `index.ts`.
   Steps 2 and 4 each append a command registration to `index.ts` (additive, low-conflict).
+  Steps 4a (renderer parity) and 4b (file-snapshot source) complete the #445 slice behind its `TranscriptSource` seam; Step 4a gates Step 5, Step 4b is independent.
 - **Track B — Dissolution (Steps 5 → 6):** the terminal cut, gated on all of Track A landing.
   Hub-first ordering is forced: Step 5 deletes `agent-menu.ts` (orphaning the leaves), then Step 6 `git rm`s the now-orphaned definition-management subtree.
 - **Track C — Test health (Step 7):** clone consolidation, run after the cut so no surviving helper is extracted into a doomed file.
@@ -1108,7 +1138,7 @@ The old `S1 → S6 → S7` chain hid the widget dependency; this diagram makes i
 
 - **Batch "dissolve-agents":** Steps 5, 6 (ship together; tail = Step 6).
   Depends on Steps 2, 3, 4 already merged.
-- Independently releasable: Steps 1, 2, 3, 4, 7.
+- Independently releasable: Steps 1, 2, 3, 4, 4a, 4b, 7.
 
 ## Refactoring history
 
@@ -1230,5 +1260,7 @@ The upstream test suite is run periodically as a regression canary for the sessi
 [#445]: https://github.com/gotgenes/pi-packages/issues/445
 [#446]: https://github.com/gotgenes/pi-packages/issues/446
 [#447]: https://github.com/gotgenes/pi-packages/issues/447
+[#462]: https://github.com/gotgenes/pi-packages/issues/462
+[#463]: https://github.com/gotgenes/pi-packages/issues/463
 [ADR-0002]: ../decisions/0002-extensions-on-a-minimal-core.md
 [ADR-0004]: ../decisions/0004-reconsider-ui-direction.md
