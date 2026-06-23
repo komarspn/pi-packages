@@ -14,6 +14,7 @@
 
 import { buildSessionContext, parseSessionEntries, type SessionEntry, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { AgentConfigLookup } from "#src/config/agent-types";
+import type { EvictedSubagent } from "#src/lifecycle/subagent-manager";
 import type { SubagentStatus } from "#src/lifecycle/subagent-state";
 import type { AgentSessionEvent, SessionMessage, SubagentType } from "#src/types";
 import { formatDuration, getDisplayName } from "#src/ui/display";
@@ -37,10 +38,24 @@ export interface NavigableSubagent {
   getToolDefinition(name: string): ToolDefinition | undefined;
 }
 
-/** A navigable entry: a record plus the label shown in the picker. */
-export interface NavigationEntry {
-  readonly record: NavigableSubagent;
-  readonly label: string;
+/**
+ * A navigable entry plus the label shown in the picker.
+ *
+ * A `live` entry sources its transcript from the in-memory record; an `evicted`
+ * entry sources it from the persisted session file (the record is gone).
+ */
+export type NavigationEntry =
+  | { readonly kind: "live"; readonly label: string; readonly record: NavigableSubagent }
+  | { readonly kind: "evicted"; readonly label: string; readonly outputFile: string };
+
+/** The fields `buildLabel` reads — shared by a live record and an evicted descriptor. */
+interface LabelFields {
+  readonly type: SubagentType;
+  readonly description: string;
+  readonly status: SubagentStatus;
+  readonly startedAt: number;
+  readonly completedAt: number | undefined;
+  readonly toolUses: number;
 }
 
 /** Running-agent streaming state, surfaced by a live source. */
@@ -61,14 +76,27 @@ export interface TranscriptSource {
   getToolDefinition(name: string): ToolDefinition | undefined;
 }
 
-/** Filter the agents to those with a viewable session and label each for the picker. */
+/**
+ * Label every navigable subagent for the picker: live records with a viewable
+ * session, then agents evicted by the cleanup sweep (deduped against live ids).
+ */
 export function listNavigableAgents(
   agents: readonly NavigableSubagent[],
+  evicted: readonly EvictedSubagent[],
   registry: AgentConfigLookup,
 ): NavigationEntry[] {
-  return agents
+  const live = agents
     .filter((record) => record.isSessionReady())
-    .map((record) => ({ record, label: buildLabel(record, registry) }));
+    .map((record): NavigationEntry => ({ kind: "live", record, label: buildLabel(record, registry) }));
+  const liveIds = new Set(agents.map((record) => record.id));
+  const evictedEntries = evicted
+    .filter((descriptor) => !liveIds.has(descriptor.id))
+    .map((descriptor): NavigationEntry => ({
+      kind: "evicted",
+      outputFile: descriptor.outputFile,
+      label: buildLabel(descriptor, registry, true),
+    }));
+  return [...live, ...evictedEntries];
 }
 
 /**
@@ -109,8 +137,9 @@ export function liveSource(record: NavigableSubagent): TranscriptSource {
   };
 }
 
-function buildLabel(record: NavigableSubagent, registry: AgentConfigLookup): string {
-  const name = getDisplayName(record.type, registry);
-  const duration = formatDuration(record.startedAt, record.completedAt);
-  return `${name} (${record.description}) · ${record.toolUses} tools · ${record.status} · ${duration}`;
+function buildLabel(fields: LabelFields, registry: AgentConfigLookup, evicted = false): string {
+  const name = getDisplayName(fields.type, registry);
+  const duration = formatDuration(fields.startedAt, fields.completedAt);
+  const marker = evicted ? " · evicted (snapshot)" : "";
+  return `${name} (${fields.description}) · ${fields.toolUses} tools · ${fields.status} · ${duration}${marker}`;
 }

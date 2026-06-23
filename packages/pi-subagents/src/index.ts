@@ -11,6 +11,7 @@
  *   /agents                 — Interactive agent management menu
  */
 
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   createAgentSession,
@@ -201,7 +202,14 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("subagent-sessions", {
     description: "View a subagent's session transcript (read-only)",
     handler: async (_args, ctx) => {
-      await sessionNavigator.handle({ ui: ctx.ui, agents: manager.listAgents(), registry, cwd: ctx.cwd });
+      await sessionNavigator.handle({
+        ui: ctx.ui,
+        agents: manager.listAgents(),
+        evicted: manager.listEvicted(),
+        registry,
+        cwd: ctx.cwd,
+        readFile: (path) => readFileSync(path, "utf8"),
+      });
     },
   });
 }

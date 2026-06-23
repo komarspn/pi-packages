@@ -38,9 +38,10 @@ import {
   visibleWidth,
 } from "@earendil-works/pi-tui";
 import type { AgentConfigLookup } from "#src/config/agent-types";
+import type { EvictedSubagent } from "#src/lifecycle/subagent-manager";
 import type { SessionMessage } from "#src/types";
 import { describeActivity, type Theme } from "#src/ui/display";
-import { listNavigableAgents, liveSource, type NavigableSubagent, type TranscriptSource } from "#src/ui/session-navigation";
+import { fileSnapshotSource, listNavigableAgents, liveSource, type NavigableSubagent, type TranscriptSource } from "#src/ui/session-navigation";
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -68,9 +69,13 @@ export interface SessionNavigatorUI {
 export interface SessionNavigatorParams {
   ui: SessionNavigatorUI;
   agents: readonly NavigableSubagent[];
+  /** Descriptors of agents evicted by the cleanup sweep, sourced from disk when picked. */
+  evicted: readonly EvictedSubagent[];
   registry: AgentConfigLookup;
   /** Working directory for tool-call rendering (relative path display). */
   cwd: string;
+  /** Reads a persisted session file for the file-snapshot source. */
+  readFile: (path: string) => string;
 }
 
 /** Options for the read-only transcript overlay. */
@@ -91,8 +96,8 @@ export interface TranscriptOverlayOptions {
  * manager, so it stays a reactive consumer with no inbound call into the core.
  */
 export class SessionNavigatorHandler {
-  async handle({ ui, agents, registry, cwd }: SessionNavigatorParams): Promise<void> {
-    const entries = listNavigableAgents(agents, registry);
+  async handle({ ui, agents, evicted, registry, cwd, readFile }: SessionNavigatorParams): Promise<void> {
+    const entries = listNavigableAgents(agents, evicted, registry);
     if (entries.length === 0) {
       ui.notify("No subagent sessions to view.", "info");
       return;
@@ -105,7 +110,13 @@ export class SessionNavigatorHandler {
     const entry = entries.find((candidate) => candidate.label === choice);
     if (!entry) return;
 
-    const source = liveSource(entry.record);
+    let source: TranscriptSource;
+    try {
+      source = entry.kind === "live" ? liveSource(entry.record) : fileSnapshotSource(entry.outputFile, readFile);
+    } catch {
+      ui.notify("Could not read the session transcript file.", "error");
+      return;
+    }
     const markdownTheme = getMarkdownTheme();
     await ui.custom<undefined>(
       (tui, theme, _keybindings, done) =>

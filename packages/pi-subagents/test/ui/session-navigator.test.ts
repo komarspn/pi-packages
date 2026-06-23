@@ -162,17 +162,21 @@ describe("SessionNavigatorHandler", () => {
     };
   }
 
+  const noReadFile = (): string => {
+    throw new Error("readFile not expected in this test");
+  };
+
   it("notifies and skips the overlay when no sessions are navigable", async () => {
     const ui = makeUI();
     const notReady = makeNavigable({ isSessionReady: () => false });
-    await new SessionNavigatorHandler().handle({ ui, agents: [notReady], registry, cwd: "/test/cwd" });
+    await new SessionNavigatorHandler().handle({ ui, agents: [notReady], evicted: [], registry, cwd: "/test/cwd", readFile: noReadFile });
     expect(ui.notify).toHaveBeenCalledWith("No subagent sessions to view.", "info");
     expect(ui.custom).not.toHaveBeenCalled();
   });
 
   it("does not open the overlay when the operator cancels the picker", async () => {
     const ui = makeUI(undefined);
-    await new SessionNavigatorHandler().handle({ ui, agents: [makeNavigable()], registry, cwd: "/test/cwd" });
+    await new SessionNavigatorHandler().handle({ ui, agents: [makeNavigable()], evicted: [], registry, cwd: "/test/cwd", readFile: noReadFile });
     expect(ui.select).toHaveBeenCalledOnce();
     expect(ui.custom).not.toHaveBeenCalled();
   });
@@ -188,7 +192,7 @@ describe("SessionNavigatorHandler", () => {
     })();
     const ui = makeUI(label);
 
-    await new SessionNavigatorHandler().handle({ ui, agents: [record], registry, cwd: "/test/cwd" });
+    await new SessionNavigatorHandler().handle({ ui, agents: [record], evicted: [], registry, cwd: "/test/cwd", readFile: noReadFile });
 
     expect(ui.custom).toHaveBeenCalledOnce();
     // Invariant #423: the handler is a reactive consumer — it sources the
@@ -204,5 +208,47 @@ describe("SessionNavigatorHandler", () => {
     ) => Component;
     const overlay = factory(mockTui(), ansiTheme(), undefined, vi.fn());
     expect(overlay.render(80).some((l) => l.includes("picked agent reply"))).toBe(true);
+  });
+
+  it("opens an overlay sourced from the persisted file when an evicted agent is picked", async () => {
+    const jsonl = [
+      { type: "session", version: 3, id: "s1", timestamp: "2026-06-23T00:00:00Z", cwd: "/proj" },
+      { type: "message", id: "m1", parentId: null, timestamp: "2026-06-23T00:00:01Z", message: { role: "assistant", content: [{ type: "text", text: "evicted reply" }] } },
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join("\n");
+    const readFile = vi.fn(() => jsonl);
+    const evicted = [
+      { id: "e1", type: "general-purpose", description: "Old task", status: "completed" as const, startedAt: 1000, completedAt: 4000, toolUses: 5, outputFile: "/tasks/e1.jsonl" },
+    ];
+    const ui = makeUI("Agent (Old task) · 5 tools · completed · 3.0s · evicted (snapshot)");
+
+    await new SessionNavigatorHandler().handle({ ui, agents: [], evicted, registry, cwd: "/test/cwd", readFile });
+
+    expect(readFile).toHaveBeenCalledWith("/tasks/e1.jsonl");
+    expect(ui.custom).toHaveBeenCalledOnce();
+    const factory = ui.custom.mock.calls[0][0] as (
+      tui: TUI,
+      theme: ReturnType<typeof ansiTheme>,
+      kb: unknown,
+      done: (r: undefined) => void,
+    ) => Component;
+    const overlay = factory(mockTui(), ansiTheme(), undefined, vi.fn());
+    expect(overlay.render(80).some((l) => l.includes("evicted reply"))).toBe(true);
+  });
+
+  it("notifies and skips the overlay when the session file cannot be read", async () => {
+    const readFile = vi.fn(() => {
+      throw new Error("ENOENT");
+    });
+    const evicted = [
+      { id: "e1", type: "general-purpose", description: "Old task", status: "completed" as const, startedAt: 1000, completedAt: 4000, toolUses: 5, outputFile: "/tasks/e1.jsonl" },
+    ];
+    const ui = makeUI("Agent (Old task) · 5 tools · completed · 3.0s · evicted (snapshot)");
+
+    await new SessionNavigatorHandler().handle({ ui, agents: [], evicted, registry, cwd: "/test/cwd", readFile });
+
+    expect(ui.notify).toHaveBeenCalledWith("Could not read the session transcript file.", "error");
+    expect(ui.custom).not.toHaveBeenCalled();
   });
 });
