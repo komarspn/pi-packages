@@ -214,7 +214,7 @@ The note ships to the `BREAKING CHANGE:` footer, the release-please CHANGELOG (u
 Do not put `Closes #N` / `Fixes #N` / `Resolves #N` in commit messages.
 `/ship-issue` posts a curated close comment (implemented-in SHA, behavior summary) via `issue_close`; a commit keyword auto-closes the issue on push and pre-empts that comment, leaving the issue with no summary.
 Reference issues as `(#N)` in the subject or `Refs #N` in the body instead.
-When using `Refs #N`, `BREAKING CHANGE:`, or any other footer token, separate it from the body with a blank line — commitlint's `footer-leading-blank` rule rejects a footer without its leading blank line.
+Still separate footer tokens (`Refs #N`, `BREAKING CHANGE:`) from the body with a blank line for readability, but it is no longer enforced: `.commitlintrc.json` sets `footer-leading-blank` to `[0]` because the `conventional-commits-parser` mis-parses a body line containing `#N` (or a `token:` trailer, or a URL `#fragment`) as the footer start, so the rule fired false positives under `--strict` (commitlint #896, still open; #4099, closed without a shipped fix).
 Avoid `git rebase -i` in this environment — `$EDITOR` opens an interactive editor that aborts non-interactively.
 Reorder or fix unpushed commits with `git reset` + re-commit, or set `GIT_SEQUENCE_EDITOR`/`EDITOR=true`.
 After `git reset --soft HEAD~N`, all N commits' changes are staged together — to re-split into separate commits, run `git reset` (mixed) first, then `git add` per commit.
