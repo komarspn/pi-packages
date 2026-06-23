@@ -191,6 +191,10 @@ describe("SessionNavigatorHandler", () => {
     await new SessionNavigatorHandler().handle({ ui, agents: [record], registry, cwd: "/test/cwd" });
 
     expect(ui.custom).toHaveBeenCalledOnce();
+    // Invariant #423: the handler is a reactive consumer — it sources the
+    // transcript and never reads tool definitions off the record itself; only
+    // the overlay does, lazily, through the TranscriptSource at render time.
+    expect(record.getToolDefinition).not.toHaveBeenCalled();
     // Invoke the captured component factory and render to confirm it is sourced from the picked record.
     const factory = ui.custom.mock.calls[0][0] as (
       tui: TUI,
