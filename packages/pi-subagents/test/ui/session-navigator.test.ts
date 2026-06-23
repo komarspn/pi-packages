@@ -24,6 +24,7 @@ function fakeSource(overrides: Partial<TranscriptSource> = {}): TranscriptSource
     getMessages: () => [{ role: "user", content: "Hello world" }] as unknown as SessionMessage[],
     subscribe: () => () => {},
     streaming: () => undefined,
+    getToolDefinition: () => undefined,
     ...overrides,
   };
 }
@@ -52,6 +53,7 @@ function makeNavigable(overrides: Partial<NavigableSubagent> = {}): NavigableSub
     agentMessages: [],
     isSessionReady: () => true,
     subscribeToUpdates: vi.fn(() => () => {}),
+    getToolDefinition: vi.fn(() => undefined),
     ...overrides,
   };
 }

@@ -25,6 +25,7 @@ function makeNavigable(overrides: Partial<NavigableSubagent> = {}): NavigableSub
     agentMessages: [],
     isSessionReady: () => true,
     subscribeToUpdates: vi.fn(() => () => {}),
+    getToolDefinition: vi.fn(() => undefined),
     ...overrides,
   };
 }
@@ -89,6 +90,13 @@ describe("liveSource", () => {
     const completed = makeNavigable({ status: "completed" });
     expect(liveSource(completed).streaming()).toBeUndefined();
   });
+
+  it("getToolDefinition delegates to the record's getToolDefinition", () => {
+    const def = { name: "read" } as unknown as ReturnType<TranscriptSource["getToolDefinition"]>;
+    const record = makeNavigable({ getToolDefinition: vi.fn(() => def) });
+    expect(liveSource(record).getToolDefinition("read")).toBe(def);
+    expect(record.getToolDefinition).toHaveBeenCalledWith("read");
+  });
 });
 
 describe("renderTranscriptLines", () => {
@@ -97,6 +105,7 @@ describe("renderTranscriptLines", () => {
       getMessages: () => messages,
       subscribe: () => undefined,
       streaming: () => streaming,
+      getToolDefinition: () => undefined,
     };
   }
 

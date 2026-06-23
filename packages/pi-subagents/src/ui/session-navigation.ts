@@ -11,7 +11,7 @@
  * per-entry components in a follow-up). The renderer talks only to this seam.
  */
 
-import { serializeConversation } from "@earendil-works/pi-coding-agent";
+import { serializeConversation, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { AgentConfigLookup } from "#src/config/agent-types";
 import type { SubagentStatus } from "#src/lifecycle/subagent-state";
 import type { AgentSessionEvent, SessionMessage, SubagentType } from "#src/types";
@@ -33,6 +33,7 @@ export interface NavigableSubagent {
   readonly agentMessages: readonly SessionMessage[];
   isSessionReady(): boolean;
   subscribeToUpdates(fn: (event: AgentSessionEvent) => void): (() => void) | undefined;
+  getToolDefinition(name: string): ToolDefinition | undefined;
 }
 
 /** A navigable entry: a record plus the label shown in the picker. */
@@ -55,6 +56,8 @@ export interface TranscriptSource {
   subscribe(onChange: () => void): (() => void) | undefined;
   /** Running-agent streaming state, or undefined when not streaming. */
   streaming(): StreamingState | undefined;
+  /** Resolve a registered tool definition by name, for Pi's tool-execution components. */
+  getToolDefinition(name: string): ToolDefinition | undefined;
 }
 
 /** Filter the agents to those with a viewable session and label each for the picker. */
@@ -76,6 +79,7 @@ export function liveSource(record: NavigableSubagent): TranscriptSource {
       record.status === "running"
         ? { activeTools: record.activeTools, responseText: record.responseText }
         : undefined,
+    getToolDefinition: (name) => record.getToolDefinition(name),
   };
 }
 
