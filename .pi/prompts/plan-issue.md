@@ -70,6 +70,9 @@ Before starting fresh, check whether prior sessions have already done work on th
 3. If prior stage entries exist (e.g., a "Stage: Planning" entry from an earlier attempt), factor them into your approach.
    Do not repeat work that was already completed unless explicitly asked.
 4. If no retro file exists, this is the first session on this issue — proceed normally.
+5. If this issue is a release-batch **tail** (its roadmap step is the last member of a `Release: batch "<name>"`), also read the retros of the earlier batch members for work they explicitly deferred to the tail (e.g. a doc refresh deferred from a predecessor).
+   Fold any such deferred work into this plan's `Module-Level Changes`.
+   Refs #441.
 
 ## Decide
 

@@ -66,6 +66,8 @@ Proceed to "Summarize."
 Include the verdict and WARN findings in the stage notes under a "Reviewer warnings" line.
 The user can decide whether to address warnings before running `/ship-issue`.
 
+When a WARN names stale references to a deleted symbol or module, grep the flagged file (and its sibling docs) exhaustively for every instance of that symbol before fixing — fixing only the named instances invites a second WARN round (Refs #441).
+
 ### Overall: FAIL
 
 Stop — do not proceed to "Summarize" or "Write stage notes."

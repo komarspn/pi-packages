@@ -43,3 +43,43 @@ All checks green: 62 test files / 950 tests, `fallow dead-code` clean, `fallow d
 - `makeMenuManager` was removed whole (not just its `spawnAndWait` relay) because its only post-cut consumer was its own self-test — exactly the right call, consistent with the planning decision.
 - Final file count in `src/`: 57 (was 58 in SKILL.md header; now corrected).
 - Pre-completion reviewer: **PASS** (third dispatch, after two WARN rounds on the stale doc sections).
+
+## Stage: Final Retrospective (2026-06-23T18:30:00Z)
+
+### Session summary
+
+Shipped #441 as the tail of release batch "dissolve-agents": pushed, CI green, closed both #441 and the stacked #442, merged release-please PR #469, and cut `pi-subagents-v18.0.0`.
+The whole arc (plan → build → ship) executed in one session with no rework to the deletion itself — the only friction was doc staleness inherited from #442, caught by the pre-completion reviewer across two WARN rounds.
+
+### Observations
+
+#### What went well
+
+- The fresh-context `pre-completion-reviewer` earned its keep on a deletion task: it caught five stale `architecture.md` sections (a domain Mermaid diagram, a cross-extension diagram label, and three prose passages) that referenced modules deleted in #442, none of which the plan or the implementation agent flagged.
+  Doc staleness is exactly the category a focused deletion misses, and the reviewer is the safety net that held.
+- Batch-tail release mechanics worked exactly as planned: a `refactor(pi-subagents):` tail commit carried no version weight itself, the unreleased `feat(pi-subagents)!:` from #442 (`cb813f2c`) drove the major bump, and `release-please` cut `v18.0.0` cleanly while both issues closed with curated comments.
+
+#### What caused friction (agent side)
+
+1. `missing-context` (cross-session) — `#442`'s retro explicitly deferred a "holistic architecture-doc refresh" to the batch tail (#441), but #441's planning stage never pulled that deferred work into the plan's `Module-Level Changes` doc scope.
+   The `/plan-issue` "Check for prior session context" step reads only the **current** issue's retro (`NNNN` matching the issue number), so a predecessor batch member's deferred work is invisible to it.
+   Impact: three extra doc-fixup commits (`e440d0d1`, `04b13812`, and the `SKILL.md` file-count fix) and three pre-completion reviewer dispatches (two WARN, then PASS) during the build stage.
+2. `wrong-abstraction` (fix scope) — after the first reviewer WARN named three stale sections, the fix addressed exactly those three rather than grepping `architecture.md` exhaustively for every reference to the deleted modules (`conversation-viewer`, `agent-menu`, `/agents`).
+   Impact: the second review round found two more stale sections, forcing another fix → commit → re-review cycle that one exhaustive grep would have collapsed into the first round.
+
+#### What caused friction (user side)
+
+- None substantive.
+  The user's two `Continue.` prompts during the build stage were mechanical resumptions (after an autoformat tool message and a context boundary), not redirections — the work was well-specified by the plan throughout.
+
+### Diagnostic details
+
+- **Model-performance correlation** — the `pre-completion-reviewer` ran on `anthropic/claude-sonnet-4-6` (per its agent frontmatter), an appropriate match for judgment-heavy doc-staleness and design review; no high-cost-model-on-mechanical-work or weak-model-on-judgment mismatch.
+  No other subagents were dispatched.
+- **Unused-tool detection** — friction point 2 was a `grep`/`colgrep` gap: an exhaustive search for the deleted-module names across `architecture.md` after the first WARN would have surfaced all five stale references in one pass instead of two.
+- **Feedback-loop gap analysis** — no gap; verification ran incrementally (baseline `check`/`lint` before edits, then `check`/`test`/`lint`/`fallow dead-code`/`fallow dupes` after each step, then the reviewer), not bunched at the end.
+
+### Changes made
+
+1. `.pi/prompts/plan-issue.md` — added step 5 to "Check for prior session context": a release-batch tail plan must read earlier batch members' retros for deferred work and fold it into `Module-Level Changes`.
+2. `.pi/skills/pre-completion/SKILL.md` — added a line under "Overall: WARN": when a WARN names stale references to a deleted symbol, grep the file exhaustively for every instance before fixing, to avoid a second WARN round.
