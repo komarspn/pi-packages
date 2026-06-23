@@ -184,22 +184,22 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // ---- /subagents-settings command ----
+  // ---- /subagents:settings command ----
 
   const subagentsSettings = new SubagentsSettingsHandler(settings);
 
-  pi.registerCommand("subagents-settings", {
+  pi.registerCommand("subagents:settings", {
     description: "Configure subagent settings (concurrency, turn limits)",
     handler: async (_args, ctx) => {
       await subagentsSettings.handle({ ui: ctx.ui });
     },
   });
 
-  // ---- /subagent-sessions command ----
+  // ---- /subagents:sessions command ----
 
   const sessionNavigator = new SessionNavigatorHandler();
 
-  pi.registerCommand("subagent-sessions", {
+  pi.registerCommand("subagents:sessions", {
     description: "View a subagent's session transcript (read-only)",
     handler: async (_args, ctx) => {
       await sessionNavigator.handle({

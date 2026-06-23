@@ -1,5 +1,5 @@
 /**
- * session-navigator.ts — The `/subagent-sessions` command: pick a subagent and
+ * session-navigator.ts — The `/subagents:sessions` command: pick a subagent and
  * read its transcript through Pi's own per-entry session components.
  *
  * SDK/TUI consumer half of native session navigation. The unit-testable core
@@ -65,7 +65,7 @@ export interface SessionNavigatorUI {
   custom<R>(component: OverlayComponentFactory<R>, options?: unknown): Promise<R>;
 }
 
-/** Parameters for one `/subagent-sessions` invocation. */
+/** Parameters for one `/subagents:sessions` invocation. */
 export interface SessionNavigatorParams {
   ui: SessionNavigatorUI;
   agents: readonly NavigableSubagent[];
@@ -89,7 +89,7 @@ export interface TranscriptOverlayOptions {
 }
 
 /**
- * Handler for the `/subagent-sessions` slash command.
+ * Handler for the `/subagents:sessions` slash command.
  *
  * Lists navigable subagents, lets the operator pick one, and opens its transcript
  * read-only. Receives the agent snapshot (`manager.listAgents()`) rather than the

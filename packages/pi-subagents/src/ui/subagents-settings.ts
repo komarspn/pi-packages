@@ -1,6 +1,6 @@
 // ---- Narrow interfaces ----
 
-/** Narrow settings interface required by the subagents-settings command. */
+/** Narrow settings interface required by the subagents:settings command. */
 export interface SubagentsSettingsManager {
   readonly maxConcurrent: number;
   readonly defaultMaxTurns: number | undefined;
@@ -20,7 +20,7 @@ export interface SubagentsSettingsUI {
 // ---- Class ----
 
 /**
- * Handler for the `/subagents-settings` slash command.
+ * Handler for the `/subagents:settings` slash command.
  *
  * Call `handle({ ui })` from the Pi command registration to open the interactive
  * settings list. Lifted from `AgentsMenuHandler.showSettings`.

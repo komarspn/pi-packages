@@ -1,7 +1,7 @@
 /**
  * session-navigation.ts — Pure selection and transcript-sourcing for native session navigation.
  *
- * Splits the unit-testable core of the `/subagent-sessions` command from its TUI
+ * Splits the unit-testable core of the `/subagents:sessions` command from its TUI
  * wiring (`session-navigator.ts`): which subagents are navigable and how a picked
  * agent's transcript is sourced (live, in this slice).
  *

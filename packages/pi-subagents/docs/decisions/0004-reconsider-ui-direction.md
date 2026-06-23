@@ -255,6 +255,23 @@ The cleanup sweep instead stashes a lightweight `EvictedSubagent` descriptor (la
 This covers in-session evictions — the sweep's only targets, since a fresh manager per session never reloads prior-process subagents.
 The "render from the file snapshot" mechanism for an evicted agent (above) is unchanged; only the candidate-set _enumeration_ is pinned to descriptors.
 
+## Addendum 3 (2026-06-23): adopt the `subagents:` colon namespace, superseding Criterion 4
+
+This addendum reverses **Criterion 4**, which confirmed flat, hyphenated command names (`/subagents-settings`) and rejected `/subagents:settings`.
+The two registered commands are renamed: `/subagents-settings` → `/subagents:settings` and `/subagent-sessions` → `/subagents:sessions`.
+This is a breaking change to the command surface.
+
+**Why revise.**
+Criterion 4 surveyed only in-repo siblings (`agents`, `colgrep-reindex`, `permission-system`) and concluded a `:` namespace would be inconsistent with every existing command.
+That survey missed the broader Pi ecosystem: `@eko24ive/pi-ask` establishes the colon convention with `answer:again` and `ask:replay`, grouping a package's commands under a shared prefix.
+The colon namespace reads as a deliberate grouping gesture (`subagents:settings`, `subagents:sessions` clearly belong to one package) where the hyphen form blurs into an ordinary command name.
+The newer ecosystem signal outweighs the original in-repo-only consistency argument.
+
+**Scope.**
+This change is pi-subagents-only.
+Whether the colon convention becomes repo-wide (renaming `colgrep-reindex`, `permission-system`, etc.) is deferred — not decided here.
+`/agents` is intentionally left flat: it is slated for removal in the Phase 18 / Step 5 menu retirement, so namespacing it would be churn on a command being deleted.
+
 [#444]: https://github.com/gotgenes/pi-packages/issues/444
 [#445]: https://github.com/gotgenes/pi-packages/issues/445
 [#446]: https://github.com/gotgenes/pi-packages/issues/446
