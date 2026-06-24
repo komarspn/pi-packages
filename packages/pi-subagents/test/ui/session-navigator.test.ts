@@ -3,8 +3,9 @@ import type { Component, TUI } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { AgentTypeRegistry } from "#src/config/agent-types";
 import type { SessionMessage } from "#src/types";
-import type { NavigableSubagent, TranscriptSource } from "#src/ui/session-navigation";
+import type { TranscriptSource } from "#src/ui/session-navigation";
 import { SessionNavigatorHandler, TranscriptOverlay } from "#src/ui/session-navigator";
+import { makeNavigable } from "#test/helpers/make-navigable";
 
 const registry = new AgentTypeRegistry(() => new Map());
 
@@ -42,25 +43,6 @@ function makeOverlay(opts: { source?: TranscriptSource; done?: (r: undefined) =>
     cwd: "/test/cwd",
     markdownTheme: getMarkdownTheme(),
   });
-}
-
-function makeNavigable(overrides: Partial<NavigableSubagent> = {}): NavigableSubagent {
-  return {
-    id: "agent-1",
-    type: "general-purpose",
-    description: "Test task",
-    status: "completed",
-    startedAt: 1000,
-    completedAt: 4000,
-    toolUses: 2,
-    activeTools: new Map(),
-    responseText: "",
-    agentMessages: [],
-    isSessionReady: () => true,
-    subscribeToUpdates: vi.fn(() => () => {}),
-    getToolDefinition: vi.fn(() => undefined),
-    ...overrides,
-  };
 }
 
 describe("TranscriptOverlay", () => {

@@ -3,6 +3,7 @@ import { AgentTypeRegistry } from "#src/config/agent-types";
 import type { EvictedSubagent } from "#src/lifecycle/subagent-manager";
 import type { SessionMessage } from "#src/types";
 import { fileSnapshotSource, listNavigableAgents, liveSource, type NavigableSubagent, type TranscriptSource } from "#src/ui/session-navigation";
+import { makeNavigable } from "#test/helpers/make-navigable";
 
 const registry = new AgentTypeRegistry(() => new Map());
 
@@ -16,25 +17,6 @@ function makeEvicted(overrides: Partial<EvictedSubagent> = {}): EvictedSubagent 
     completedAt: 4000,
     toolUses: 5,
     outputFile: "/tasks/evicted-1.jsonl",
-    ...overrides,
-  };
-}
-
-function makeNavigable(overrides: Partial<NavigableSubagent> = {}): NavigableSubagent {
-  return {
-    id: "agent-1",
-    type: "general-purpose",
-    description: "Test task",
-    status: "completed",
-    startedAt: 1000,
-    completedAt: 4000,
-    toolUses: 2,
-    activeTools: new Map(),
-    responseText: "",
-    agentMessages: [],
-    isSessionReady: () => true,
-    subscribeToUpdates: vi.fn(() => () => {}),
-    getToolDefinition: vi.fn(() => undefined),
     ...overrides,
   };
 }
