@@ -18,7 +18,7 @@ Run them in foreground or background, steer them mid-run, resume completed sessi
 - **In-process & native** — agents run inside the same pi runtime (no spawned subprocesses), sharing tool names, calling conventions, and UI patterns (`subagent`, `get_subagent_result`, `steer_subagent`) — feels native
 - **Parallel background agents** — spawn multiple agents that run concurrently with automatic queuing (configurable concurrency limit, default 4) and individual completion notifications
 - **Live widget UI** — persistent above-editor widget with animated spinners, live tool activity, token counts, and colored status icons
-- **Conversation viewer** — select any agent in `/agents` to open a live-scrolling overlay of its full conversation (auto-follows new content, scroll up to pause)
+- **Session transcripts** — open any subagent's full session transcript (running or evicted) in pi's native read-only viewer via `/subagents:sessions`
 - **Custom agent types** — define agents in `.pi/agents/<name>.md` with YAML frontmatter: custom system prompts, model selection, thinking levels, tool restrictions
 - **Mid-run steering** — inject messages into running agents to redirect their work without restarting
 - **Session resume** — pick up where an agent left off, preserving full conversation context
@@ -116,7 +116,7 @@ The LLM receives structured `<task-notification>` XML for parsing, while the use
 The `general-purpose` agent is a **parent twin** — it receives the parent's entire system prompt plus a sub-agent context bridge, so it follows the same rules the parent does.
 Explore and Plan use `replace` mode: the parent prompt is the cacheable base and their specialist read-only instructions are appended last, giving them the final say.
 
-Default agents can be **ejected** (`/agents` → select agent → Eject) to export them as `.md` files for customization, **overridden** by creating a `.md` file with the same name (e.g. `.pi/agents/general-purpose.md`), or **disabled** per-project with `enabled: false` frontmatter.
+Default agents can be **overridden** by creating a `.md` file with the same name (e.g. `.pi/agents/general-purpose.md`), or **disabled** per-project with `enabled: false` frontmatter.
 
 ## Custom Agents
 
@@ -223,31 +223,22 @@ The message interrupts after the current tool execution.
 
 ## Commands
 
-| Command   | Description                       |
-| --------- | --------------------------------- |
-| `/agents` | Interactive agent management menu |
+| Command               | Description                                            |
+| --------------------- | ------------------------------------------------------ |
+| `/subagents:settings` | Configure subagent settings (concurrency, turn limits) |
+| `/subagents:sessions` | View a subagent's session transcript (read-only)       |
 
-The `/agents` command opens an interactive menu:
+### `/subagents:settings`
 
-```text
-Running agents (2) — 1 running, 1 done     ← only shown when agents exist
-Agent types (6)                             ← unified list: defaults + custom
-Create new agent                            ← manual wizard or AI-generated
-Settings                                    ← max concurrency, max turns, grace turns
-```
+Interactive list to tune runtime settings — max concurrency, default max turns, and grace turns.
+Changes persist across pi restarts (see [Persistent Settings](#persistent-settings)).
 
-- **Agent types** — unified list with source indicators: `•` (project), `◦` (global), `✕` (disabled).
-  Select an agent to manage it:
-  - **Default agents** (no override): Eject (export as `.md`), Disable
-  - **Default agents** (ejected/overridden): Edit, Disable, Reset to default, Delete
-  - **Custom agents**: Edit, Disable, Delete
-  - **Disabled agents**: Enable, Edit, Delete
-- **Eject** — writes the embedded default config as a `.md` file to project or personal location, so you can customize it
-- **Disable/Enable** — toggle agent availability.
-  Disabled agents stay visible in the list (marked `✕`) and can be re-enabled
-- **Create new agent** — choose project/personal location, then manual wizard (step-by-step prompts for name, tools, model, thinking, system prompt) or AI-generated (describe what the agent should do and a sub-agent writes the `.md` file).
-  Any name is allowed, including default agent names (overrides them)
-- **Settings** — configure max concurrency, default max turns, and grace turns at runtime
+### `/subagents:sessions`
+
+Pick any subagent — running or already evicted — and read its full session transcript in pi's native per-entry viewer.
+Read-only: no steering, no session takeover (steering lives in the `steer_subagent` tool and the background widget).
+
+Creating and editing agent definitions is not a command — write an agent `.md` file in your editor, or ask a pi session to generate one (see [Custom Agents](#custom-agents)).
 
 ## Graceful Max Turns
 
@@ -274,13 +265,13 @@ Foreground agents bypass the queue — they block the parent anyway.
 
 ## Persistent Settings
 
-Runtime tuning values set via `/agents` → Settings (max concurrency, default max turns, grace turns) persist across pi restarts.
+Runtime tuning values set via `/subagents:settings` (max concurrency, default max turns, grace turns) persist across pi restarts.
 Two files, merged on load:
 
 - **Global:** `~/.pi/agent/subagents.json` — your machine-wide defaults.
-  Edit by hand; the `/agents` menu never writes here.
+  Edit by hand; the `/subagents:settings` command never writes here.
 - **Project:** `<cwd>/.pi/subagents.json` — per-project overrides.
-  Written by `/agents` → Settings.
+  Written by `/subagents:settings`.
 
 **Precedence:** project overrides global on any field present in both.
 Missing fields fall back to the hardcoded defaults (max concurrency `4`, default max turns unlimited, grace turns `5`).
@@ -297,10 +288,10 @@ cat > ~/.pi/agent/subagents.json <<'EOF'
 EOF
 ```
 
-Every project now starts with concurrency 16 and grace 10, without ever touching the menu.
-Individual projects can still override via `/agents` → Settings.
+Every project now starts with concurrency 16 and grace 10, without ever touching the command.
+Individual projects can still override via `/subagents:settings`.
 
-**Failure behavior:** missing file is silent; malformed JSON logs a `[pi-subagents] Ignoring malformed settings at …` warning to stderr; invalid/out-of-range field values are dropped per-field; write failures downgrade the `/agents` toast to a warning with `(session only; failed to persist)`.
+**Failure behavior:** missing file is silent; malformed JSON logs a `[pi-subagents] Ignoring malformed settings at …` warning to stderr; invalid/out-of-range field values are dropped per-field; write failures downgrade the `/subagents:settings` toast to a warning with `(session only; failed to persist)`.
 
 ## Events
 
@@ -315,7 +306,7 @@ Agent lifecycle events are emitted via `pi.events.emit()` so other extensions ca
 | `subagents:steered`          | Steering message sent                                   | `id`, `message`                                                                                                      |
 | `subagents:compacted`        | Agent's session successfully compacted                  | `id`, `type`, `description`, `reason` (`"manual"` / `"threshold"` / `"overflow"`), `tokensBefore`, `compactionCount` |
 | `subagents:settings_loaded`  | Persisted settings applied at extension init            | `settings` (merged global + project)                                                                                 |
-| `subagents:settings_changed` | `/agents` → Settings mutation was applied               | `settings`, `persisted` (`boolean` — `false` on write failure)                                                       |
+| `subagents:settings_changed` | `/subagents:settings` mutation was applied              | `settings`, `persisted` (`boolean` — `false` on write failure)                                                       |
 
 `tokens.total` = `input + output + cacheWrite`.
 `cacheRead` is excluded — each turn's `cacheRead` is the cumulative cached prefix re-read on that one API call, so summing per-message would over-count it.
