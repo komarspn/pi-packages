@@ -83,3 +83,15 @@ The whole arc (plan → build → ship) executed in one session with no rework t
 
 1. `.pi/prompts/plan-issue.md` — added step 5 to "Check for prior session context": a release-batch tail plan must read earlier batch members' retros for deferred work and fold it into `Module-Level Changes`.
 2. `.pi/skills/pre-completion/SKILL.md` — added a line under "Overall: WARN": when a WARN names stale references to a deleted symbol, grep the file exhaustively for every instance before fixing, to avoid a second WARN round.
+
+### Post-commit follow-up — stale `README.md`
+
+After the retro commit, the user caught that `packages/pi-subagents/README.md` still documents the removed `/agents` command and conversation viewer and omits `/subagents:settings` and `/subagents:sessions` — a published, user-facing miss that shipped in `pi-subagents-v18.0.0`.
+
+- `missing-context` (cross-session, user-caught) — the README was stale from #442's deletions (it documents `/agents`, not the module `agent-menu.ts`) and was never folded into #442's or #441's plan.
+  The pre-completion reviewer's README check keyed on module names, not the command names a README actually documents, so a module-name match missed it.
+  Impact: a user-facing doc defect shipped to npm; tracked as a follow-up in #470 (recommend `/plan-issue`).
+
+3. Filed #470 to rewrite the stale `README.md` (removed `/agents` surface, missing `/subagents:` commands, eject UI gone).
+4. `.pi/prompts/plan-issue.md` — `Module-Level Changes`: when a change adds, removes, or renames a slash command or user-facing feature, grep `packages/<PKG>/README.md` for the command/feature name (the `src/`-symbol grep misses command names).
+5. `.pi/agents/pre-completion-reviewer.md` — broadened the forward-doc README check: when a change removes or renames a slash command or user-facing feature, grep the package `README.md` for the command/feature name, not just module names.
