@@ -258,8 +258,8 @@ describe("cwdRelativePolicyValues", () => {
     ).toEqual(["src/a.ts"]);
   });
 
-  test("has no alias for cwd itself", () => {
-    expect(cwdRelativePolicyValues(cwd, cwd, posixPathFlavor)).toEqual([]);
+  test("aliases cwd itself as the project root", () => {
+    expect(cwdRelativePolicyValues(cwd, cwd, posixPathFlavor)).toEqual(["."]);
   });
 
   test("has no alias for a path outside cwd", () => {

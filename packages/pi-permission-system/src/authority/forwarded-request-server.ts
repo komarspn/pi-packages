@@ -203,6 +203,12 @@ function buildServedDecisionEvent(
       forSession:
         decision.state === "approved_for_session" ||
         decision.state === "approved_for_serving_session",
+      persistentApprovalScope:
+        decision.state === "approved_for_project"
+          ? "project"
+          : decision.state === "approved_globally"
+            ? "global"
+            : undefined,
     }),
     origin: null,
     matchedPattern: null,

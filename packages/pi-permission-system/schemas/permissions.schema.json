@@ -46,6 +46,14 @@
           "description": "Key that approves for the session in both directions. Default: b.",
           "type": "string"
         },
+        "approveProject": {
+          "description": "Key that approves always for this project. Default: p.",
+          "type": "string"
+        },
+        "approveGlobal": {
+          "description": "Key that approves always for all projects. Default: g.",
+          "type": "string"
+        },
         "deny": {
           "description": "Key that denies the pending call. Default: n.",
           "type": "string"

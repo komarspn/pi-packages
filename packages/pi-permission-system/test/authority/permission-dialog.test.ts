@@ -123,7 +123,7 @@ describe("requestPermissionDecisionFromUi", () => {
     expect(result).toEqual({ approved: false, state: "denied" });
   });
 
-  it("passes four options to ui.select", async () => {
+  it("passes six options to ui.select", async () => {
     const selectFn = vi.fn().mockResolvedValue("Yes");
     const ui: PermissionDecisionUi = {
       select: selectFn,
@@ -134,6 +134,8 @@ describe("requestPermissionDecisionFromUi", () => {
     expect(options).toEqual([
       "Yes",
       "Yes, for this session",
+      "Yes, always for this project",
+      "Yes, always for all projects",
       "No",
       "No, provide reason",
     ]);
@@ -194,6 +196,8 @@ describe("requestPermissionDecisionFromUi", () => {
         "Yes",
         'Yes, allow writes to "/tmp/*" for this session',
         sessionWidth.label,
+        "Yes, always for this project",
+        "Yes, always for all projects",
         "No",
         "No, provide reason",
       ]);

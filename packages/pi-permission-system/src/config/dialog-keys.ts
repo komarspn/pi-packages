@@ -16,6 +16,8 @@ export type PromptAction =
   | "approve"
   | "approveSession"
   | "approveSessionBoth"
+  | "approveProject"
+  | "approveGlobal"
   | "deny"
   | "denyWithReason";
 
@@ -42,6 +44,8 @@ const ACTION_ORDER: readonly PromptAction[] = [
   "approve",
   "approveSession",
   "approveSessionBoth",
+  "approveProject",
+  "approveGlobal",
   "deny",
   "denyWithReason",
 ];
@@ -51,6 +55,8 @@ export const DEFAULT_DIALOG_KEYS: DialogKeyBindings = {
   approve: "y",
   approveSession: "s",
   approveSessionBoth: "b",
+  approveProject: "p",
+  approveGlobal: "g",
   deny: "n",
   denyWithReason: "r",
 };

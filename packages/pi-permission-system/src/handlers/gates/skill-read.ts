@@ -2,6 +2,7 @@ import type { SkillPromptEntry } from "#src/exposure/skill-prompt-sanitizer";
 import { findSkillPathMatch } from "#src/exposure/skill-prompt-sanitizer";
 import type { PathNormalizer } from "#src/path/path-normalizer";
 import { buildSkillPathAskPayload } from "#src/presentation/skill-ask-payload";
+import { SessionApproval } from "#src/session/session-approval";
 import { toRecord } from "#src/value-guards";
 import type { GateDescriptor } from "./descriptor";
 import { accessFactsFromValue } from "./helpers";
@@ -68,6 +69,7 @@ export function describeSkillReadGate(
       surface: "skill",
       value: matchedSkill.name,
     },
+    sessionApproval: SessionApproval.single("skill", matchedSkill.name),
     preResolved: {
       state: matchedSkill.state,
     },

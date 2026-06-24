@@ -105,6 +105,7 @@ describe("resolveDialogKeys", () => {
         }),
       ).toEqual({
         keys: {
+          ...DEFAULT_DIALOG_KEYS,
           approve: "1",
           approveSession: "2",
           approveSessionBoth: "3",

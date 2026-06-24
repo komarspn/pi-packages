@@ -212,7 +212,14 @@ describe("presentInlinePermissionPrompt", () => {
   it("renders the decision options in the model's display order", () => {
     const { view, captured } = makeFakeView(true);
     void presentInlinePermissionPrompt(view, "Permission Required", ASK);
-    expect(decisionOptionKeys(captured)).toEqual(["y", "s", "n", "r"]);
+    expect(decisionOptionKeys(captured)).toEqual([
+      "y",
+      "s",
+      "p",
+      "g",
+      "n",
+      "r",
+    ]);
   });
 
   it("clips every rendered line to the terminal width", () => {
@@ -266,6 +273,7 @@ describe("presentInlinePermissionPrompt", () => {
 
   describe("configured hotkey bindings", () => {
     const DIGITS = {
+      ...DEFAULT_DIALOG_KEYS,
       approve: "1",
       approveSession: "2",
       approveSessionBoth: "3",
@@ -282,7 +290,14 @@ describe("presentInlinePermissionPrompt", () => {
     it("renders each decision row with its configured binding", () => {
       const { view, captured } = makeFakeView(true, { dialogKeys: DIGITS });
       void presentInlinePermissionPrompt(view, "Permission Required", ASK);
-      expect(decisionOptionKeys(captured)).toEqual(["1", "2", "4", "5"]);
+      expect(decisionOptionKeys(captured)).toEqual([
+        "1",
+        "2",
+        "p",
+        "g",
+        "4",
+        "5",
+      ]);
     });
 
     it("commits the decision whose configured binding was pressed", async () => {
@@ -358,8 +373,16 @@ describe("presentInlinePermissionPrompt", () => {
 
   describe("navigation and escape", () => {
     it("resolves the highlighted option on enter", async () => {
-      // y -> s -> n, then enter
-      expect(await runPrompt(true, [ARROW_DOWN, ARROW_DOWN, ENTER])).toEqual({
+      // y -> s -> p -> g -> n, then enter
+      expect(
+        await runPrompt(true, [
+          ARROW_DOWN,
+          ARROW_DOWN,
+          ARROW_DOWN,
+          ARROW_DOWN,
+          ENTER,
+        ]),
+      ).toEqual({
         approved: false,
         state: "denied",
       });
@@ -767,7 +790,15 @@ describe("presentInlinePermissionPrompt", () => {
         sessionLabel: 'Yes, allow writes to "/tmp/*" for this session',
         sessionWidth,
       });
-      expect(decisionOptionKeys(captured)).toEqual(["y", "s", "b", "n", "r"]);
+      expect(decisionOptionKeys(captured)).toEqual([
+        "y",
+        "s",
+        "b",
+        "p",
+        "g",
+        "n",
+        "r",
+      ]);
       expect(captured.component?.render(120).join("\n")).toContain(
         sessionWidth.label,
       );
@@ -776,7 +807,14 @@ describe("presentInlinePermissionPrompt", () => {
     it("renders no width row for an ask that is not widenable", () => {
       const { view, captured } = makeFakeView(true);
       void presentInlinePermissionPrompt(view, "Permission Required", ASK);
-      expect(decisionOptionKeys(captured)).toEqual(["y", "s", "n", "r"]);
+      expect(decisionOptionKeys(captured)).toEqual([
+        "y",
+        "s",
+        "p",
+        "g",
+        "n",
+        "r",
+      ]);
     });
 
     it("commits the family width on the b hotkey", async () => {

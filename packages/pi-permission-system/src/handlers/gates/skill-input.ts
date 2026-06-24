@@ -1,4 +1,5 @@
 import { buildSkillAskPayload } from "#src/presentation/skill-ask-payload";
+import { SessionApproval } from "#src/session/session-approval";
 import type { PermissionCheckResult } from "#src/types";
 import type { GateDescriptor } from "./descriptor";
 import { accessFactsFromValue } from "./helpers";
@@ -17,6 +18,7 @@ export function describeSkillInputGate(
 ): GateDescriptor {
   const payload = buildSkillAskPayload(skillName, agentName);
   return {
+    sessionApproval: SessionApproval.single("skill", skillName),
     surface: "skill",
     input: { name: skillName },
     preCheck,

@@ -180,7 +180,7 @@ describe("reducePrompt", () => {
     it("wraps the highlight from the last option back to the first", () => {
       const config = makeConfig();
       let state = initialPromptState(config);
-      for (const _ of [0, 1, 2, 3]) {
+      for (const _ of [0, 1, 2, 3, 4, 5]) {
         const outcome = reducePrompt(config, state, {
           type: "nav",
           direction: "up",
@@ -188,7 +188,7 @@ describe("reducePrompt", () => {
         assertRender(outcome);
         state = outcome.state;
       }
-      // up from y wraps to r, then walks r→n→s→y over four presses
+      // Six upward moves complete one cycle.
       expect(state.highlightedAction).toBe("approve");
     });
 
@@ -199,13 +199,23 @@ describe("reducePrompt", () => {
         direction: "down",
       });
       assertRender(down);
-      // highlight is now s; move once more to n
+      // The next option is the project approval.
       const down2 = reducePrompt(config, down.state, {
         type: "nav",
         direction: "down",
       });
       assertRender(down2);
-      const outcome = reducePrompt(config, down2.state, { type: "confirm" });
+      const down3 = reducePrompt(config, down2.state, {
+        type: "nav",
+        direction: "down",
+      });
+      assertRender(down3);
+      const down4 = reducePrompt(config, down3.state, {
+        type: "nav",
+        direction: "down",
+      });
+      assertRender(down4);
+      const outcome = reducePrompt(config, down4.state, { type: "confirm" });
       expect(outcome).toEqual({
         kind: "decision",
         decision: { approved: false, state: "denied" },
@@ -419,12 +429,16 @@ describe("reducePrompt", () => {
         "approve",
         "approveSession",
         "approveSessionBoth",
+        "approveProject",
+        "approveGlobal",
         "deny",
         "denyWithReason",
       ]);
       expect(visibleActions(makeConfig())).toEqual([
         "approve",
         "approveSession",
+        "approveProject",
+        "approveGlobal",
         "deny",
         "denyWithReason",
       ]);
@@ -490,11 +504,11 @@ describe("reducePrompt", () => {
       });
     });
 
-    it("walks five options when the width option is offered", () => {
+    it("walks seven options when the width option is offered", () => {
       const config = makeConfig({ widthLabel });
       let state = initialPromptState(config);
       const seen: string[] = [];
-      for (const _ of [0, 1, 2, 3, 4]) {
+      for (const _ of [0, 1, 2, 3, 4, 5, 6]) {
         const outcome = reducePrompt(config, state, {
           type: "nav",
           direction: "down",
@@ -506,6 +520,8 @@ describe("reducePrompt", () => {
       expect(seen).toEqual([
         "approveSession",
         "approveSessionBoth",
+        "approveProject",
+        "approveGlobal",
         "deny",
         "denyWithReason",
         "approve",
@@ -516,7 +532,7 @@ describe("reducePrompt", () => {
       const config = makeConfig();
       let state = initialPromptState(config);
       const seen: string[] = [];
-      for (const _ of [0, 1, 2, 3]) {
+      for (const _ of [0, 1, 2, 3, 4, 5]) {
         const outcome = reducePrompt(config, state, {
           type: "nav",
           direction: "down",
@@ -527,6 +543,8 @@ describe("reducePrompt", () => {
       }
       expect(seen).toEqual([
         "approveSession",
+        "approveProject",
+        "approveGlobal",
         "deny",
         "denyWithReason",
         "approve",
@@ -624,6 +642,7 @@ describe("reducePrompt", () => {
 
   describe("bound characters", () => {
     const REMAPPED = {
+      ...DEFAULT_DIALOG_KEYS,
       approve: "1",
       approveSession: "2",
       approveSessionBoth: "3",

@@ -55,6 +55,7 @@ import { resolveRenderBudget } from "#src/presentation/dialog-renderer";
 import { LocalPermissionsService } from "#src/service/permissions-service";
 import { PermissionServiceLifecycle } from "#src/service/service-lifecycle";
 import { PermissionSession } from "#src/session/permission-session";
+import { PersistentApprovalRecorder } from "#src/session/persistent-approval-recorder";
 import { SessionRules } from "#src/session/session-rules";
 import { registerBuiltinToolInputFormatters } from "#src/tool-input/builtin-tool-input-formatters";
 import { ToolAccessExtractorRegistry } from "#src/tool-input/tool-access-extractor-registry";
@@ -352,6 +353,11 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
     authorizerSelection,
     reporter,
     isYoloEnabled,
+    new PersistentApprovalRecorder({
+      agentDir,
+      getCwd: () => session.getRuntimeContext()?.cwd,
+      logger,
+    }),
   );
   // This node's ancestors in the current process. The gates read their
   // fact-shaping registrations through the inheriting lookups below, so a

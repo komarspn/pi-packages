@@ -7,6 +7,7 @@ export interface DecisionOutcome {
   approved: boolean;
   /** Whether the approval was scoped to the rest of the session. */
   forSession: boolean;
+  persistentApprovalScope?: "project" | "global";
 }
 
 /**
@@ -64,5 +65,9 @@ function userResolution(
   if (!outcome.approved) {
     return "user_denied";
   }
+  if (outcome.persistentApprovalScope === "project")
+    return "user_approved_for_project";
+  if (outcome.persistentApprovalScope === "global")
+    return "user_approved_globally";
   return outcome.forSession ? "user_approved_for_session" : "user_approved";
 }

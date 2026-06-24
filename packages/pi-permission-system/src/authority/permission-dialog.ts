@@ -5,6 +5,8 @@ export type PermissionDecisionState =
   | "approved"
   | "approved_for_session"
   | "approved_for_serving_session"
+  | "approved_for_project"
+  | "approved_globally"
   | "denied"
   | "denied_with_reason";
 
@@ -129,6 +131,8 @@ export function isPermissionDecisionState(
     value === "approved" ||
     value === "approved_for_session" ||
     value === "approved_for_serving_session" ||
+    value === "approved_for_project" ||
+    value === "approved_globally" ||
     value === "denied" ||
     value === "denied_with_reason"
   );
@@ -179,6 +183,8 @@ export async function requestPermissionDecisionFromUi(
     APPROVE_OPTION,
     sessionOption,
     ...(widthOption ? [widthOption] : []),
+    "Yes, always for this project",
+    "Yes, always for all projects",
     DENY_OPTION,
     DENY_WITH_REASON_OPTION,
   ];
@@ -226,6 +232,13 @@ export async function requestPermissionDecisionFromUi(
       );
     }
     return sessionApproval("approved_for_session", width);
+  }
+
+  if (selected === "Yes, always for this project") {
+    return { approved: true, state: "approved_for_project" };
+  }
+  if (selected === "Yes, always for all projects") {
+    return { approved: true, state: "approved_globally" };
   }
 
   if (selected === DENY_WITH_REASON_OPTION) {

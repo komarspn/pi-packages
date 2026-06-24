@@ -182,4 +182,13 @@ describe("describeSkillReadGate", () => {
     ])!;
     expect(result.surface).toBe("skill");
   });
+
+  it("sets skill sessionApproval", () => {
+    const result = describeSkillReadGate(makeTcc(), normalizer, () => [
+      makeSkillEntry({ name: "librarian" }),
+    ])!;
+    expect(result.sessionApproval?.grants).toEqual([
+      { surface: "skill", pattern: "librarian" },
+    ]);
+  });
 });

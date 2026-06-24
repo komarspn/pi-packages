@@ -31,6 +31,8 @@ const OPTION_ORDER: readonly PromptAction[] = [
   "approve",
   "approveSession",
   "approveSessionBoth",
+  "approveProject",
+  "approveGlobal",
   "deny",
   "denyWithReason",
 ];
@@ -60,6 +62,8 @@ const OPTION_VERBS: Record<PromptAction, string> = {
   approve: "approve",
   approveSession: "approve for this session",
   approveSessionBoth: "approve both directions for this session",
+  approveProject: "approve always for this project",
+  approveGlobal: "approve always for all projects",
   deny: "deny",
   denyWithReason: "deny with a reason",
 };
@@ -221,6 +225,16 @@ function commit(
       return {
         kind: "decision",
         decision: { approved: true, state: "approved" },
+      };
+    case "approveProject":
+      return {
+        kind: "decision",
+        decision: { approved: true, state: "approved_for_project" },
+      };
+    case "approveGlobal":
+      return {
+        kind: "decision",
+        decision: { approved: true, state: "approved_globally" },
       };
     case "deny":
       return { kind: "decision", decision: createDeniedPermissionDecision() };

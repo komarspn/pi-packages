@@ -199,6 +199,8 @@ const DEFAULT_SESSION_LABEL = "Yes, for this session";
 const OPTION_LABELS: Record<PromptAction, string> = {
   approve: "Yes",
   approveSession: DEFAULT_SESSION_LABEL,
+  approveProject: "Yes, always for this project",
+  approveGlobal: "Yes, always for all projects",
   approveSessionBoth: "Yes, for this session in both directions",
   deny: "No",
   denyWithReason: "No, provide reason",

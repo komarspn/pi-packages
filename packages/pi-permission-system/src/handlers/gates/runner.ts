@@ -11,6 +11,7 @@ import {
   renderRefusal,
 } from "#src/presentation/agent-renderer";
 import { renderReviewLogFacts } from "#src/presentation/review-log-renderer";
+import type { PersistentApprovalRecorder } from "#src/session/persistent-approval-recorder";
 import type { SessionApprovalRecorder } from "#src/session/session-approval-recorder";
 import type {
   DecisionEventFacts,
@@ -43,6 +44,7 @@ export class GateRunner {
      * effect — the same closure `PermissionManager` receives.
      */
     private readonly isYoloEnabled: () => boolean,
+    private readonly persistentRecorder?: PersistentApprovalRecorder,
   ) {}
 
   /**
@@ -235,6 +237,10 @@ export class GateRunner {
         resolutionFor(gateResult.decidedBy, {
           approved: gateResult.action === "allow",
           forSession: sessionGrant !== undefined,
+          persistentApprovalScope:
+            gateResult.action === "allow"
+              ? gateResult.persistentApprovalScope
+              : undefined,
         }),
       ),
     );
@@ -244,6 +250,17 @@ export class GateRunner {
     if (sessionGrant && descriptor.sessionApproval) {
       this.recorder.recordSessionApproval(
         descriptor.sessionApproval.atWidth(sessionGrant.width),
+      );
+    }
+
+    if (
+      gateResult.action === "allow" &&
+      gateResult.persistentApprovalScope &&
+      descriptor.sessionApproval
+    ) {
+      this.persistentRecorder?.recordApproval(
+        gateResult.persistentApprovalScope,
+        descriptor.sessionApproval,
       );
     }
 

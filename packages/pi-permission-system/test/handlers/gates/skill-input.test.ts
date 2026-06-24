@@ -134,13 +134,15 @@ describe("describeSkillInputGate", () => {
     });
   });
 
-  it("does not set preResolved or sessionApproval", () => {
+  it("sets a skill approval without preResolved", () => {
     const descriptor = describeSkillInputGate(
       "librarian",
       null,
       makeSkillCheck("allow"),
     );
     expect(descriptor.preResolved).toBeUndefined();
-    expect(descriptor.sessionApproval).toBeUndefined();
+    expect(descriptor.sessionApproval?.grants).toEqual([
+      { surface: "skill", pattern: "librarian" },
+    ]);
   });
 });

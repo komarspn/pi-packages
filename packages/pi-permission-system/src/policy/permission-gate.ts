@@ -23,6 +23,7 @@ export type PermissionGateResult =
        * a width for a grant that never happened.
        */
       sessionGrant?: { width: SessionGrantWidth };
+      persistentApprovalScope?: "project" | "global";
     }
   | { action: "block"; decidedBy: DecisionSource; reason: string };
 
@@ -126,6 +127,15 @@ export async function applyPermissionGate(
         // Absent means the width every producer chose before #813.
         sessionGrant: { width: decision.sessionGrantWidth ?? "proven" },
       };
+    }
+    if (
+      params.canGrantForSession &&
+      decision.state === "approved_for_project"
+    ) {
+      return { action: "allow", decidedBy, persistentApprovalScope: "project" };
+    }
+    if (params.canGrantForSession && decision.state === "approved_globally") {
+      return { action: "allow", decidedBy, persistentApprovalScope: "global" };
     }
     return { action: "allow", decidedBy };
   }
