@@ -6,7 +6,7 @@ import { SubagentState, type SubagentStateInit } from "#src/lifecycle/subagent-s
 import type { Workspace, WorkspaceProvider } from "#src/lifecycle/workspace";
 import type { AgentInvocation, CompactionInfo, SubagentType } from "#src/types";
 import { makeStubExecution } from "#test/helpers/make-subagent";
-import { createMockSession, createSubagentSessionStub, toSubagentSession } from "#test/helpers/mock-session";
+import { createMockSession, createSubagentSessionStub, emitResumeUsageAndCompaction, toSubagentSession } from "#test/helpers/mock-session";
 import { STUB_SNAPSHOT } from "#test/helpers/stub-ctx";
 
 type SessionFactory = (params: CreateSubagentSessionParams) => Promise<SubagentSession>;
@@ -42,6 +42,16 @@ function makeSubagent(overrides: MakeSubagentOptions = {}): Subagent {
 		execution: execution ?? makeStubExecution(),
 		state: Object.keys(stateOverrides).length > 0 ? new SubagentState(stateOverrides) : undefined,
 	});
+}
+
+/** A Subagent wired to a ready session whose messages hold a single user "hi". */
+function makeReadySubagent(): { agent: Subagent } {
+	const agent = makeSubagent();
+	const session = createMockSession();
+	session.messages.push({ role: "user", content: "hi" });
+	const stub = createSubagentSessionStub(session);
+	agent.subagentSession = toSubagentSession(stub);
+	return { agent };
 }
 
 describe("Subagent — constructor", () => {
@@ -255,11 +265,7 @@ describe("Subagent — session-encapsulation methods", () => {
 		});
 
 		it("delegates to SubagentSession.messages when session is ready", () => {
-			const agent = makeSubagent();
-			const session = createMockSession();
-			session.messages.push({ role: "user", content: "hi" });
-			const stub = createSubagentSessionStub(session);
-			agent.subagentSession = toSubagentSession(stub);
+			const { agent } = makeReadySubagent();
 			expect(agent.messages).toEqual([{ role: "user", content: "hi" }]);
 		});
 	});
@@ -271,11 +277,7 @@ describe("Subagent — session-encapsulation methods", () => {
 		});
 
 		it("delegates to SubagentSession.agentMessages when session is ready", () => {
-			const agent = makeSubagent();
-			const session = createMockSession();
-			session.messages.push({ role: "user", content: "hi" });
-			const stub = createSubagentSessionStub(session);
-			agent.subagentSession = toSubagentSession(stub);
+			const { agent } = makeReadySubagent();
 			expect(agent.agentMessages).toEqual([{ role: "user", content: "hi" }]);
 		});
 	});
@@ -716,8 +718,7 @@ describe("Subagent.resume() — observer lifecycle", () => {
 		const session = createMockSession();
 		const stub = createSubagentSessionStub(session);
 		stub.resumeTurnLoop.mockImplementation(async () => {
-			session.emit({ type: "message_end", message: { role: "assistant", usage: { input: 70, output: 30, cacheWrite: 5 } } });
-			session.emit({ type: "compaction_end", aborted: false, result: { tokensBefore: 999 }, reason: "overflow" });
+			emitResumeUsageAndCompaction(session);
 			return "second";
 		});
 		const { agent } = createResumableAgent({ session, stub });
