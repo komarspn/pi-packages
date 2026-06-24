@@ -115,6 +115,49 @@ describe("GateRunner — descriptor path", () => {
     );
   });
 
+  it("emits user_approved_for_project and records project rule on approved_for_project", async () => {
+    const { runner, deps } = makeGateRunner({
+      resolveResult: makeCheckResult({ state: "ask", matchedPattern: "*" }),
+      prompt: vi
+        .fn()
+        .mockResolvedValue({ approved: true, state: "approved_for_project" }),
+    });
+    const approval = SessionApproval.single("read", "*");
+    const descriptor = makeDescriptor({ sessionApproval: approval });
+    const result = await runner.run(descriptor, null, "tc-1");
+    expect(result).toEqual({ action: "allow" });
+    expect(deps.reporter.emitDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resolution: "user_approved_for_project",
+      }),
+    );
+    expect(deps.recordPersistentApproval).toHaveBeenCalledWith(
+      "project",
+      approval,
+    );
+    expect(deps.recordSessionApproval).not.toHaveBeenCalled();
+  });
+
+  it("emits user_approved_globally and records global rule on approved_globally", async () => {
+    const { runner, deps } = makeGateRunner({
+      resolveResult: makeCheckResult({ state: "ask", matchedPattern: "*" }),
+      prompt: vi
+        .fn()
+        .mockResolvedValue({ approved: true, state: "approved_globally" }),
+    });
+    const approval = SessionApproval.single("read", "*");
+    const descriptor = makeDescriptor({ sessionApproval: approval });
+    const result = await runner.run(descriptor, null, "tc-1");
+    expect(result).toEqual({ action: "allow" });
+    expect(deps.reporter.emitDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resolution: "user_approved_globally",
+      }),
+    );
+    expect(deps.recordPersistentApproval).toHaveBeenCalledWith("global", approval);
+    expect(deps.recordSessionApproval).not.toHaveBeenCalled();
+  });
+
   it("calls recordSessionApproval once with the full SessionApproval when sessionApproval has multiple patterns", async () => {
     const { runner, deps } = makeGateRunner({
       resolveResult: makeCheckResult({ state: "ask", matchedPattern: "*" }),
@@ -233,13 +276,14 @@ describe("GateRunner — descriptor path", () => {
     );
   });
 
-  it("does not call recordSessionApproval when user approves once (no sessionApproval)", async () => {
+  it("does not call recordSessionApproval or recordPersistentApproval when user approves once (no sessionApproval)", async () => {
     const { runner, deps } = makeGateRunner({
       resolveResult: makeCheckResult({ state: "ask", matchedPattern: "*" }),
       prompt: vi.fn().mockResolvedValue({ approved: true, state: "approved" }),
     });
     await runner.run(makeDescriptor(), null, "tc-1");
     expect(deps.recordSessionApproval).not.toHaveBeenCalled();
+    expect(deps.recordPersistentApproval).not.toHaveBeenCalled();
   });
 
   it("uses preCheck result directly instead of calling resolve", async () => {

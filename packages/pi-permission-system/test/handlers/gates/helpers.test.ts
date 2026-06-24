@@ -74,6 +74,18 @@ describe("deriveResolution", () => {
     );
   });
 
+  it("returns user_approved_for_project for project persistent approval", () => {
+    expect(deriveResolution("ask", "allow", false, true, false, "project")).toBe(
+      "user_approved_for_project",
+    );
+  });
+
+  it("returns user_approved_globally for global persistent approval", () => {
+    expect(deriveResolution("ask", "allow", false, true, false, "global")).toBe(
+      "user_approved_globally",
+    );
+  });
+
   it("returns user_denied for ask + block with canConfirm", () => {
     expect(deriveResolution("ask", "block", false, true)).toBe("user_denied");
   });

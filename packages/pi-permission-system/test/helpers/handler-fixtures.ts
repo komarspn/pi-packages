@@ -296,7 +296,13 @@ export function makeHandler(overrides?: {
       .fn<GatePrompter["prompt"]>()
       .mockResolvedValue({ approved: true, state: "approved" }),
   };
-  const runner = new GateRunner(resolver, recorder, prompter, reporter);
+  const runner = new GateRunner(
+    resolver,
+    recorder,
+    prompter,
+    reporter,
+    { recordApproval: vi.fn() } as never,
+  );
   const handler = new PermissionGateHandler(
     session,
     toolRegistry,

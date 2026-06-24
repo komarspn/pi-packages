@@ -1,6 +1,7 @@
 import { toRecord } from "#src/common";
 import { normalizePathForComparison } from "#src/path-utils";
 import { formatSkillPathAskPrompt } from "#src/permission-prompts";
+import { SessionApproval } from "#src/session-approval";
 import type { SkillPromptEntry } from "#src/skill-prompt-sanitizer";
 import { findSkillPathMatch } from "#src/skill-prompt-sanitizer";
 import type { GateDescriptor } from "./descriptor";
@@ -81,5 +82,6 @@ export function describeSkillReadGate(
     preResolved: {
       state: matchedSkill.state,
     },
+    sessionApproval: SessionApproval.single("skill", matchedSkill.name),
   };
 }

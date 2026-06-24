@@ -24,6 +24,14 @@ describe("isPermissionDecisionState", () => {
     expect(isPermissionDecisionState("approved_for_session")).toBe(true);
   });
 
+  it("accepts approved_for_project", () => {
+    expect(isPermissionDecisionState("approved_for_project")).toBe(true);
+  });
+
+  it("accepts approved_globally", () => {
+    expect(isPermissionDecisionState("approved_globally")).toBe(true);
+  });
+
   it("rejects unknown strings", () => {
     expect(isPermissionDecisionState("unknown")).toBe(false);
   });
@@ -59,6 +67,32 @@ describe("requestPermissionDecisionFromUi", () => {
       "Message",
     );
     expect(result).toEqual({ approved: true, state: "approved_for_session" });
+  });
+
+  it("returns approved_for_project when user selects project option", async () => {
+    const ui: PermissionDecisionUi = {
+      select: vi.fn().mockResolvedValue("Yes, always for this project"),
+      input: vi.fn(),
+    };
+    const result = await requestPermissionDecisionFromUi(
+      ui,
+      "Title",
+      "Message",
+    );
+    expect(result).toEqual({ approved: true, state: "approved_for_project" });
+  });
+
+  it("returns approved_globally when user selects all-projects option", async () => {
+    const ui: PermissionDecisionUi = {
+      select: vi.fn().mockResolvedValue("Yes, always for all projects"),
+      input: vi.fn(),
+    };
+    const result = await requestPermissionDecisionFromUi(
+      ui,
+      "Title",
+      "Message",
+    );
+    expect(result).toEqual({ approved: true, state: "approved_globally" });
   });
 
   it("returns denied when user selects No", async () => {
@@ -117,7 +151,7 @@ describe("requestPermissionDecisionFromUi", () => {
     expect(result).toEqual({ approved: false, state: "denied" });
   });
 
-  it("passes four options to ui.select", async () => {
+  it("passes six options to ui.select", async () => {
     const selectFn = vi.fn().mockResolvedValue("Yes");
     const ui: PermissionDecisionUi = {
       select: selectFn,
@@ -128,6 +162,8 @@ describe("requestPermissionDecisionFromUi", () => {
     expect(options).toEqual([
       "Yes",
       "Yes, for this session",
+      "Yes, always for this project",
+      "Yes, always for all projects",
       "No",
       "No, provide reason",
     ]);

@@ -25,6 +25,7 @@ import { requestPermissionDecisionFromUi } from "./permission-dialog";
 import { registerPermissionRpcHandlers } from "./permission-event-rpc";
 import { PermissionManager } from "./permission-manager";
 import { PermissionPrompter } from "./permission-prompter";
+import { PersistentApprovalRecorder } from "./persistent-approval-recorder";
 import { PermissionResolver } from "./permission-resolver";
 import { PermissionSession } from "./permission-session";
 import { LocalPermissionsService } from "./permissions-service";
@@ -176,7 +177,18 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
   const agentPrep = new AgentPrepHandler(session, resolver, toolRegistry);
 
   const reporter = new GateDecisionReporter(logger, pi.events);
-  const gateRunner = new GateRunner(resolver, sessionRules, gateway, reporter);
+  const persistentApprovalRecorder = new PersistentApprovalRecorder({
+    agentDir,
+    getCwd: () => session.getRuntimeContext()?.cwd,
+    logger,
+  });
+  const gateRunner = new GateRunner(
+    resolver,
+    sessionRules,
+    gateway,
+    reporter,
+    persistentApprovalRecorder,
+  );
   const toolCallGatePipeline = new ToolCallGatePipeline(
     resolver,
     session,

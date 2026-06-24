@@ -11,6 +11,7 @@ import type { SkillInputGateInputs } from "#src/handlers/gates/skill-input-gate-
 import type { ToolCallGateInputs } from "#src/handlers/gates/tool-call-gate-pipeline";
 import type { ToolCallContext } from "#src/handlers/gates/types";
 import type { ScopedPermissionResolver } from "#src/permission-resolver";
+import type { PersistentApprovalRecorder } from "#src/persistent-approval-recorder";
 import type { SessionApprovalRecorder } from "#src/session-approval-recorder";
 import type { SkillPromptEntry } from "#src/skill-prompt-sanitizer";
 import type { ToolPreviewFormatterOptions } from "#src/tool-preview-formatter";
@@ -97,6 +98,7 @@ export function makeGateRunner(
     resolve?: ScopedPermissionResolver["resolve"];
     resolvePathPolicy?: ScopedPermissionResolver["resolvePathPolicy"];
     recordSessionApproval?: SessionApprovalRecorder["recordSessionApproval"];
+    recordPersistentApproval?: PersistentApprovalRecorder["recordApproval"];
     canConfirm?: GatePrompter["canConfirm"];
     prompt?: GatePrompter["prompt"];
     reporter?: Partial<DecisionReporter>;
@@ -120,6 +122,9 @@ export function makeGateRunner(
   const recordSessionApproval =
     overrides.recordSessionApproval ??
     (vi.fn() as SessionApprovalRecorder["recordSessionApproval"]);
+  const recordPersistentApproval =
+    overrides.recordPersistentApproval ??
+    (vi.fn() as PersistentApprovalRecorder["recordApproval"]);
   const canConfirm =
     overrides.canConfirm ??
     (vi.fn().mockReturnValue(true) as GatePrompter["canConfirm"]);
@@ -133,6 +138,7 @@ export function makeGateRunner(
     { recordSessionApproval },
     { canConfirm, prompt },
     reporter,
+    { recordApproval: recordPersistentApproval } as PersistentApprovalRecorder,
   );
   return {
     runner,
@@ -140,6 +146,7 @@ export function makeGateRunner(
       resolve,
       resolvePathPolicy,
       recordSessionApproval,
+      recordPersistentApproval,
       canConfirm,
       prompt,
       reporter,

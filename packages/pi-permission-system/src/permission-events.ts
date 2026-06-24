@@ -133,6 +133,8 @@ export type PermissionDecisionResolution =
   | "infrastructure_auto_allowed"
   | "user_approved"
   | "user_approved_for_session"
+  | "user_approved_for_project"
+  | "user_approved_globally"
   | "user_denied"
   | "auto_approved"
   | "confirmation_unavailable";
@@ -207,7 +209,8 @@ export interface PermissionsPromptReplyData {
   approved: boolean;
   /**
    * Detailed state: "approved", "approved_for_session",
-   * "denied", or "denied_with_reason".
+   * "approved_for_project", "approved_globally", "denied",
+   * or "denied_with_reason".
    */
   state: string;
   denialReason?: string;
