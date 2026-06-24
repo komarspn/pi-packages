@@ -144,6 +144,19 @@ describe("SessionNavigatorHandler", () => {
     };
   }
 
+  // Invoke the component factory captured by the handler's ui.custom call and
+  // render it — the act (handle) stays explicit in each test.
+  function renderCapturedOverlay(ui: ReturnType<typeof makeUI>, width = 80): string[] {
+    const factory = ui.custom.mock.calls[0][0] as (
+      tui: TUI,
+      theme: ReturnType<typeof ansiTheme>,
+      kb: unknown,
+      done: (r: undefined) => void,
+    ) => Component;
+    const overlay = factory(mockTui(), ansiTheme(), undefined, vi.fn());
+    return overlay.render(width);
+  }
+
   const noReadFile = (): string => {
     throw new Error("readFile not expected in this test");
   };
@@ -182,14 +195,7 @@ describe("SessionNavigatorHandler", () => {
     // the overlay does, lazily, through the TranscriptSource at render time.
     expect(record.getToolDefinition).not.toHaveBeenCalled();
     // Invoke the captured component factory and render to confirm it is sourced from the picked record.
-    const factory = ui.custom.mock.calls[0][0] as (
-      tui: TUI,
-      theme: ReturnType<typeof ansiTheme>,
-      kb: unknown,
-      done: (r: undefined) => void,
-    ) => Component;
-    const overlay = factory(mockTui(), ansiTheme(), undefined, vi.fn());
-    expect(overlay.render(80).some((l) => l.includes("picked agent reply"))).toBe(true);
+    expect(renderCapturedOverlay(ui).some((l) => l.includes("picked agent reply"))).toBe(true);
   });
 
   it("opens an overlay sourced from the persisted file when an evicted agent is picked", async () => {
@@ -209,14 +215,7 @@ describe("SessionNavigatorHandler", () => {
 
     expect(readFile).toHaveBeenCalledWith("/tasks/e1.jsonl");
     expect(ui.custom).toHaveBeenCalledOnce();
-    const factory = ui.custom.mock.calls[0][0] as (
-      tui: TUI,
-      theme: ReturnType<typeof ansiTheme>,
-      kb: unknown,
-      done: (r: undefined) => void,
-    ) => Component;
-    const overlay = factory(mockTui(), ansiTheme(), undefined, vi.fn());
-    expect(overlay.render(80).some((l) => l.includes("evicted reply"))).toBe(true);
+    expect(renderCapturedOverlay(ui).some((l) => l.includes("evicted reply"))).toBe(true);
   });
 
   it("notifies and skips the overlay when the session file cannot be read", async () => {
