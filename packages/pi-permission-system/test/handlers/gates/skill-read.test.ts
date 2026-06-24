@@ -145,4 +145,14 @@ describe("describeSkillReadGate", () => {
     const result = describeSkillReadGate(makeTcc(), () => [makeSkillEntry()])!;
     expect(result.surface).toBe("skill");
   });
+
+  it("sets skill sessionApproval", () => {
+    const result = describeSkillReadGate(makeTcc(), () => [
+      makeSkillEntry({ name: "librarian" }),
+    ])!;
+    expect(result.sessionApproval?.toGateApproval()).toEqual({
+      surface: "skill",
+      pattern: "librarian",
+    });
+  });
 });

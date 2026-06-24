@@ -61,12 +61,15 @@ export function deriveResolution(
   hasSession: boolean,
   canConfirm: boolean,
   autoApproved = false,
+  persistentApprovalScope?: "project" | "global",
 ): PermissionDecisionResolution {
   if (state === "allow") return "policy_allow";
   if (state === "deny") return "policy_deny";
   // state === "ask"
   if (action === "allow") {
     if (autoApproved) return "auto_approved";
+    if (persistentApprovalScope === "project") return "user_approved_for_project";
+    if (persistentApprovalScope === "global") return "user_approved_globally";
     return hasSession ? "user_approved_for_session" : "user_approved";
   }
   return canConfirm ? "user_denied" : "confirmation_unavailable";

@@ -1,6 +1,8 @@
 export type PermissionDecisionState =
   | "approved"
   | "approved_for_session"
+  | "approved_for_project"
+  | "approved_globally"
   | "denied"
   | "denied_with_reason";
 
@@ -23,6 +25,8 @@ export interface PermissionDecisionUi {
 
 const APPROVE_OPTION = "Yes";
 const APPROVE_FOR_SESSION_OPTION = "Yes, for this session";
+const APPROVE_FOR_PROJECT_OPTION = "Yes, always for this project";
+const APPROVE_GLOBALLY_OPTION = "Yes, always for all projects";
 const DENY_OPTION = "No";
 const DENY_WITH_REASON_OPTION = "No, provide reason";
 
@@ -59,6 +63,8 @@ export function isPermissionDecisionState(
   return (
     value === "approved" ||
     value === "approved_for_session" ||
+    value === "approved_for_project" ||
+    value === "approved_globally" ||
     value === "denied" ||
     value === "denied_with_reason"
   );
@@ -79,6 +85,8 @@ export async function requestPermissionDecisionFromUi(
   const decisionOptions = [
     APPROVE_OPTION,
     sessionOption,
+    APPROVE_FOR_PROJECT_OPTION,
+    APPROVE_GLOBALLY_OPTION,
     DENY_OPTION,
     DENY_WITH_REASON_OPTION,
   ] as const;
@@ -98,6 +106,20 @@ export async function requestPermissionDecisionFromUi(
     return {
       approved: true,
       state: "approved_for_session",
+    };
+  }
+
+  if (selected === APPROVE_FOR_PROJECT_OPTION) {
+    return {
+      approved: true,
+      state: "approved_for_project",
+    };
+  }
+
+  if (selected === APPROVE_GLOBALLY_OPTION) {
+    return {
+      approved: true,
+      state: "approved_globally",
     };
   }
 

@@ -7,6 +7,7 @@ import {
 import type { GatePrompter } from "#src/gate-prompter";
 import type { PermissionPromptDecision } from "#src/permission-dialog";
 import { applyPermissionGate } from "#src/permission-gate";
+import type { PersistentApprovalRecorder } from "#src/persistent-approval-recorder";
 import type { ScopedPermissionResolver } from "#src/permission-resolver";
 import type { SessionApprovalRecorder } from "#src/session-approval-recorder";
 import type { PermissionCheckResult } from "#src/types";
@@ -32,6 +33,7 @@ export class GateRunner {
     private readonly recorder: SessionApprovalRecorder,
     private readonly prompter: GatePrompter,
     private readonly reporter: DecisionReporter,
+    private readonly persistentRecorder: PersistentApprovalRecorder,
   ) {}
 
   /**
@@ -151,6 +153,9 @@ export class GateRunner {
           hasSessionApproval,
           canConfirm,
           autoApproved,
+          gateResult.action === "allow"
+            ? gateResult.persistentApprovalScope
+            : undefined,
         ),
       ),
     );
@@ -159,6 +164,17 @@ export class GateRunner {
     // hasSessionApproval already implies gateResult.action === "allow"
     if (hasSessionApproval && descriptor.sessionApproval) {
       this.recorder.recordSessionApproval(descriptor.sessionApproval);
+    }
+
+    if (
+      gateResult.action === "allow" &&
+      gateResult.persistentApprovalScope &&
+      descriptor.sessionApproval
+    ) {
+      this.persistentRecorder.recordApproval(
+        gateResult.persistentApprovalScope,
+        descriptor.sessionApproval,
+      );
     }
 
     if (gateResult.action === "block") {

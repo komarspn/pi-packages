@@ -124,6 +124,7 @@ function makeDeduplicatingHandler(prompter?: GatePrompter): {
     sessionRules,
     resolvedPrompter,
     reporter,
+    { recordApproval: vi.fn() } as never,
   );
   const handler = new PermissionGateHandler(
     session,
@@ -385,7 +386,13 @@ describe("session shutdown clears external-directory approvals", () => {
         .fn<GatePrompter["prompt"]>()
         .mockResolvedValue({ approved: true, state: "approved_for_session" }),
     };
-    const runner = new GateRunner(resolver, sessionRules, prompter, reporter);
+    const runner = new GateRunner(
+      resolver,
+      sessionRules,
+      prompter,
+      reporter,
+      { recordApproval: vi.fn() } as never,
+    );
     const handler = new PermissionGateHandler(
       session,
       makeToolRegistry({

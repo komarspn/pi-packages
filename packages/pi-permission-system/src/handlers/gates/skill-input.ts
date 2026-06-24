@@ -1,4 +1,5 @@
 import { formatSkillAskPrompt } from "#src/permission-prompts";
+import { SessionApproval } from "#src/session-approval";
 import type { PermissionCheckResult } from "#src/types";
 import type { GateDescriptor } from "./descriptor";
 
@@ -40,5 +41,6 @@ export function describeSkillInputGate(
       surface: "skill",
       value: skillName,
     },
+    sessionApproval: SessionApproval.single("skill", skillName),
   };
 }

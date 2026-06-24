@@ -176,6 +176,8 @@ describe("emitDecisionEvent", () => {
       "infrastructure_auto_allowed",
       "user_approved",
       "user_approved_for_session",
+      "user_approved_for_project",
+      "user_approved_globally",
       "user_denied",
       "auto_approved",
       "confirmation_unavailable",

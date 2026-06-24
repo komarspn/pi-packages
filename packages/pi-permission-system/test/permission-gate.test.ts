@@ -199,6 +199,42 @@ describe("applyPermissionGate", () => {
       });
     });
 
+    it("attaches project persistent approval when decision is approved_for_project", async () => {
+      const decision: PermissionPromptDecision = {
+        approved: true,
+        state: "approved_for_project",
+      };
+      const promptForApproval = vi.fn().mockResolvedValue(decision);
+      const params = makeParams({
+        state: "ask",
+        canConfirm: true,
+        promptForApproval,
+      });
+      const result = await applyPermissionGate(params);
+      expect(result).toEqual({
+        action: "allow",
+        persistentApprovalScope: "project",
+      });
+    });
+
+    it("attaches global persistent approval when decision is approved_globally", async () => {
+      const decision: PermissionPromptDecision = {
+        approved: true,
+        state: "approved_globally",
+      };
+      const promptForApproval = vi.fn().mockResolvedValue(decision);
+      const params = makeParams({
+        state: "ask",
+        canConfirm: true,
+        promptForApproval,
+      });
+      const result = await applyPermissionGate(params);
+      expect(result).toEqual({
+        action: "allow",
+        persistentApprovalScope: "global",
+      });
+    });
+
     it("does not attach sessionApproval when decision is approved (once)", async () => {
       const decision: PermissionPromptDecision = {
         approved: true,
