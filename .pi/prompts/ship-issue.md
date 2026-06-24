@@ -107,6 +107,7 @@ Close each with its own short summary — release-please omits `refactor:` commi
    - If `release_pr_merge` returns an error (not mergeable), stop and report — let the user decide.
    - Exception: if it fails with `merge_state: UNSTABLE`, check `gh pr view <N> --json statusCheckRollup`.
      An empty rollup means no checks ran — the `GITHUB_TOKEN` case above; merge with `gh pr merge <N> --rebase` (matches the `defaultMergeMethod: rebase` config so the release lands as a linear commit, not a merge bubble), then `git pull --ff-only`.
+     A non-empty rollup with a check still `IN_PROGRESS` is neither case — wait for it to finish (re-poll `statusCheckRollup`), then retry `release_pr_merge`; do not fall back to `gh pr merge` while a check is running.
      Stop and report only when the PR is genuinely blocked (`CONFLICTING`/`DIRTY`/`BEHIND` or a failing check).
 5. Use `release_watch` to wait for the release tag to land on HEAD.
 
