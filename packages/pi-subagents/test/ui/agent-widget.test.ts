@@ -20,6 +20,32 @@ function makeAgent(overrides: { id?: string; status?: string; completedAt?: numb
 const alwaysShow = () => true;
 const neverShow = () => false;
 
+// Build a widget over a manager stub whose listAgents() returns a fixed list,
+// plus a recording UICtx. setWidgetCalls captures the `content` arg of each
+// setWidget call: a function means the widget is registered/visible; undefined
+// means it was cleared (the finished agent has aged out).
+// Fixtures default to a background invocation so they survive the widget's
+// background-only filter; per-agent `invocation` overrides the default.
+function makeWidget(
+	agents: Array<{ id: string; status: string; completedAt?: number; invocation?: { runInBackground: boolean } }>,
+) {
+	const manager = {
+		listAgents: () => agents.map(a => ({ invocation: { runInBackground: true }, ...a })),
+	} as unknown as SubagentManager;
+	const registry = new AgentTypeRegistry(() => new Map());
+	const widget = new AgentWidget(manager, registry);
+	const setWidgetCalls: unknown[] = [];
+	const ui: UICtx = {
+		setStatus: () => {},
+		setWidget: (_key, content) => {
+			setWidgetCalls.push(content);
+		},
+	};
+	widget.setUICtx(ui);
+	const lastContent = () => setWidgetCalls.at(-1);
+	return { widget, lastContent };
+}
+
 describe("assembleWidgetState", () => {
 	describe("empty list", () => {
 		it("returns all-zero/false state for an empty agent list", () => {
@@ -220,32 +246,6 @@ describe("AgentWidget — projection reads activity off Subagent records", () =>
 });
 
 describe("AgentWidget.update self-seeds finished agents", () => {
-	// Build a widget over a manager stub whose listAgents() returns a fixed list,
-	// plus a recording UICtx. setWidgetCalls captures the `content` arg of each
-	// setWidget call: a function means the widget is registered/visible; undefined
-	// means it was cleared (the finished agent has aged out).
-	// Fixtures default to a background invocation so they survive the widget's
-	// background-only filter; per-agent `invocation` overrides the default.
-	function makeWidget(
-		agents: Array<{ id: string; status: string; completedAt?: number; invocation?: { runInBackground: boolean } }>,
-	) {
-		const manager = {
-			listAgents: () => agents.map(a => ({ invocation: { runInBackground: true }, ...a })),
-		} as unknown as SubagentManager;
-		const registry = new AgentTypeRegistry(() => new Map());
-		const widget = new AgentWidget(manager, registry);
-		const setWidgetCalls: unknown[] = [];
-		const ui: UICtx = {
-			setStatus: () => {},
-			setWidget: (_key, content) => {
-				setWidgetCalls.push(content);
-			},
-		};
-		widget.setUICtx(ui);
-		const lastContent = () => setWidgetCalls.at(-1);
-		return { widget, lastContent };
-	}
-
 	it("seeds a completed agent so it ages out after one turn", () => {
 		const { widget, lastContent } = makeWidget([{ id: "a1", status: "completed", completedAt: 5000 }]);
 		widget.update();
@@ -288,26 +288,6 @@ describe("AgentWidget — self-drives from lifecycle notifications", () => {
 	afterEach(() => {
 		vi.useRealTimers();
 	});
-
-	function makeWidget(
-		agents: Array<{ id: string; status: string; completedAt?: number; invocation?: { runInBackground: boolean } }>,
-	) {
-		const manager = {
-			listAgents: () => agents.map(a => ({ invocation: { runInBackground: true }, ...a })),
-		} as unknown as SubagentManager;
-		const registry = new AgentTypeRegistry(() => new Map());
-		const widget = new AgentWidget(manager, registry);
-		const setWidgetCalls: unknown[] = [];
-		const ui: UICtx = {
-			setStatus: () => {},
-			setWidget: (_key, content) => {
-				setWidgetCalls.push(content);
-			},
-		};
-		widget.setUICtx(ui);
-		const lastContent = () => setWidgetCalls.at(-1);
-		return { widget, lastContent };
-	}
 
 	const COMPACTION: CompactionInfo = { reason: "threshold", tokensBefore: 1000 };
 
