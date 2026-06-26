@@ -1,82 +1,82 @@
 {
-    "name": "@komarspn/pi-permission-system",
-    "version": "16.0.2",
-    "description": "Permission enforcement extension for the Pi coding agent.",
-    "type": "module",
-    "exports": {
-        ".": "./src/service.ts"
-    },
-    "imports": {
-        "#src/*": "./src/*",
-        "#test/*": "./test/*"
-    },
-    "files": [
-        "src",
-        "test",
-        "config/config.example.json",
-        "schemas/permissions.schema.json",
-        "README.md",
-        "CHANGELOG.md",
-        "LICENSE"
-    ],
-    "scripts": {
-        "check": "tsc --noEmit",
-        "test": "vitest run",
-        "test:watch": "vitest",
-        "lint:md": "rumdl check *.md docs/**/*.md",
-        "lint": "biome check . && eslint . && pnpm run lint:md"
-    },
-    "keywords": [
-        "pi-package",
-        "pi",
-        "pi-extension",
-        "pi-coding-agent",
-        "coding-agent",
-        "permissions",
-        "policy",
-        "access-control",
-        "authorization",
-        "security"
-    ],
-    "author": {
-        "name": "Chris Lasher"
-    },
-    "license": "MIT",
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/komarspn/pi-packages.git",
-        "directory": "packages/pi-permission-system"
-    },
-    "homepage": "https://github.com/komarspn/pi-packages/tree/main/packages/pi-permission-system#readme",
-    "bugs": {
-        "url": "https://github.com/komarspn/pi-packages/issues"
-    },
-    "engines": {
-        "node": ">=22"
-    },
-    "publishConfig": {
-        "access": "public"
-    },
-    "pi": {
-        "extensions": [
-            "./src/index.ts"
-        ]
-    },
-    "peerDependencies": {
-        "@earendil-works/pi-coding-agent": ">=0.79.0",
-        "@earendil-works/pi-tui": ">=0.79.0"
-    },
-    "devDependencies": {
-        "@biomejs/biome": "catalog:",
-        "@earendil-works/pi-coding-agent": "0.79.1",
-        "@earendil-works/pi-tui": "0.79.1",
-        "@types/node": "catalog:",
-        "rumdl": "catalog:",
-        "typescript": "catalog:",
-        "vitest": "catalog:"
-    },
-    "dependencies": {
-        "tree-sitter-bash": "^0.25.1",
-        "web-tree-sitter": "^0.26.9"
-    }
+  "name": "@komarspn/pi-permission-system",
+  "version": "16.0.2",
+  "description": "Permission enforcement extension for the Pi coding agent.",
+  "type": "module",
+  "exports": {
+    ".": "./src/service.ts"
+  },
+  "imports": {
+    "#src/*": "./src/*",
+    "#test/*": "./test/*"
+  },
+  "files": [
+    "src",
+    "test",
+    "config/config.example.json",
+    "schemas/permissions.schema.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint:md": "rumdl check *.md docs/**/*.md",
+    "lint": "biome check . && eslint . && pnpm run lint:md"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "pi-coding-agent",
+    "coding-agent",
+    "permissions",
+    "policy",
+    "access-control",
+    "authorization",
+    "security"
+  ],
+  "author": {
+    "name": "Chris Lasher"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/komarspn/pi-packages.git",
+    "directory": "packages/pi-permission-system"
+  },
+  "homepage": "https://github.com/komarspn/pi-packages/tree/main/packages/pi-permission-system#readme",
+  "bugs": {
+    "url": "https://github.com/komarspn/pi-packages/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.79.0",
+    "@earendil-works/pi-tui": ">=0.79.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "@earendil-works/pi-coding-agent": "0.79.1",
+    "@earendil-works/pi-tui": "0.79.1",
+    "@types/node": "catalog:",
+    "rumdl": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "dependencies": {
+    "tree-sitter-bash": "^0.25.1",
+    "web-tree-sitter": "^0.26.9"
+  }
 }
