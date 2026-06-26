@@ -18,7 +18,7 @@
     },
     { "source": "npm:@gotgenes/pi-autoformat", "extensions": [], "skills": [] },
     {
-      "source": "npm:@gotgenes/pi-permission-system",
+      "source": "npm:@komarspn/pi-permission-system",
       "extensions": [],
       "skills": []
     },

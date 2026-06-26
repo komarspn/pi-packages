@@ -1,5 +1,5 @@
 {
-  "name": "@gotgenes/pi-permission-system",
+  "name": "@komarspn/pi-permission-system",
   "version": "42.0.2",
   "description": "Permission enforcement extension for the Pi coding agent.",
   "type": "module",
@@ -61,12 +61,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gotgenes/pi-packages.git",
+    "url": "git+https://github.com/komarspn/pi-packages.git",
     "directory": "packages/pi-permission-system"
   },
-  "homepage": "https://github.com/gotgenes/pi-packages/tree/main/packages/pi-permission-system#readme",
+  "homepage": "https://github.com/komarspn/pi-packages/tree/main/packages/pi-permission-system#readme",
   "bugs": {
-    "url": "https://github.com/gotgenes/pi-packages/issues"
+    "url": "https://github.com/komarspn/pi-packages/issues"
   },
   "engines": {
     "node": ">=22"
