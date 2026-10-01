@@ -1,7 +1,8 @@
-import type { DenialContext } from "#src/denial-messages";
-import type { PermissionDecisionEvent } from "#src/permission-events";
-import type { PromptPermissionDetails } from "#src/permission-prompter";
-import type { SessionApproval } from "#src/session-approval";
+import type { DecisionSource } from "#src/authority/decision-source";
+import type { PromptPermissionDetails } from "#src/authority/permission-prompter";
+import type { PromptPayload } from "#src/presentation/prompt-payload";
+import type { PermissionDecisionEvent } from "#src/service/permission-events";
+import type { SessionApproval } from "#src/session/session-approval";
 import type { PermissionCheckResult, PermissionState } from "#src/types";
 
 // ── Descriptor types ───────────────────────────────────────────────────────
@@ -18,16 +19,27 @@ export interface GateDescriptor {
   surface: string;
   /** Input passed to checkPermission. */
   input: unknown;
-  /** Structured denial context — the runner formats messages from this. */
-  denialContext: DenialContext;
+  /**
+   * The complete structured description of this ask (ADR 0011 §2).
+   *
+   * The descriptor's one presentation fact: every render over it — the dialog,
+   * the agent-facing denial text, the review log — reads this and nothing
+   * else, so a gate states its facts once.
+   */
+  payload: PromptPayload;
   /**
    * Session-approval suggestion for the "for this session" option.
    * Wraps either a single pattern or multiple patterns behind a unified
    * interface — the runner never needs to know which case applies.
    */
   sessionApproval?: SessionApproval;
-  /** Details passed to the interactive permission prompt (requestId is added by the runner). */
-  promptDetails: Omit<PromptPermissionDetails, "requestId">;
+  /**
+   * Details passed to the interactive permission prompt.
+   *
+   * The runner stamps both `requestId` (which it mints) and `payload` (which
+   * the descriptor owns), so neither is a gate's to supply twice.
+   */
+  promptDetails: Omit<PromptPermissionDetails, "requestId" | "payload">;
   /** Extra context fields written to the review log alongside gate outcomes. */
   logContext: Record<string, unknown>;
   /** Surface and value for the decision event (may differ from the check surface). */
@@ -52,6 +64,15 @@ export interface GateDescriptor {
 }
 
 /**
+ * A decision event's facts, before the runner stamps the request id it minted.
+ *
+ * A gate knows what was decided but not which request it was deciding — the id
+ * is minted in `GateRunner.run`. Producing this type rather than the full event
+ * is what routes every emit through the runner's single stamping site.
+ */
+export type DecisionEventFacts = Omit<PermissionDecisionEvent, "requestId">;
+
+/**
  * Early allow result — gate has determined the action without needing the runner.
  *
  * Used for cases like Pi infrastructure read bypass where the gate short-circuits
@@ -59,14 +80,97 @@ export interface GateDescriptor {
  */
 export interface GateBypass {
   action: "allow";
+  /**
+   * What decided this short-circuit.
+   *
+   * The gate that bypasses *is* the decider, so it states its own provenance
+   * and the runner relays it onto the log entry rather than inferring one from
+   * the event name (#726). Required, so a bypass added later cannot omit it.
+   */
+  decidedBy: DecisionSource;
   /** Optional review log entry to emit. */
   log?: { event: string; details: Record<string, unknown> };
   /** Optional decision event to emit. */
-  decision?: PermissionDecisionEvent;
+  decision?: DecisionEventFacts;
 }
 
 /** Union of possible gate function return values. */
 export type GateResult = GateDescriptor | GateBypass | null;
+
+// ── Resolved-state readers ─────────────────────────────────────────────────
+
+/**
+ * The permission check a descriptor already carries, or `null` when it
+ * resolves nothing of its own.
+ *
+ * Every tool-call gate resolves its own state before the runner sees it —
+ * five of the six stamp a full `preCheck`, and the skill-read gate stamps the
+ * `preResolved` state it read off the matched skill entry. This is the one
+ * place that precedence is expressed, so the runner and the pre-emption
+ * predicate cannot answer it differently.
+ *
+ * A `null` answer is not "allow": it means the caller must resolve the
+ * descriptor itself.
+ */
+export function preResolvedCheckOf(
+  descriptor: GateDescriptor,
+): PermissionCheckResult | null {
+  if (descriptor.preCheck) {
+    return descriptor.preCheck;
+  }
+  if (descriptor.preResolved) {
+    return {
+      state: descriptor.preResolved.state,
+      toolName: descriptor.surface,
+      source: "tool",
+      origin: "builtin",
+    };
+  }
+  return null;
+}
+
+/**
+ * Whether this gate blocks without escalating, whatever the other gates say.
+ *
+ * A `deny` is absorbing: wherever it sits in the pipeline's order, the call is
+ * refused, so no other gate's answer — and no human's — can change the
+ * outcome. That is what makes running it first an ordering change rather than
+ * a semantic one, and it is why the same treatment is *not* extended to `ask`
+ * (#915): two asking gates ask two different questions.
+ *
+ * Subordinate to {@link GateRunner.runDescriptor}'s own precedence, which
+ * tests `source === "session"` before the deny/ask/allow gate is reached — a
+ * session-sourced check is allowed there, so it is not pre-emptive here.
+ * `SessionRules` records only allows, so that combination is unreachable
+ * today; the clause is kept so the predicate is correct on its own terms
+ * rather than by way of a distant invariant, and it errs toward today's
+ * behavior by declining to pre-empt.
+ *
+ * Yolo needs no clause: `resolveYoloGrant` matches an `allow` of origin
+ * `yolo` and an `ask`, never a `deny`.
+ */
+export function isUnconditionalDeny(gate: GateResult): boolean {
+  if (!isGateDescriptor(gate)) {
+    return false;
+  }
+  const check = preResolvedCheckOf(gate);
+  return check !== null && check.state === "deny" && check.source !== "session";
+}
+
+/**
+ * The gates in run order, with any unconditional deny moved to the front.
+ *
+ * A stable partition, so two denying gates keep their relative order (the
+ * earlier one still decides, exactly as before) and the remainder keeps its
+ * own. With no deny present the array is returned unchanged.
+ */
+export function orderDenyFirst(gates: GateResult[]): GateResult[] {
+  const denying = gates.filter((gate) => isUnconditionalDeny(gate));
+  if (denying.length === 0) {
+    return gates;
+  }
+  return [...denying, ...gates.filter((gate) => !isUnconditionalDeny(gate))];
+}
 
 // ── Type guard helpers ─────────────────────────────────────────────────────
 

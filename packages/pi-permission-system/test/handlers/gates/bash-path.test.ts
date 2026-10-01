@@ -9,9 +9,9 @@ vi.mock("node:os", () => {
   };
 });
 
-import { getNonEmptyString, toRecord } from "#src/common";
+import { AccessPath } from "#src/access-intent/access-path";
+import { BashProgram } from "#src/access-intent/bash/program";
 import { describeBashPathGate } from "#src/handlers/gates/bash-path";
-import { BashProgram } from "#src/handlers/gates/bash-program";
 import type {
   GateBypass,
   GateDescriptor,
@@ -19,7 +19,10 @@ import type {
 } from "#src/handlers/gates/descriptor";
 import { isGateBypass, isGateDescriptor } from "#src/handlers/gates/descriptor";
 import type { ToolCallContext } from "#src/handlers/gates/types";
-import type { ScopedPermissionResolver } from "#src/permission-resolver";
+import { pathFlavorForPlatform, posixPathFlavor } from "#src/path/path-flavor";
+import { PathNormalizer } from "#src/path/path-normalizer";
+import type { ScopedPermissionResolver } from "#src/policy/permission-resolver";
+import { getNonEmptyString, toRecord } from "#src/value-guards";
 
 import {
   makeGateCheckResult as makeCheckResult,
@@ -41,12 +44,29 @@ async function describeGate(
   tcc: ToolCallContext,
   resolver: ScopedPermissionResolver,
 ): Promise<GateResult> {
+  return describeGateOnPlatform(process.platform, tcc, resolver);
+}
+
+/**
+ * Variant of {@link describeGate} that injects an explicit host platform, so a
+ * win32-specific decision can be exercised on a POSIX CI host (and vice versa)
+ * without mocking `node:path` (#520).
+ */
+async function describeGateOnPlatform(
+  platform: NodeJS.Platform,
+  tcc: ToolCallContext,
+  resolver: ScopedPermissionResolver,
+): Promise<GateResult> {
+  const normalizer = new PathNormalizer(
+    pathFlavorForPlatform(platform),
+    tcc.cwd,
+  );
   const command = getNonEmptyString(toRecord(tcc.input).command);
   const bashProgram =
     tcc.toolName === "bash" && command
-      ? await BashProgram.parse(command)
+      ? await BashProgram.parse(command, normalizer)
       : null;
-  return describeBashPathGate(tcc, bashProgram, resolver);
+  return describeBashPathGate(tcc, bashProgram, resolver, normalizer);
 }
 
 // ── tests ──────────────────────────────────────────────────────────────────
@@ -84,7 +104,8 @@ describe("describeBashPathGate", () => {
     expect(result).not.toBeNull();
     expect(isGateDescriptor(result)).toBe(true);
     const desc = result as GateDescriptor;
-    expect(desc.surface).toBe("path");
+    // `cat` is a pure-reader core word, so the token routes directionally.
+    expect(desc.surface).toBe("path_read");
     expect(desc.preCheck?.state).toBe("deny");
   });
 
@@ -104,20 +125,35 @@ describe("describeBashPathGate", () => {
       makeTcc(),
       makeResolver(makeCheckResult({ state: "deny", matchedPattern: "*.env" })),
     )) as GateDescriptor;
-    expect(result.denialContext).toMatchObject({
-      kind: "bash_path",
-      command: "cat .env",
-      pathValue: ".env",
-    });
-    expect(result.promptDetails.message).toContain(".env");
+    expect(result.promptDetails.command).toBe("cat .env");
+    // The bash path gate asks about the offending token, not the command.
+    expect(result.payload.kind).toBe("path");
+    expect(result.payload.request.value).toBe(".env");
   });
 
-  it("descriptor decision uses surface 'path'", async () => {
+  it("descriptor decision uses the surface the deciding token proved", async () => {
     const result = (await describeGate(
       makeTcc(),
       makeResolver(makeCheckResult({ state: "deny", matchedPattern: "*.env" })),
     )) as GateDescriptor;
-    expect(result.decision.surface).toBe("path");
+    expect(result.decision.surface).toBe("path_read");
+  });
+
+  it("carries the deciding token's access facts on promptDetails (bash path surface)", async () => {
+    const resolver = makeResolver(
+      makeCheckResult({ state: "deny", matchedPattern: "*.env" }),
+    );
+    const result = (await describeGate(makeTcc(), resolver)) as GateDescriptor;
+    // The facts are the string projection of the same AccessPath the gate
+    // resolved for the deciding token.
+    const intent = resolver.resolve.mock.calls.at(-1)?.[0];
+    const path = intent?.kind === "access-path" ? intent.path : undefined;
+    expect(path).toBeDefined();
+    expect(result.promptDetails.accessIntent).toEqual({
+      surface: "path_read",
+      matchValues: path?.matchValues(),
+      boundaryValue: path?.boundaryValue(),
+    });
   });
 
   it("returns GateBypass when session rule covers the path", async () => {
@@ -128,6 +164,11 @@ describe("describeBashPathGate", () => {
     expect(result).not.toBeNull();
     expect(isGateBypass(result)).toBe(true);
     expect((result as GateBypass).action).toBe("allow");
+    expect((result as GateBypass).decidedBy).toEqual({
+      kind: "session_approval",
+      surface: "path",
+      pattern: null,
+    });
   });
 
   it("returns null when command is missing", async () => {
@@ -228,16 +269,18 @@ describe("describeBashPathGate", () => {
       resolver,
     )) as GateDescriptor;
 
-    expect(resolver.resolvePathPolicy).toHaveBeenCalledWith(
-      [
-        "/test/project/nested/src/file.txt",
-        "nested/src/file.txt",
-        "src/file.txt",
-      ],
-      undefined,
-    );
-    // The raw token drives the prompt, denial context, and session approval.
-    expect(result.denialContext).toMatchObject({ pathValue: "src/file.txt" });
+    expect(resolver.resolve).toHaveBeenCalledWith({
+      kind: "access-path",
+      surface: "path_read",
+      path: AccessPath.forPath("src/file.txt", {
+        cwd: "/test/project",
+        resolveBase: "/test/project/nested",
+        flavor: posixPathFlavor,
+      }),
+      agentName: undefined,
+    });
+    // The raw token drives the prompt payload, the decision, and the approval.
+    expect(result.payload.request.value).toBe("src/file.txt");
     expect(result.decision.value).toBe("src/file.txt");
   });
 
@@ -253,10 +296,12 @@ describe("describeBashPathGate", () => {
       resolver,
     );
 
-    expect(resolver.resolvePathPolicy).toHaveBeenCalledWith(
-      ["src/foo.ts"],
-      undefined,
-    );
+    expect(resolver.resolve).toHaveBeenCalledWith({
+      kind: "access-path",
+      surface: "path_read",
+      path: AccessPath.forLiteral("src/foo.ts"),
+      agentName: undefined,
+    });
   });
 
   it("binds a current-directory token's session approval to the cwd subtree", async () => {
@@ -272,10 +317,150 @@ describe("describeBashPathGate", () => {
     )) as GateDescriptor;
 
     expect(result.decision.value).toBe(".env");
-    expect(result.sessionApproval?.surface).toBe("path");
-    expect(result.sessionApproval?.representativePattern).toBe(
-      "/test/project/*",
-    );
+    expect(result.sessionApproval?.grants[0]?.surface).toBe("path_read");
+    expect(
+      result.sessionApproval?.grants.map((grant) => grant.pattern),
+    ).toEqual(["/test/project/*"]);
+  });
+
+  describe("directional routing (#807)", () => {
+    const askEverything = () =>
+      makeResolver(makeCheckResult({ state: "ask", matchedPattern: "*" }));
+
+    it("routes a proven read to the read surface, end to end", async () => {
+      const resolver = askEverything();
+      const result = (await describeGate(
+        makeTcc({ input: { command: "cat .env" }, cwd: "/test/project" }),
+        resolver,
+      )) as GateDescriptor;
+
+      expect(result.surface).toBe("path_read");
+      expect(result.payload.request.surface).toBe("path_read");
+      expect(result.decision.surface).toBe("path_read");
+      expect(result.promptDetails.accessIntent?.surface).toBe("path_read");
+      expect(result.sessionApproval?.grants[0]?.surface).toBe("path_read");
+    });
+
+    it("routes a proven write to the write surface", async () => {
+      const result = (await describeGate(
+        makeTcc({
+          input: { command: "echo hi > .env" },
+          cwd: "/test/project",
+        }),
+        askEverything(),
+      )) as GateDescriptor;
+
+      expect(result.surface).toBe("path_write");
+      expect(result.decision.surface).toBe("path_write");
+      expect(result.sessionApproval?.grants[0]?.surface).toBe("path_write");
+    });
+
+    it("routes an unproven token to the bare family, which folds both", async () => {
+      const result = (await describeGate(
+        makeTcc({ input: { command: "rm .env" }, cwd: "/test/project" }),
+        askEverything(),
+      )) as GateDescriptor;
+
+      expect(result.surface).toBe("path");
+      expect(result.decision.surface).toBe("path");
+      expect(result.sessionApproval?.grants[0]?.surface).toBe("path");
+    });
+
+    it("records the deciding token's effect and blame source in the log", async () => {
+      const result = (await describeGate(
+        makeTcc({ input: { command: "cat .env" }, cwd: "/test/project" }),
+        askEverything(),
+      )) as GateDescriptor;
+
+      expect(result.logContext).toMatchObject({
+        effect: "read",
+        effectSource: "core",
+      });
+    });
+
+    it("records a retraction as the blame source for a guarded word", async () => {
+      const result = (await describeGate(
+        makeTcc({
+          input: { command: "sort -o ./out.txt ./data.txt" },
+          cwd: "/test/project",
+        }),
+        askEverything(),
+      )) as GateDescriptor;
+
+      expect(result.surface).toBe("path");
+      expect(result.logContext).toMatchObject({
+        effect: "unproven",
+        effectSource: "retracted",
+      });
+    });
+
+    it("records nothing to blame when no source claimed the token", async () => {
+      const result = (await describeGate(
+        makeTcc({ input: { command: "rm .env" }, cwd: "/test/project" }),
+        askEverything(),
+      )) as GateDescriptor;
+
+      expect(result.logContext).toMatchObject({
+        effect: "unproven",
+        effectSource: "unproven",
+      });
+    });
+
+    it("routes a redirect destination on its own proof, not the reader's", async () => {
+      const resolver = makePathDispatchResolver(
+        {
+          "/test/project/out.txt": makeCheckResult({
+            state: "ask",
+            matchedPattern: "*",
+          }),
+        },
+        makeCheckResult({ state: "allow", matchedPattern: "*" }),
+      );
+      const result = (await describeGate(
+        makeTcc({
+          input: { command: "cat ./in.txt > ./out.txt" },
+          cwd: "/test/project",
+        }),
+        resolver,
+      )) as GateDescriptor;
+
+      expect(result.decision.value).toBe("./out.txt");
+      expect(result.surface).toBe("path_write");
+    });
+  });
+
+  describe("a redirect's target that does not exist yet (#609)", () => {
+    it("asks on the write surface for a bare creating redirect", async () => {
+      const result = (await describeGate(
+        makeTcc({
+          input: { command: "cat x > newfile" },
+          cwd: "/test/project",
+        }),
+        makeResolver(makeCheckResult({ state: "ask", matchedPattern: "*" })),
+      )) as GateDescriptor;
+
+      expect(result.surface).toBe("path_write");
+      expect(result.input).toEqual({ path: "newfile" });
+    });
+
+    it("stays unrestricted when only the universal default matches", async () => {
+      const result = await describeGate(
+        makeTcc({
+          input: { command: "cat x > newfile" },
+          cwd: "/test/project",
+        }),
+        makeResolver(
+          makeCheckResult({
+            state: "ask",
+            matchedPattern: undefined,
+            source: "special",
+            origin: "builtin",
+          }),
+        ),
+      );
+
+      expect(result).toBeNull();
+    });
   });
 });
 
@@ -305,11 +490,8 @@ describe("describeBashPathGate — home-relative paths", () => {
 
     expect(isGateDescriptor(result)).toBe(true);
     expect(result.preCheck?.state).toBe("deny");
-    expect(result.denialContext).toMatchObject({
-      kind: "bash_path",
-      command: "cat ~/.ssh/config",
-      pathValue: "~/.ssh/config",
-    });
+    expect(result.promptDetails.command).toBe("cat ~/.ssh/config");
+    expect(result.payload.request.value).toBe("~/.ssh/config");
   });
 
   it("extracts $HOME/... token and builds descriptor on deny", async () => {
@@ -329,9 +511,97 @@ describe("describeBashPathGate — home-relative paths", () => {
 
     expect(isGateDescriptor(result)).toBe(true);
     expect(result.preCheck?.state).toBe("deny");
-    expect(result.denialContext).toMatchObject({
-      kind: "bash_path",
-      pathValue: "$HOME/.ssh/config",
-    });
+    // A plain `$HOME` reference is resolved at token collection (#694), so the
+    // displayed token is the path the shell will actually touch — and it now
+    // agrees with the session-approval pattern, which has always been derived
+    // from the expanded `AccessPath.value()`. A `~` token keeps its raw
+    // spelling: it is shape-classified directly and never needed
+    // collection-time expansion.
+    expect(result.payload.request.value).toBe("/mock/home/.ssh/config");
+  });
+});
+
+// Win32 backslash-relative path gating (#520) ──────────────────────────────
+//
+// On Windows a backslash is a path separator, so a backslash-relative bash
+// argument (`cat dir\file`) must be gated by a `path` rule the same as its
+// forward-slash equivalent (`dir/file`). On POSIX `\` is a legal filename
+// character, so the token stays bare and is not gated.
+
+describe("describeBashPathGate — win32 backslash-relative paths", () => {
+  it("denies a backslash-relative token matching a path rule on win32", async () => {
+    // The win32 normalizer resolves `dir\file` to matchValues including the
+    // relative `dir\file` alias, which the rule (`dir/file`, folded to
+    // `dir\file` under win32 separators) matches.
+    const resolver = makePathDispatchResolver(
+      {
+        "dir\\file": makeCheckResult({
+          state: "deny",
+          matchedPattern: "dir/file",
+        }),
+      },
+      makeCheckResult({ state: "allow" }),
+    );
+    const result = (await describeGateOnPlatform(
+      "win32",
+      makeTcc({
+        input: { command: "cat dir\\file" },
+        cwd: "C:\\Projects\\App",
+      }),
+      resolver,
+    )) as GateDescriptor;
+
+    expect(isGateDescriptor(result)).toBe(true);
+    expect(result.preCheck?.state).toBe("deny");
+    expect(result.payload.request.value).toBe("dir\\file");
+  });
+
+  it("derives the session approval through the injected flavor, not the host", async () => {
+    // A native Windows path carries backslash separators the *host* POSIX
+    // `node:path` cannot see, so an ambient derivation collapses it to `./*`
+    // and the recorded grant matches nothing (#655).
+    const resolver = makePathDispatchResolver(
+      {
+        "c:\\projects\\app\\dir\\file": makeCheckResult({
+          state: "ask",
+          matchedPattern: "dir/file",
+        }),
+      },
+      makeCheckResult({ state: "allow" }),
+    );
+    const result = (await describeGateOnPlatform(
+      "win32",
+      makeTcc({
+        input: { command: "cat dir\\file" },
+        cwd: "C:\\Projects\\App",
+      }),
+      resolver,
+    )) as GateDescriptor;
+
+    expect(isGateDescriptor(result)).toBe(true);
+    expect(
+      result.sessionApproval?.grants.map((grant) => grant.pattern),
+    ).toEqual(["c:\\projects\\app\\dir\\*"]);
+  });
+
+  it("does not gate a backslash-relative token on posix (stays bare)", async () => {
+    const resolver = makePathDispatchResolver(
+      {
+        "dir\\file": makeCheckResult({
+          state: "deny",
+          matchedPattern: "dir/file",
+        }),
+      },
+      makeCheckResult({ state: "allow" }),
+    );
+    const result = await describeGateOnPlatform(
+      "linux",
+      makeTcc({
+        input: { command: "cat dir\\file" },
+        cwd: "/projects/app",
+      }),
+      resolver,
+    );
+    expect(result).toBeNull();
   });
 });

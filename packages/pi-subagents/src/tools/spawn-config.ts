@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument -- Pi SDK types are not fully exported; see upstream Pi SDK for type improvements */
 /**
  * spawn-config.ts — Pure config resolution for the Agent tool.
  *
@@ -9,8 +8,10 @@
 
 import type { Model } from "@earendil-works/pi-ai";
 import type { AgentTypeRegistry } from "#src/config/agent-types";
-import { resolveAgentInvocationConfig } from "#src/config/invocation-config";
+import { type LockableField, resolveAgentInvocationConfig } from "#src/config/invocation-config";
+import { parseThinkingLevel, thinkingLevelError } from "#src/config/thinking-level";
 import { normalizeMaxTurns } from "#src/lifecycle/turn-limits";
+import type { ModelRegistry } from "#src/session/model-resolver";
 import { resolveInvocationModel } from "#src/session/model-resolver";
 import type { AgentInvocation, SubagentType, ThinkingLevel } from "#src/types";
 import {
@@ -22,8 +23,8 @@ import {
 
 /** Model info extracted from the parent session context. */
 export interface ModelInfo {
-  parentModel: { id: string; name?: string } | undefined;
-  modelRegistry: unknown;
+  parentModel: Model<any> | undefined;
+  modelRegistry: ModelRegistry | undefined;
 }
 
 /** Identity: who is being spawned. */
@@ -58,6 +59,8 @@ export interface ResolvedSpawnConfig {
   identity: SpawnIdentity;
   execution: SpawnExecution;
   presentation: SpawnPresentation;
+  /** Model-visible advisories about how this spawn resolved. Both runners render them. */
+  notes: string[];
 }
 
 /** Error result when model resolution fails. */
@@ -77,14 +80,19 @@ export function resolveSpawnConfig(
   modelInfo: ModelInfo,
   settings: { readonly defaultMaxTurns: number | undefined },
 ): ResolvedSpawnConfig | SpawnConfigError {
+  // Validated at the door, so the merge below and every layer past it receive a
+  // level the SDK recognizes rather than one it would clamp to "off" (Refs #834).
+  const thinkingParam = params.thinking;
+  const thinkingFromParams = parseThinkingLevel(thinkingParam);
+  if (thinkingParam != null && thinkingFromParams === undefined) {
+    return { error: thinkingLevelError(thinkingParam) };
+  }
+
   const rawType = params.subagent_type as SubagentType;
   const resolved = registry.resolveType(rawType);
 
-  // A known-but-disabled type is an explicit error, not a silent unknown-type fallback.
-  if (resolved !== undefined && !registry.isValidType(resolved)) {
-    return { error: `Agent type "${resolved}" is disabled` };
-  }
-
+  // A disabled type is rejected by SubagentManager.resolveSpawn, the choke point
+  // every front door shares.
   const subagentType = resolved ?? "general-purpose";
   const fellBack = resolved === undefined;
 
@@ -92,14 +100,17 @@ export function resolveSpawnConfig(
 
   // Merge agent config defaults with tool-call params
   const customConfig = registry.resolveAgentConfig(subagentType);
-  const resolvedConfig = resolveAgentInvocationConfig(customConfig, params);
+  const resolvedConfig = resolveAgentInvocationConfig(customConfig, {
+    ...params,
+    thinking: thinkingFromParams,
+  });
 
   // Resolve model
   const resolution = resolveInvocationModel(
     modelInfo.parentModel,
     resolvedConfig.modelInput,
     resolvedConfig.modelFromParams,
-    modelInfo.modelRegistry as any,
+    modelInfo.modelRegistry,
   );
   if (resolution.error) return { error: resolution.error };
   const model = resolution.model;
@@ -113,7 +124,7 @@ export function resolveSpawnConfig(
   const effectiveModelId = model?.id;
   const modelName =
     effectiveModelId && effectiveModelId !== parentModelId
-      ? (model?.name ?? effectiveModelId).replace(/^Claude\s+/i, "").toLowerCase()
+      ? model.name.replace(/^Claude\s+/i, "").toLowerCase()
       : undefined;
 
   const effectiveMaxTurns = normalizeMaxTurns(
@@ -142,6 +153,10 @@ export function resolveSpawnConfig(
 
   return {
     identity: { subagentType, rawType, fellBack, displayName },
+    notes: [
+      ...buildFallbackNote(rawType, fellBack),
+      ...buildLockNote(subagentType, resolvedConfig.discarded),
+    ],
     execution: {
       prompt: params.prompt as string,
       description: params.description as string,
@@ -154,4 +169,24 @@ export function resolveSpawnConfig(
     },
     presentation: { modelName, agentTags, detailBase },
   };
+}
+
+/** Advise that the named type does not exist, so general-purpose ran instead. */
+export function buildFallbackNote(rawType: SubagentType, fellBack: boolean): string[] {
+  return fellBack ? [`Note: Unknown agent type "${rawType}" — using general-purpose.`] : [];
+}
+
+/**
+ * Advise that the agent's `locked:` frontmatter threw away parameters this call passed.
+ *
+ * The caller cannot see an agent file, so a silent discard reads as the tool ignoring
+ * a parameter its own schema documents — which is the defect #829 reports.
+ */
+function buildLockNote(agentName: string, discarded: readonly LockableField[]): string[] {
+  if (discarded.length === 0) return [];
+  const tail =
+    discarded.length === 1
+      ? `so the ${discarded[0]} parameter was ignored`
+      : "so those parameters were ignored";
+  return [`Note: agent "${agentName}" locks ${discarded.join(", ")}, ${tail}.`];
 }

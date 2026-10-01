@@ -15,14 +15,31 @@ hooks = [
 [[repos]]
 repo = "local"
 hooks = [
+    # Runs ahead of the formatters so a stray byte is reported where it is,
+    # rather than after Biome has reflowed the line around it (Refs #960).
+    { id = "invisible-characters", name = "invisible characters", entry = "node scripts/lint/invisible-characters.mjs --fix", language = "system", types = ["text"] },
+    # Decodes a literal escape such as `\u2014` in markdown prose, before rumdl
+    # reflows the line around it (Refs #967).
+    { id = "unicode-escapes", name = "unicode escapes", entry = "node scripts/lint/unicode-escapes.mjs --fix", language = "system", types = ["markdown"] },
     { id = "biome", name = "biome", entry = "pnpm exec biome check --write --files-ignore-unknown=true", language = "system", types_or = ["javascript", "jsx", "ts", "tsx", "json"] },
     { id = "eslint", name = "eslint", entry = "pnpm exec eslint --fix", language = "system", types = ["ts"], files = "^packages/" },
-    { id = "commitlint", name = "commitlint", entry = "pnpm exec commitlint --strict --edit", language = "system", stages = ["commit-msg"] },
 ]
 
 [[repos]]
+# Pinned in lockstep with the `rumdl` catalog entry in pnpm-workspace.yaml.
+# 0.2.45+ regressed MD013 sentence-per-line reflow (rvben/rumdl#811); 0.2.24 is
+# the newest release clean on this repo's markdown.
 repo = "https://github.com/rvben/rumdl-pre-commit"
-rev = "v0.1.93"
+rev = "v0.2.24"
 hooks = [
     { id = "rumdl-fmt" },
+]
+
+# Conventional Commit grammar check on the commit-msg stage. Rejects the
+# malformed `type!(scope):` form (Refs #452, #457). Config: committed.toml.
+[[repos]]
+repo = "https://github.com/crate-ci/committed"
+rev = "v1.1.11"
+hooks = [
+    { id = "committed" },
 ]

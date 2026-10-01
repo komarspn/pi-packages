@@ -3,16 +3,17 @@
   "name": "@gotgenes/pi-packages",
   "type": "module",
   "description": "Monorepo for @gotgenes pi packages",
-  "packageManager": "pnpm@11.5.2",
+  "packageManager": "pnpm@11.25.0",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "prepare": "command -v prek >/dev/null 2>&1 && prek install || echo 'prek not found \u2014 skipping hook install (see README)'",
     "check": "pnpm -r run check",
-    "test": "pnpm -r run test",
-    "lint": "biome check . && eslint packages/ && rumdl check .",
-    "lint:fix": "biome check --write . && eslint packages/ --fix && rumdl fmt .",
+    "test": "pnpm -r run test && vitest run",
+    "test:scripts": "vitest run",
+    "lint": "biome check . && eslint packages/ && rumdl check . && node scripts/lint/invisible-characters.mjs && node scripts/lint/unicode-escapes.mjs",
+    "lint:fix": "biome check --write . && eslint packages/ --fix && rumdl fmt . && node scripts/lint/invisible-characters.mjs --fix && node scripts/lint/unicode-escapes.mjs --fix",
     "format": "biome format --write .",
     "fallow": "fallow",
     "fallow:audit": "fallow audit",
@@ -21,13 +22,13 @@
     "fallow:dupes": "fallow dupes"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.16",
-    "@commitlint/cli": "^21.0.2",
-    "@commitlint/config-conventional": "^21.0.2",
+    "@biomejs/biome": "catalog:",
+    "@vitest/coverage-istanbul": "catalog:",
     "eslint": "catalog:",
     "fallow": "catalog:",
     "globals": "catalog:",
-    "rumdl": "^0.2.10",
-    "typescript-eslint": "catalog:"
+    "rumdl": "catalog:",
+    "typescript-eslint": "catalog:",
+    "vitest": "catalog:"
   }
 }

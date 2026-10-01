@@ -33,13 +33,14 @@ describe("SteerTool", () => {
 	it("includes promptSnippet", () => {
 		const tool = new SteerTool(makeManager(), makeEvents());
 		expect(tool.toToolDefinition().promptSnippet).toBe(
-			"steer_subagent: Send a mid-run message to redirect a running background agent.",
+			"Send a mid-run message to redirect a running background agent.",
 		);
 	});
 
-	it("returns not-found message for unknown agent ID", async () => {
+	it("returns not-found message for unknown agent ID without claiming cleanup", async () => {
 		const result = await execute(makeManager(), makeEvents(), { agent_id: "unknown", message: "hi" });
 		expect(result.content[0].text).toContain("Agent not found");
+		expect(result.content[0].text).not.toContain("cleaned up");
 	});
 
 	it("rejects steering a non-running agent", async () => {

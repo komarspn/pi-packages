@@ -2,19 +2,22 @@ import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import type { AgentSpawnConfig } from "#src/lifecycle/subagent-manager";
 import {
+  renderOutcomeAddenda,
+  renderOutcomeBody,
+  renderRunUpdates,
+  renderStatusNote,
+  renderWorkspaceNotice,
+} from "#src/observation/outcome-delivery";
+import {
   buildDetails,
   formatLifetimeTokens,
-  getStatusNote,
+  renderSpawnNotes,
   textResult,
 } from "#src/tools/helpers";
 import type { ResolvedSpawnConfig } from "#src/tools/spawn-config";
 import type { ParentSessionInfo, Subagent } from "#src/types";
-import {
-  type AgentDetails,
-  describeActivity,
-  formatMs,
-  SPINNER,
-} from "#src/ui/display";
+import { type AgentDetails, describeActivity, formatMs } from "#src/ui/display";
+import { SPINNER } from "#src/ui/glyphs";
 
 /** Narrow manager interface for the foreground runner. */
 export interface ForegroundManagerDeps {
@@ -22,7 +25,7 @@ export interface ForegroundManagerDeps {
     snapshot: ParentSnapshot,
     type: string,
     prompt: string,
-    opts: Omit<AgentSpawnConfig, "isBackground">,
+    opts: Omit<AgentSpawnConfig, "background">,
   ): Promise<Subagent>;
 }
 
@@ -41,7 +44,7 @@ export async function runForeground(
   manager: ForegroundManagerDeps,
   params: ForegroundParams,
   signal: AbortSignal | undefined,
-  onUpdate: ((update: AgentToolResult<any>) => void) | undefined,
+  onUpdate: ((update: AgentToolResult<AgentDetails>) => void) | undefined,
 ) {
   const { identity, execution, presentation } = params.config;
   let spinnerFrame = 0;
@@ -68,8 +71,7 @@ export async function runForeground(
     };
     onUpdate?.({
       content: [{ type: "text", text: `${toolUses} tool uses...` }],
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- Pi SDK ToolCallUpdate details type is not exported
-      details: details as any,
+      details,
     });
   };
 
@@ -93,7 +95,6 @@ export async function runForeground(
         maxTurns: execution.effectiveMaxTurns,
         inheritContext: execution.inheritContext,
         thinkingLevel: execution.thinking,
-        invocation: execution.agentInvocation,
         signal,
         parentSession: params.parentSession,
         observer: {
@@ -110,23 +111,43 @@ export async function runForeground(
 
   clearInterval(spinnerInterval);
 
+  // Foreground-return delivery edge: the result is handed back in this tool
+  // result, so the outcome is collected. Mark it consumed.
+  record.markConsumed();
+
   const tokenText = formatLifetimeTokens(record);
   const details = buildDetails(presentation.detailBase, record, { tokens: tokenText });
 
-  const fallbackNote = identity.fellBack
-    ? `Note: Unknown agent type "${identity.rawType}" — using general-purpose.\n\n`
-    : "";
+  const noteText = renderSpawnNotes(params.config.notes);
 
   if (record.status === "error") {
-    return textResult(`${fallbackNote}Agent failed: ${record.error}`, details);
+    // A failed run has no result text, so this return is the only carrier that
+    // can say where its workspace saved the work — or what the child flagged
+    // before the failure, which is the one place those findings survive.
+    // The transcript pointer rides here for the same reason: with no result to
+    // read, it is the parent's only route to what the child did before it died.
+    // The success branch omits it deliberately — that return carries the result.
+    // The ask-back affordance is not composed here: a failed run answers no
+    // question, so this is the addenda tail minus the one that cannot apply.
+    const transcriptLine = record.outputFile
+      ? `\nFull transcript available at: ${record.outputFile}`
+      : "";
+    return textResult(
+      `${noteText}Agent failed: ${record.error}\nAgent ID: ${record.id}${transcriptLine}` +
+        renderRunUpdates(record.runUpdates) +
+        renderWorkspaceNotice(record.workspaceNotice),
+      details,
+    );
   }
 
   const durationMs = (record.completedAt ?? Date.now()) - record.startedAt;
   const statsParts = [`${record.toolUses} tool uses`];
   if (tokenText) statsParts.push(tokenText);
   return textResult(
-    `${fallbackNote}Agent completed in ${formatMs(durationMs)} (${statsParts.join(", ")})${getStatusNote(record.status)}.\n\n` +
-      (record.result?.trim() ?? "No output."),
+    `${noteText}Agent completed in ${formatMs(durationMs)} (${statsParts.join(", ")})${renderStatusNote(record.status)}.\n` +
+      `Agent ID: ${record.id}\n\n` +
+      renderOutcomeBody(record) +
+      renderOutcomeAddenda(record),
     details,
   );
 }

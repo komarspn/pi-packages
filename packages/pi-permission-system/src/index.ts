@@ -1,54 +1,103 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir, getPackageDir } from "@earendil-works/pi-coding-agent";
-import { registerBuiltinToolInputFormatters } from "./builtin-tool-input-formatters";
-import { registerPermissionSystemCommand } from "./config-modal";
-import { getGlobalConfigPath } from "./config-paths";
-import { ConfigStore } from "./config-store";
-import { DecisionAudit } from "./decision-audit";
-import { GateDecisionReporter } from "./decision-reporter";
-import { computeExtensionPaths } from "./extension-paths";
+import { warmBashParser } from "#src/access-intent/bash/parser";
+import { buildResolvedIntentFromMatchValues } from "#src/access-intent/input-normalizer";
+import { AskDialogQueue } from "#src/authority/ask-dialog-queue";
+import { AuthorizerChainAudit } from "#src/authority/authorizer-chain-audit";
 import {
-  PermissionForwarder,
-  type PermissionForwarderDeps,
-} from "./forwarded-permissions/permission-forwarder";
-import { ForwardingManager } from "./forwarding-manager";
+  AuthorizerRegistry,
+  ObservedAuthorizerRegistrar,
+} from "#src/authority/authorizer-registry";
+import { AuthorizerSelection } from "#src/authority/authorizer-selection";
+import { ChildNodeAudit } from "#src/authority/child-node-audit";
+import {
+  ForwardedRequestServer,
+  type ServingPolicy,
+} from "#src/authority/forwarded-request-server";
+import {
+  ForwardingLivenessJudge,
+  ServingHeartbeatStore,
+} from "#src/authority/forwarding-liveness";
+import { ForwardingManager } from "#src/authority/forwarding-manager";
+import {
+  AncestorNodes,
+  InheritingToolAccessExtractorLookup,
+  InheritingToolInputFormatterLookup,
+} from "#src/authority/inherited-registrations";
+import { PERMISSION_FORWARDING_TIMEOUT_MS } from "#src/authority/permission-forwarding";
+import { requestPermissionDecision } from "#src/authority/permission-prompt-component";
+import { PermissionPrompter } from "#src/authority/permission-prompter";
+import {
+  composeServingAnnouncers,
+  getServingSessionRegistry,
+} from "#src/authority/serving-registry";
+import { SubagentDetection } from "#src/authority/subagent-detection";
+import { subscribeSubagentLifecycle } from "#src/authority/subagent-lifecycle-events";
+import { getSubagentSessionRegistry } from "#src/authority/subagent-registry";
+import { ConfigIssueReporter } from "#src/config/config-issue-reporter";
+import { registerPermissionSystemCommand } from "#src/config/config-modal";
+import { getGlobalConfigPath } from "#src/config/config-paths";
+import { ConfigStore } from "#src/config/config-store";
+import { resolveDialogKeys } from "#src/config/dialog-keys";
+import { isYoloModeEnabled } from "#src/config/extension-config";
+import { computeExtensionPaths } from "#src/config/extension-paths";
+import { GateRunner } from "#src/handlers/gates/runner";
+import { SkillInputGatePipeline } from "#src/handlers/gates/skill-input-gate-pipeline";
+import { ToolCallGatePipeline } from "#src/handlers/gates/tool-call-gate-pipeline";
+import { createFailClosedToolCall } from "#src/handlers/tool-call-boundary";
+import { DecisionAudit } from "#src/logging/decision-audit";
+import { GateDecisionReporter } from "#src/logging/decision-reporter";
+import { PermissionSessionLogger } from "#src/logging/session-logger";
+import { pathFlavorForPlatform } from "#src/path/path-flavor";
+import { PermissionManager } from "#src/policy/permission-manager";
+import { PermissionResolver } from "#src/policy/permission-resolver";
+import { resolveRenderBudget } from "#src/presentation/dialog-renderer";
+import { LocalPermissionsService } from "#src/service/permissions-service";
+import { PermissionServiceLifecycle } from "#src/service/service-lifecycle";
+import { PermissionSession } from "#src/session/permission-session";
+import { PersistentApprovalRecorder } from "#src/session/persistent-approval-recorder";
+import { SessionRules } from "#src/session/session-rules";
+import { registerBuiltinToolInputFormatters } from "#src/tool-input/builtin-tool-input-formatters";
+import { ToolAccessExtractorRegistry } from "#src/tool-input/tool-access-extractor-registry";
+import { ToolInputFormatterRegistry } from "#src/tool-input/tool-input-formatter-registry";
 import {
   AgentPrepHandler,
   PermissionGateHandler,
   SessionLifecycleHandler,
+  SessionTurnPrep,
 } from "./handlers";
-import { GateRunner } from "./handlers/gates/runner";
-import { SkillInputGatePipeline } from "./handlers/gates/skill-input-gate-pipeline";
-import { ToolCallGatePipeline } from "./handlers/gates/tool-call-gate-pipeline";
-import { createFailClosedToolCall } from "./handlers/tool-call-boundary";
-import { requestPermissionDecisionFromUi } from "./permission-dialog";
-import { registerPermissionRpcHandlers } from "./permission-event-rpc";
-import { PermissionManager } from "./permission-manager";
-import { PermissionPrompter } from "./permission-prompter";
-import { PersistentApprovalRecorder } from "./persistent-approval-recorder";
-import { PermissionResolver } from "./permission-resolver";
-import { PermissionSession } from "./permission-session";
-import { LocalPermissionsService } from "./permissions-service";
-import { PromptingGateway } from "./prompting-gateway";
-import { PermissionServiceLifecycle } from "./service-lifecycle";
-import { PermissionSessionLogger } from "./session-logger";
-import { SessionRules } from "./session-rules";
-import { subscribeSubagentLifecycle } from "./subagent-lifecycle-events";
-import { getSubagentSessionRegistry } from "./subagent-registry";
-import { ToolAccessExtractorRegistry } from "./tool-access-extractor-registry";
-import { ToolInputFormatterRegistry } from "./tool-input-formatter-registry";
+import { getPermissionsService, type PermissionsService } from "./service";
 
 export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
   const agentDir = getAgentDir();
   // getPackageDir() is Pi's own install dir; auto-allow it for read-only tools
   // so the agent can read Pi's bundled docs/examples regardless of layout.
   const paths = computeExtensionPaths(agentDir, getPackageDir());
-  const permissionManager = new PermissionManager({ agentDir });
+  // The single process.platform read for the whole extension, resolved once
+  // into the path-language flavor that every consumer shares (the session's
+  // PathNormalizer, rule evaluation, and subagent detection). Interior modules
+  // must not read process.platform (enforced by the eslint guard scoped to
+  // src/) and never re-derive the win32 flavor — they receive this product.
+  const hostFlavor = pathFlavorForPlatform(process.platform);
   const sessionRules = new SessionRules();
   const subagentRegistry = getSubagentSessionRegistry();
+  // Process-global, like subagentRegistry: an in-process child reads it from a
+  // separate jiti instance to learn whether its parent is draining its inbox.
+  const servingRegistry = getServingSessionRegistry();
+  // Single owner of subagent detection, shared across every consumer instead of
+  // threading the (subagentSessionsDir, platform, registry) triple into each.
+  const subagentDetection = new SubagentDetection({
+    subagentSessionsDir: paths.subagentSessionsDir,
+    flavor: hostFlavor,
+    registry: subagentRegistry,
+  });
   const formatterRegistry = new ToolInputFormatterRegistry();
   registerBuiltinToolInputFormatters(formatterRegistry);
   const accessExtractorRegistry = new ToolAccessExtractorRegistry();
+  // One registry instance backs both the registerAuthorizer service surface and
+  // AuthorizerSelection's chain resolution, so a registration is visible to
+  // composition.
+  const authorizerRegistry = new AuthorizerRegistry();
 
   // Both `configStore` and `session` are forward-declared so the logger's
   // lazy thunks can close over them without a cast or null-init holder.
@@ -58,6 +107,18 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
   let configStore: ConfigStore;
   // eslint-disable-next-line prefer-const -- forward-declared let; `const` requires an initializer
   let session: PermissionSession;
+
+  // Declared after the `configStore` forward declaration so the reader can
+  // close over it; every call runs after configStore is assigned below. yolo is
+  // a composition-stage ask→allow rewrite (#526) that the gate runner extends
+  // to asks synthesized after resolution (#712), so both share this reader.
+  const isYoloEnabled = (): boolean => isYoloModeEnabled(configStore.current());
+
+  const permissionManager = new PermissionManager({
+    agentDir,
+    flavor: hostFlavor,
+    isYoloEnabled,
+  });
 
   const logger = new PermissionSessionLogger({
     globalLogsDir: paths.globalLogsDir,
@@ -71,48 +132,125 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
     logger,
   });
 
-  const forwardingDeps: PermissionForwarderDeps = {
-    forwardingDir: paths.forwardingDir,
-    subagentSessionsDir: paths.subagentSessionsDir,
-    registry: subagentRegistry,
-    events: pi.events,
-    logger,
-    requestPermissionDecisionFromUi,
-    config: configStore,
-  };
-  const forwarder = new PermissionForwarder(forwardingDeps);
+  const prompter = new PermissionPrompter({ logger });
 
-  const prompter = new PermissionPrompter({
-    config: configStore,
+  // One queue per factory invocation, so it is rebuilt with the session rather
+  // than outliving it: the host holds a single inline dialog slot, and a second
+  // presentation there strands the first ask's promise (#965).
+  const askDialogQueue = new AskDialogQueue();
+
+  // The filesystem half of the serving announcement. `servingRegistry` reaches
+  // an in-process child through `globalThis`; a child in its own process shares
+  // nothing but this directory, so the served session publishes a heartbeat
+  // there too (#721).
+  const servingHeartbeats = new ServingHeartbeatStore({
+    forwardingDir: paths.forwardingDir,
     logger,
-    events: pi.events,
-    forwarder,
+  });
+  // The read side of both channels, routed by how the target was resolved.
+  const servingLiveness = new ForwardingLivenessJudge({
+    registry: servingRegistry,
+    heartbeats: servingHeartbeats,
   });
 
-  const gateway = new PromptingGateway({
-    config: configStore,
-    subagentSessionsDir: paths.subagentSessionsDir,
+  const authorizerSelection = new AuthorizerSelection({
+    detection: subagentDetection,
+    events: pi.events,
+    dialogs: askDialogQueue,
+    getPromptPreferences: () => ({
+      doublePressToConfirm: configStore.current().doublePressToConfirm,
+      budget: resolveRenderBudget(configStore.current()),
+      dialogKeys: resolveDialogKeys(configStore.current()).keys,
+      promptNotifications: configStore.current().promptNotifications ?? [],
+    }),
+    requestPermissionDecision,
+    forwardingDir: paths.forwardingDir,
     registry: subagentRegistry,
+    serving: servingLiveness,
+    getForwardingTimeoutMs: () =>
+      configStore.current().forwardingTimeoutMs ??
+      PERMISSION_FORWARDING_TIMEOUT_MS,
+    logger,
     prompter,
+    // The published service is the narrow, session-scoped PermissionQuery a
+    // chain link is handed (it routes bash/path at gate parity against the live
+    // session cwd). A thunk because `permissionsService` is constructed below;
+    // it resolves at session_start (activate), well after assignment.
+    getPermissionQuery: () => permissionsService,
+    // Same registry instance the registerAuthorizer service surface writes to,
+    // resolved in config order at activation.
+    authorizerRegistry,
+    getAuthorizerChain: () => configStore.current().authorizerChain ?? [],
+    // Records each configured name this node could not resolve, and tells the
+    // operator once per name — the ask is decided without the judge they
+    // asked for, and the review log alone never said so (#861).
+    chainAudit: new AuthorizerChainAudit(logger),
+  });
+
+  // Resolver composes the manager + session ruleset and owns the
+  // access-path → path-values unwrap. Constructed here (before `session`) so
+  // the forwarded-request server's ServingPolicy can resolve against it; the
+  // service and gates below share this one instance.
+  const resolver = new PermissionResolver(permissionManager, sessionRules);
+
+  // Serving a forwarded request is resolution: resolve the child-fixed
+  // ForwardedAccessIntent (ADR 0008) directly against the serving node's
+  // composed ruleset, agent-scoped to the requester (§3) — the match values
+  // are used as fixed by the child, never re-derived through this session's
+  // PathNormalizer/cwd (#597).
+  const servingPolicy: ServingPolicy = {
+    resolve: (intent) =>
+      resolver.resolve(
+        buildResolvedIntentFromMatchValues(
+          intent.surface,
+          intent.matchValues,
+          intent.principal.agentName,
+        ),
+      ),
+  };
+
+  // Constructed here rather than beside the gate runner below: the serving
+  // side broadcasts its own decisions, so both readers share one reporter over
+  // this session's event bus.
+  const reporter = new GateDecisionReporter(logger, pi.events);
+
+  const requestServer = new ForwardedRequestServer({
+    forwardingDir: paths.forwardingDir,
+    logger,
+    policy: servingPolicy,
+    escalator: authorizerSelection,
+    // The forwarded ask's own gate lives in the requesting session, so the
+    // serving side announces the terminal decision on this session's bus.
+    broadcaster: reporter,
+    // Records a whole-session grant into the same SessionRules the resolver and
+    // gate runner read, so a serving-scope grant governs the parent and future
+    // forwarded resolutions.
+    recorder: sessionRules,
+    registry: subagentRegistry,
   });
 
   session = new PermissionSession(
     paths,
-    new ForwardingManager(
-      paths.subagentSessionsDir,
-      forwarder,
-      subagentRegistry,
-    ),
+    new ForwardingManager({
+      forwarder: requestServer,
+      serving: composeServingAnnouncers(servingRegistry, servingHeartbeats),
+      logger,
+    }),
     permissionManager,
     sessionRules,
     configStore,
-    gateway,
+    authorizerSelection,
+    hostFlavor,
   );
 
   // refresh() must run after `session` is assigned: a debug-write IO failure
   // triggers the logger's notify sink — `session.notify(m)` — which no-ops
   // on the null context but requires `session` to be bound.
-  configStore.refresh();
+  // No cwd or trust decision exists at factory init, so there is no project
+  // scope to withhold from (fail closed); session_start reloads with the real
+  // cwd and trust decision. This load reports nothing to the operator: it
+  // cannot, and it used to consume the warning by pretending it had (#933).
+  configStore.refresh(undefined, false);
 
   const configPath = getGlobalConfigPath(agentDir);
   registerPermissionSystemCommand(pi, {
@@ -124,38 +262,52 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
       ),
   });
 
-  const rpcHandles = registerPermissionRpcHandlers(pi.events, {
-    permissionManager,
-    sessionRules,
+  // Explicitly annotated to break a type-inference cycle: the selection's
+  // `getPermissionQuery` thunk closes over this service, and the service's
+  // registrar closes back over the selection. Both are resolved at call time
+  // at runtime; `tsc` needs one of the two typed by hand to unwind them.
+  const permissionsService: PermissionsService = new LocalPermissionsService(
+    resolver,
     session,
-    requestPermissionDecisionFromUi,
-    logger,
-  });
-
-  const permissionsService = new LocalPermissionsService(
-    permissionManager,
-    sessionRules,
     formatterRegistry,
     accessExtractorRegistry,
+    // Sibling extensions register through the observing decorator, so a link
+    // offered to a node whose chain never runs is accepted and recorded rather
+    // than vanishing (ADR 0012 decision 4). Chain resolution keeps reading the
+    // undecorated registry above.
+    new ObservedAuthorizerRegistrar(
+      authorizerRegistry,
+      authorizerSelection,
+      logger,
+    ),
   );
 
   // Subscribe to @gotgenes/pi-subagents' child lifecycle events so child
-  // sessions register/unregister without the core calling us (ADR 0002).
+  // sessions register/unregister without the core calling us (ADR 0002), and
+  // so a child that bound its extensions without loading one of ours is
+  // reported rather than silently ungated (#792). The lookup is a thunk over
+  // the locator, never a cached reference, per the guidance in service.ts.
+  const childNodeAudit = new ChildNodeAudit(
+    (sessionId) => getPermissionsService(sessionId) !== undefined,
+    logger,
+  );
   const unsubSubagentLifecycle = subscribeSubagentLifecycle(
     pi.events,
     subagentRegistry,
+    childNodeAudit,
   );
 
   // PermissionServiceLifecycle owns the process-global service publication:
-  // activate() publishes (skipped for registered subagent children — see #302)
-  // and emits ready; teardown() unsubscribes all session listeners and
-  // unpublishes. Deferred to session_start because identifying a child
-  // requires the session id from ctx, unavailable at factory-init time.
+  // activate() publishes this node's service under its own session id, then
+  // announces the node's session id and chain role on the ready channel;
+  // teardown() unsubscribes all session listeners and unpublishes.
+  // Deferred to session_start because both facts come from ctx, unavailable at
+  // factory-init time.
   const serviceLifecycle = new PermissionServiceLifecycle(
     permissionsService,
-    subagentRegistry,
+    authorizerSelection,
     pi.events,
-    [rpcHandles.unsubCheck, rpcHandles.unsubPrompt, unsubSubagentLifecycle],
+    [unsubSubagentLifecycle],
   );
 
   const toolRegistry = {
@@ -164,36 +316,70 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
     setActive: (names: string[]) => pi.setActiveTools(names),
   };
 
-  const resolver = new PermissionResolver(permissionManager, sessionRules);
-
   const audit = new DecisionAudit();
+  // Reads the store's issue list and tells the operator what is new, through
+  // the logger's warn sink rather than a ctx parameter — which is what the
+  // factory-time priming refresh lacked, so every config issue already on disk
+  // was recorded as delivered and never shown (#933). Driven at session_start
+  // and on every turn; the latch keeps an unchanged issue quiet.
+  const configIssueReporter = new ConfigIssueReporter(configStore, logger);
   const lifecycle = new SessionLifecycleHandler(
     session,
     resolver,
     serviceLifecycle,
     logger,
     audit,
+    configIssueReporter,
+    askDialogQueue,
   );
-  const agentPrep = new AgentPrepHandler(session, resolver, toolRegistry);
-
-  const reporter = new GateDecisionReporter(logger, pi.events);
-  const persistentApprovalRecorder = new PersistentApprovalRecorder({
-    agentDir,
-    getCwd: () => session.getRuntimeContext()?.cwd,
+  const turnPrep = new SessionTurnPrep(
+    session,
+    () => {
+      void warmBashParser();
+    },
+    serviceLifecycle,
+    configIssueReporter,
+  );
+  const agentPrep = new AgentPrepHandler(
+    turnPrep,
+    session,
+    resolver,
+    toolRegistry,
     logger,
-  });
+    subagentDetection,
+  );
+
   const gateRunner = new GateRunner(
     resolver,
     sessionRules,
-    gateway,
+    authorizerSelection,
     reporter,
-    persistentApprovalRecorder,
+    isYoloEnabled,
+    new PersistentApprovalRecorder({
+      agentDir,
+      getCwd: () => session.getRuntimeContext()?.cwd,
+      logger,
+    }),
+  );
+  // This node's ancestors in the current process. The gates read their
+  // fact-shaping registrations through the inheriting lookups below, so a
+  // child whose own registry is missing an extractor still sees the path its
+  // tool touches (ADR 0012 decision 1, the fact-shaping clause; #793).
+  // Registration itself is untouched: the service's registrars still write to
+  // the undecorated registries, so an entry lands in this node alone.
+  const ancestorNodes = new AncestorNodes(
+    serviceLifecycle,
+    subagentRegistry,
+    getPermissionsService,
   );
   const toolCallGatePipeline = new ToolCallGatePipeline(
     resolver,
     session,
-    formatterRegistry,
-    accessExtractorRegistry,
+    new InheritingToolInputFormatterLookup(formatterRegistry, ancestorNodes),
+    new InheritingToolAccessExtractorLookup(
+      accessExtractorRegistry,
+      ancestorNodes,
+    ),
   );
   const skillInputGatePipeline = new SkillInputGatePipeline(resolver);
   const gates = new PermissionGateHandler(
@@ -207,8 +393,8 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
   pi.on("session_start", (event, ctx) =>
     lifecycle.handleSessionStart(event, ctx),
   );
-  pi.on("resources_discover", (event) =>
-    lifecycle.handleResourcesDiscover(event),
+  pi.on("resources_discover", (event, ctx) =>
+    lifecycle.handleResourcesDiscover(event, ctx),
   );
   pi.on("session_shutdown", () => lifecycle.handleSessionShutdown());
   pi.on("before_agent_start", (event, ctx) => agentPrep.handle(event, ctx));

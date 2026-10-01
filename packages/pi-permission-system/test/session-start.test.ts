@@ -2,8 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { getGlobalConfigPath } from "#src/config-paths";
-import { DEFAULT_EXTENSION_CONFIG } from "#src/extension-config";
+import { getGlobalConfigPath } from "#src/config/config-paths";
+import { DEFAULT_EXTENSION_CONFIG } from "#src/config/extension-config";
 import piPermissionSystemExtension from "#src/index";
 import type { ScopeConfig } from "#src/types";
 
@@ -96,11 +96,18 @@ describe("session_start handler consolidation", () => {
     // The single handler should accept event with reason="reload" without throwing
     const mockCtx = {
       cwd: baseDir,
+      hasUI: false,
+      isProjectTrusted: () => true,
       ui: { select: async () => "", input: async () => "" },
       agent: { name: "test-agent" },
       sessionManager: {
         getEntries: () => [],
         addEntry: () => {},
+        // AuthorizerSelection.activate selects an Authorizer eagerly (#555),
+        // which calls SubagentDetection.isSubagent(ctx) when hasUI is false —
+        // a real ExtensionContext always provides these two readers.
+        getSessionId: () => "session-1",
+        getSessionDir: () => baseDir,
       },
     };
 

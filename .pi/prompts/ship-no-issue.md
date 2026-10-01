@@ -1,8 +1,10 @@
 ---
-description: Push, verify CI, and merge the release-please PR (no issue to close)
+description: Push, verify CI, and dispatch the release (no issue to close)
 ---
 
 # Ship (no issue)
+
+Load the `git-workflow` and `releasing` skills before starting.
 
 ## 1. Sync with remote
 
@@ -30,24 +32,27 @@ If either fails, fix the issues and commit before pushing.
 
 ## 4. Verify CI on the pushed commit
 
-1. Use `ci_find` with the pushed SHA (`git rev-parse HEAD`) and workflow `ci` to locate the CI run.
-2. Use `ci_watch` with the returned `run_id` and workflow `ci` to wait for it to complete.
-3. If the run conclusion is `failure`, stop and report.
-   Do not merge anything.
-4. If it lands `success`, continue.
+Read the `## 7. Verify CI on the pushed commit` section of `.pi/prompts/ship.md` and follow it, with one difference: there is no worktree lane here, so its worktree-only rule for recovering from a CI failure — fix forward on `main`, never revert the ff-merge — does not apply.
+On a `failure` conclusion, stop and report — do not release anything.
 
-## 5. Merge release-please PR (if present)
+That section is the single source for the SHA discipline this step depends on (pass the exact `git rev-parse HEAD` value, never hand-expand a short SHA, do not measure its shape, re-check the SHA on a `ci_find` timeout).
 
-1. Use `release_pr_find` to locate an open release-please PR.
-2. If none is found (timeout), skip to step 6.
-3. If one exists, use `release_pr_merge` with the PR number.
-   - Note: release-please PRs typically have **no CI runs** because PRs created by the default `GITHUB_TOKEN` do not trigger workflows.
-     This is expected; do not block on it.
-   - If `release_pr_merge` returns an error (not mergeable), stop and report — let the user decide.
-   - Exception: if it fails with `merge_state: UNSTABLE`, check `gh pr view <N> --json statusCheckRollup`.
-     An empty rollup means no checks ran — the `GITHUB_TOKEN` case above; merge with `gh pr merge <N> --rebase` (matches the `defaultMergeMethod: rebase` config so the release lands as a linear commit, not a merge bubble), then `git pull --ff-only`.
-     Stop and report only when the PR is genuinely blocked (`CONFLICTING`/`DIRTY`/`BEHIND` or a failing check).
-4. Use `release_watch` to wait for the release tag to land on HEAD.
+## 5. Dispatch the release (if anything is releasable)
+
+The package set is derived differently here, because there is no issue plan to name it:
+
+1. Ask which packages have releasable commits:
+
+   ```bash
+   for pkg in $(ls packages); do ./scripts/release/next-version.sh "$pkg"; done
+   ```
+
+   Each package prints the tag it would cut, or nothing.
+2. If none prints a tag, skip to step 6.
+3. **Show the operator the list and ask which to release** — do not release everything that happens to be releasable.
+
+With the set confirmed, read the `## 10. Dispatch the release` section of `.pi/prompts/ship.md` (from its dispatch command onward) and the `## 11. Verify the release run` section, and follow both.
+Skip the path-based package derivation in section 10 — steps 1–3 above replace it.
 
 ## 6. Final report
 
@@ -60,6 +65,7 @@ Print:
 ## Constraints
 
 - Never force-push.
-- Never merge a release-please PR that is genuinely blocked (`CONFLICTING`/`DIRTY`/`BEHIND` or a failing check); `UNSTABLE` from no checks running is the expected `GITHUB_TOKEN` case (step 5.3).
-- If CI fails, do not merge anything.
-- If multiple release-please PRs exist for the same component, stop and ask — that's a configuration issue, not a normal merge.
+- Never release a package without the operator's confirmation here — with no issue plan, nothing in this flow says which packages the push was for.
+- Never name a package in the release dispatch that `next-version.sh` reports nothing for — the run refuses it and no package releases.
+- Never re-dispatch a release after `prepare` succeeded; the tags exist and the run would refuse on them.
+- If CI fails, do not release anything.

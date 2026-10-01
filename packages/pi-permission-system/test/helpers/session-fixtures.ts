@@ -10,20 +10,21 @@
  * their own file (the vi.hoisted / vi.mock pattern from permission-session.test.ts)
  * since that mock is module-scoped.
  */
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { vi } from "vitest";
 
-import type { SessionConfigStore } from "#src/config-store";
-import { DEFAULT_EXTENSION_CONFIG } from "#src/extension-config";
-import type { ExtensionPaths } from "#src/extension-paths";
-import type { ForwardingController } from "#src/forwarding-manager";
-import type { ScopedPermissionManager } from "#src/permission-manager";
-import { PermissionResolver } from "#src/permission-resolver";
-import { PermissionSession } from "#src/permission-session";
-import type { PromptingGatewayLifecycle } from "#src/prompting-gateway";
-import type { Ruleset } from "#src/rule";
-import type { SessionLogger } from "#src/session-logger";
-import { SessionRules } from "#src/session-rules";
+import type { ResolvedAccessIntent } from "#src/access-intent/access-intent";
+import type { AuthorizerSelectionLifecycle } from "#src/authority/authorizer-selection";
+import type { ForwardingController } from "#src/authority/forwarding-manager";
+import type { SessionConfigStore } from "#src/config/config-store";
+import { DEFAULT_EXTENSION_CONFIG } from "#src/config/extension-config";
+import type { ExtensionPaths } from "#src/config/extension-paths";
+import type { SessionLogger } from "#src/logging/session-logger";
+import { type PathFlavor, pathFlavorForPlatform } from "#src/path/path-flavor";
+import type { ScopedPermissionManager } from "#src/policy/permission-manager";
+import { PermissionResolver } from "#src/policy/permission-resolver";
+import type { Ruleset } from "#src/policy/rule";
+import { PermissionSession } from "#src/session/permission-session";
+import { SessionRules } from "#src/session/session-rules";
 import type { PermissionCheckResult, PermissionState } from "#src/types";
 
 // ── Per-collaborator fake factories ────────────────────────────────────────
@@ -59,15 +60,17 @@ export function makeConfigStore(
       vi
         .fn<() => typeof DEFAULT_EXTENSION_CONFIG>()
         .mockReturnValue({ ...DEFAULT_EXTENSION_CONFIG }),
-    refresh: overrides.refresh ?? vi.fn<(ctx?: ExtensionContext) => void>(),
+    refresh:
+      overrides.refresh ??
+      vi.fn<(cwd: string | undefined, projectTrusted: boolean) => void>(),
     logResolvedPaths: overrides.logResolvedPaths ?? vi.fn<() => void>(),
   };
 }
 
-export function makeGateway(): PromptingGatewayLifecycle {
+export function makeAuthorizerSelection(): AuthorizerSelectionLifecycle {
   return {
-    activate: vi.fn<PromptingGatewayLifecycle["activate"]>(),
-    deactivate: vi.fn<PromptingGatewayLifecycle["deactivate"]>(),
+    activate: vi.fn<AuthorizerSelectionLifecycle["activate"]>(),
+    deactivate: vi.fn<AuthorizerSelectionLifecycle["deactivate"]>(),
   };
 }
 
@@ -87,12 +90,10 @@ export function makeForwarding(): ForwardingController {
 export function makeFakePermissionManager() {
   return {
     configureForCwd: vi.fn<(cwd: string | undefined | null) => void>(),
-    checkPermission: vi
+    check: vi
       .fn<
         (
-          toolName: string,
-          input: unknown,
-          agentName?: string,
+          intent: ResolvedAccessIntent,
           sessionRules?: Ruleset,
         ) => PermissionCheckResult
       >()
@@ -102,23 +103,12 @@ export function makeFakePermissionManager() {
         source: "tool",
         origin: "builtin",
       }),
-    checkPathPolicy: vi
-      .fn<
-        (
-          values: readonly string[],
-          agentName?: string,
-          sessionRules?: Ruleset,
-        ) => PermissionCheckResult
-      >()
-      .mockReturnValue({
-        state: "allow",
-        toolName: "path",
-        source: "special",
-        origin: "builtin",
-      }),
     getToolPermission: vi
       .fn<(toolName: string, agentName?: string) => PermissionState>()
       .mockReturnValue("allow"),
+    isToolFullyDenied: vi
+      .fn<(toolName: string, agentName?: string) => boolean>()
+      .mockReturnValue(false),
     getConfigIssues: vi.fn((): string[] => []),
   };
 }
@@ -140,7 +130,8 @@ export function makeRealSession(overrides?: {
   permissionManager?: ScopedPermissionManager;
   sessionRules?: SessionRules;
   configStore?: SessionConfigStore;
-  gateway?: PromptingGatewayLifecycle;
+  authorizerSelection?: AuthorizerSelectionLifecycle;
+  flavor?: PathFlavor;
 }): {
   session: PermissionSession;
   paths: ExtensionPaths;
@@ -149,7 +140,7 @@ export function makeRealSession(overrides?: {
   permissionManager: ReturnType<typeof makeFakePermissionManager>;
   sessionRules: SessionRules;
   configStore: SessionConfigStore;
-  gateway: PromptingGatewayLifecycle;
+  authorizerSelection: AuthorizerSelectionLifecycle;
 } {
   const paths = makePaths(overrides?.paths);
   const logger = overrides?.logger ?? makeLogger();
@@ -160,14 +151,17 @@ export function makeRealSession(overrides?: {
       | undefined) ?? makeFakePermissionManager();
   const sessionRules = overrides?.sessionRules ?? new SessionRules();
   const configStore = overrides?.configStore ?? makeConfigStore();
-  const gateway = overrides?.gateway ?? makeGateway();
+  const authorizerSelection =
+    overrides?.authorizerSelection ?? makeAuthorizerSelection();
+  const flavor = overrides?.flavor ?? pathFlavorForPlatform(process.platform);
   const session = new PermissionSession(
     paths,
     forwarding,
     permissionManager,
     sessionRules,
     configStore,
-    gateway,
+    authorizerSelection,
+    flavor,
   );
   return {
     session,
@@ -177,7 +171,7 @@ export function makeRealSession(overrides?: {
     permissionManager,
     sessionRules,
     configStore,
-    gateway,
+    authorizerSelection,
   };
 }
 

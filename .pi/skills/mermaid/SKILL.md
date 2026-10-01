@@ -1,9 +1,8 @@
 ---
 name: mermaid
 description: |
-  Authoring and reviewing Mermaid diagrams — pitfall categories (semicolons, angle-bracket tokens, quoted headings),
-  renderer verification, and state-machine disambiguation with note blocks.
-  Load when authoring or reviewing Mermaid diagrams in any doc type.
+  Load before authoring or reviewing a Mermaid diagram: pitfall categories, renderer verification,
+  and state-machine disambiguation.
 ---
 
 # Mermaid
@@ -78,6 +77,15 @@ Both checks must pass before a diagram is considered done:
 
 1. Run `mmdc -i <file>` (or pipe the fenced block) — catches semicolons and most syntax errors.
 2. Confirm rendered output in vivify (`:MarkdownPreview`) or GitHub preview — catches angle-bracket cases that `mmdc` misses.
+
+To extract a fenced Mermaid block from a markdown file for step 1:
+
+```bash
+awk '/^```mermaid/{f=1;next} /^```/{f=0} f' doc.md > /tmp/diagram.mmd
+mmdc -i /tmp/diagram.mmd -o /tmp/diagram.svg --quiet && echo "mermaid OK"
+```
+
+This concatenates **all** Mermaid blocks in the file; when the file has several diagrams and you want just one, narrow to its section first (`sed -n 'START,ENDp' doc.md | awk …`).
 
 ## State machines
 

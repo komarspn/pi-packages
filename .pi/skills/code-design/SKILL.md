@@ -1,10 +1,8 @@
 ---
 name: code-design
 description: |
-  TypeScript conventions, code design principles (SOLID, self-documenting code, file organization),
-  structural design heuristics (dependency width, LoD, output arguments),
-  pnpm rules, ES2024 target, Pi SDK patterns, and Biome/ESLint conflict workarounds.
-  Load during implementation, refactoring, or code review.
+  Load before writing, refactoring, or reviewing TypeScript, and before designing around a Pi SDK internal:
+  naming, SOLID and structural heuristics, pnpm/ES2024 rules, Pi SDK boundaries, reading Pi's source, Biome/ESLint workarounds.
 ---
 
 # Code Design
@@ -60,6 +58,16 @@ Each function, class, and module should do one thing well.
 When a unit of code has multiple reasons to change, split it.
 A function that parses input _and_ processes it should be two functions; a module that handles both HTTP routing and business logic should be two modules.
 
+### Open/Closed (OCP) — decide once
+
+Behavior variation belongs behind one dispatch point, not scattered conditionals.
+When the same semantic condition (`platform === "win32"`, `toolName === "mcp"`, `status === "running" || status === "queued"`) is evaluated at three or more sites across module boundaries, adding a variant means finding and editing every site — the code is open for modification instead of extension.
+Capture the decision once at a boundary and hand consumers its product: a strategy or flavor object, a predicate on the owning object, or behavior on the discriminated value.
+Severity scales with: the number of sites; whether the sites must agree (re-derived algorithms like a case-fold are connascence of algorithm — one divergent site is a silent bug, and in a permission system a bypass); whether the branching is silent `===` comparisons a new variant sails past, versus compiler-enforced; and whether the variant set is open.
+
+A conditional is not the smell — scattered re-decision is.
+A single `never`-exhaustive `switch` over a discriminated union at one dispatch site _is_ the dispatch point, and is often better TypeScript than class polymorphism; per-variant presentation dispatch (one renderer arm per status) and validation-edge `typeof` guards are likewise idiomatic.
+
 ### Interface Segregation (ISP)
 
 Prefer small, focused interfaces over large ones.
@@ -100,10 +108,20 @@ Encapsulate the mutation behind a method.
 
 When the same set of fields is reset to the same values in multiple places, extract a single method (`reset()`, `shutdown()`) on the owning object.
 
+### Scattered decisions
+
+The decision analog of scattered resets: when the same condition is evaluated in multiple places, extract the decision to a single point.
+Prefer a predicate on the object that owns the data (`isActive()`, not `status === "running" || status === "queued"` at every consumer) or a component selected once at the boundary (see the OCP section).
+
 ### Parameter relay
 
 When a new parameter must flow through a callback chain, check whether the intermediaries actually need it.
 If they only relay it, the parameter belongs on an object the endpoints share — not threaded through every layer.
+
+### Thread decisions, not discriminators
+
+When every consumer of a parameter opens with the same mapping (`const impl = platform === "win32" ? winPath : posixPath`), the parameter is a raw discriminator each site re-interprets.
+Hoist the mapping to the parameter's producer and pass the product — the resolved implementation, capability, or options object — so the interpretation has one home and the sites cannot diverge.
 
 ### Unbounded loops
 
@@ -129,10 +147,31 @@ If the difference is incidental, extract.
 
 Sandi Metz: "duplication is far cheaper than the wrong abstraction."
 
+### Shared predicate, different burden of proof
+
+When a second consumer reuses an existing predicate, ask what it does with a `false`.
+A classifier answering "what is this?"
+may return "not X" for anything it does not recognize; a guard answering "is it safe to proceed?"
+must return "not safe" for the same input.
+Reusing the first as the second turns every unrecognized shape into a silent pass.
+Name the two apart — `provesX` versus `mayX` — so each call site reads its own burden.
+
+### Decision provenance
+
+When a system decides on the user's behalf, record what decided and on what basis — not only the outcome.
+A log showing `approved` without _approved by whom_ cannot distinguish a human approval from an auto-approval, which is the distinction an audit needs.
+
 ### Preparatory refactoring (tidy first)
 
 Before planning or landing a refactor as one atomic commit, ask whether a preparatory step would shrink it — a pure-addition interface, or migrating tests to a shared fixture — landed as separate commits first.
 Kent Beck: "make the change that makes the change easy, then make the easy change."
+
+### Removing code you shipped
+
+When deciding whether to keep shipped code whose justification has weakened, ask: if it did not exist today, knowing what we know now, would we write it?
+If no, remove it.
+Past investment, passing tests, and "it's harmless" describe what was spent, not a reason to keep.
+When the removal undoes a series of commits, `git revert` them rather than hand-editing the files back — a mechanical revert is auditable and its result is diffable against the pre-change tree.
 
 ## TypeScript
 
@@ -164,7 +203,7 @@ When a new capability is needed in a library module, accept it as a parameter or
 Before redeclaring a Pi SDK type locally, check whether it's already exported from `@earendil-works/pi-ai` or `@earendil-works/pi-coding-agent`.
 Import directly when the exported type matches; redeclare only when narrowing is intentional (ISP).
 
-When a design or an `ask_user` option hinges on calling an SDK method, confirm it on the exact type the code holds (e.g. `pi: ExtensionAPI`), not an analogous adjacent type — the per-event `ctx` or internal runtime may bind a getter the public surface omits (e.g. `getSystemPrompt`, #437).
+When a design or an `ask_user` option hinges on calling an SDK method, confirm it on the exact type the code holds (e.g. `pi: ExtensionAPI`), not an analogous adjacent type — the per-event `ctx` or internal runtime may bind a getter the public surface omits (e.g. `getSystemPrompt`).
 
 When writing event handlers that consume Pi SDK types, prefer lean local payload interfaces over full SDK event types.
 The SDK may not export all event interfaces, and exported types often require fields the handler does not read.
@@ -174,9 +213,23 @@ When a shared function parameter must accept SDK content types (e.g., `TextConte
 SDK interfaces lack index signatures; index-signature parameters force `as unknown as` double-casts at call sites.
 
 When writing `promptGuidelines` for a tool registration, name the tool in every bullet — Pi flattens all tools' guidelines into one `Guidelines:` block without per-tool attribution ([earendil-works/pi#4879](https://github.com/earendil-works/pi/issues/4879)).
+Reserve `promptGuidelines` for guidance an agent needs _before_ choosing the tool — the block sits in every session's system prompt, so post-result guidance ("do not retry on X") belongs in the tool's `description` or its result text.
 
 When a tool's `execute` returns a discriminated-union `details` (e.g. `{ kind: "transcript" } | { kind: "status" }`), `defineTool` infers its `TDetails` generic from the first narrowed return and rejects the other branch.
 Cast each return's `details` `as <Union>` so the full union flows into the generic — `satisfies <Union>` keeps the narrowed branch type and does not fix the inference.
+
+### Reading Pi's own source
+
+- For Pi SDK internals (prompt assembly, caching, session lifecycle), read Pi's own source at the `pi` checkout beside this repo's main checkout, rather than the installed `dist/` bundles or their sourcemaps.
+  That is `../pi` from the root checkout and `../../pi` from a worktree — the worktree sits one level deeper, so the bare `../pi` misses it.
+  Dispatch an `Explore` subagent with `model: "sonnet-5-5"` for a multi-hop trace there (e.g. "how does `ui.custom` pass keybindings to the factory?") — a targeted read of a known file is fine inline, but a hunt costs 5–10 greps of this session's context, and `Explore`'s haiku default is too weak for the reasoning.
+  Keep the trace inline when its output is a universal claim the design will rest on — a subagent returns it as a summary you would have to re-verify anyway.
+  The checkout tracks Pi's `main` and runs ahead of the pinned dependency.
+  Read it for mechanism, but confirm any API you design around exists in the installed version first — resolve the version from the package's own `devDependencies` pin, then `grep` the types under that exact `node_modules/.pnpm/@earendil-works+pi-coding-agent@<version>_*/` directory.
+  The bare `@*/` glob matches every version in the store, and `head -1` can select one below the package's declared peer floor.
+  Existence is not enough for a seam you design _around_: a callback's position in the call order, and the data populated by the time it fires, are visible only in the compiled `.js`, never in the `.d.ts`.
+  A line number read there is not citable at all: the checkout drifts mid-session.
+  Cite the pinned version from the installed package's sourcemap — `dist/*.js.map`, `sourcesContent`.
 
 ## Tooling
 
@@ -214,3 +267,18 @@ Fix: `// eslint-disable-next-line prefer-const -- forward-declared let; const re
 
 Before adding `void` to silence `@typescript-eslint/no-floating-promises`, confirm the discarded promise carried no semantics (capture for later `await`, ordering, completion signal).
 If the promise was previously assigned or awaited, the `void` is a behavior change, not a formatting fix — give the value an owner (store it, or invert control so the owning object captures it) instead.
+
+### Closure narrowing loop
+
+`.forEach()` callback mutations of outer-scope `let` variables are invisible to TypeScript's control-flow narrowing outside the callback; `@typescript-eslint/no-unnecessary-condition` then flags a later `if (!flag)` check as "always truthy"/"always falsy" even though the flag does change at runtime.
+Fix: use a `for...of` loop instead of `.forEach()` when a callback mutates a variable a later conditional depends on.
+
+### Speculative eslint-disable directives
+
+Add an `eslint-disable` directive only after the linter reports the rule, never preemptively — the pre-commit auto-fix strips an unused directive and leaves a stray blank line (an inline disable above an object-literal property).
+A `||`-for-defaulting on a non-nullable primitive (e.g. `string`) does not trip `prefer-nullish-coalescing`, so no disable is needed.
+
+### no-deprecated on a deliberate deprecation
+
+Tagging an exported symbol `@deprecated` makes `@typescript-eslint/no-deprecated` an error at every internal call site — including the tests that pin the deprecated path's preserved behavior.
+Add a file-level `eslint-disable` with a reason to those tests; do not drop the tag or migrate them to the replacement.

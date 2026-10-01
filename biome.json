@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.4.16/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.11/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -11,7 +11,10 @@
       "!!**/dist",
       "!!**/node_modules",
       "!!**/logs",
-      "!!**/coverage"
+      "!!**/coverage",
+      "!!packages/*/docs/fallow-snapshot.json",
+      "!!packages/pi-autoformat/docs/assets/logo.svg",
+      "!!packages/pi-permission-system/docs/assets/logo.svg"
     ]
   },
   "formatter": {
@@ -22,7 +25,7 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true
+      "preset": "recommended"
     }
   },
   "javascript": {
@@ -48,6 +51,21 @@
           },
           "style": {
             "noNonNullAssertion": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/pi-permission-system/src/path/expand-home.ts",
+        "packages/pi-permission-system/src/access-intent/bash/**",
+        "packages/pi-permission-system/test/path/expand-home.test.ts",
+        "packages/pi-permission-system/test/access-intent/bash/**"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noTemplateCurlyInString": "off"
           }
         }
       }

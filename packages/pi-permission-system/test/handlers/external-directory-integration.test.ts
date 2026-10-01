@@ -10,17 +10,27 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-
-import { EXTENSION_TAG } from "#src/denial-messages";
-import type { GatePrompter } from "#src/gate-prompter";
-import { formatExternalDirectoryAskPrompt } from "#src/handlers/gates/external-directory-messages";
+import { surfaceFamilyOf } from "#src/access-intent/path-surfaces";
+import { EXTENSION_TAG } from "#src/presentation/agent-renderer";
+import { buildExternalDirectoryAskPayload } from "#src/presentation/path-ask-payload";
 import type { PermissionCheckResult } from "#src/types";
-
+import {
+  ALL_PATH_BEARING_TOOLS,
+  ALL_TOOLS,
+  blockReviewEntries,
+  EXT_DIR_CWD,
+  EXTERNAL_PATH,
+  findExtDirDecision,
+  makeApprovingPrompter,
+  makeDenyingPrompter,
+  makeExtDirCheck,
+  makeUnavailablePrompter,
+  OPTIONAL_PATH_TOOLS,
+} from "#test/helpers/external-directory-fixtures";
 import {
   getDecisionEvents,
   makeCtx,
   makeHandler,
-  makeSurfaceCheck,
   makeToolCallEvent,
 } from "#test/helpers/handler-fixtures";
 
@@ -31,50 +41,19 @@ vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
   return { ...original };
 });
 
-// ── Constants ──────────────────────────────────────────────────────────────
-
-const CWD = "/test/project";
-const EXTERNAL_PATH = "/outside/project/file.ts";
-
-/** All PATH_BEARING_TOOLS members. */
-const ALL_PATH_BEARING_TOOLS = ["read", "write", "edit", "find", "grep", "ls"];
-
-/** Tools where path is optional. */
-const OPTIONAL_PATH_TOOLS = ["find", "grep", "ls"];
-
-/** Full tool set used as the default registry in ext-dir tests. */
-const ALL_TOOLS = [...ALL_PATH_BEARING_TOOLS, "bash"];
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-/**
- * Builds a `checkPermission` mock for external-directory integration tests.
- *
- * Routes `external_directory` to `externalDirectoryState`, `path` to allow
- * with `source: "special"` (so the cross-cutting path gate is transparent),
- * and every other surface to `toolState` (default: allow).
- */
-function makeExtDirCheck(
-  externalDirectoryState: "allow" | "deny" | "ask",
-  toolState: "allow" | "deny" | "ask" = "allow",
-) {
-  return makeSurfaceCheck(
-    {
-      external_directory: { state: externalDirectoryState },
-      path: { state: "allow", source: "special" },
-    },
-    { state: toolState },
-  );
-}
-
 // ── Regression guard: helper presence ──────────────────────────────────────
 
 describe("external_directory helper regression guard", () => {
-  it("formatExternalDirectoryAskPrompt is a callable function", () => {
-    expect(typeof formatExternalDirectoryAskPrompt).toBe("function");
+  it("the external-directory ask names the path it gates", () => {
     expect(
-      formatExternalDirectoryAskPrompt("read", "/outside/file", "/project"),
-    ).toContain("/outside/file");
+      buildExternalDirectoryAskPayload({
+        toolName: "read",
+        pathValue: "/outside/file",
+        cwd: "/project",
+        agentName: null,
+        surface: "external_directory_read",
+      }).request.value,
+    ).toBe("/outside/file");
   });
 
   it("EXTENSION_TAG is the expected value", () => {
@@ -82,8 +61,8 @@ describe("external_directory helper regression guard", () => {
   });
 
   // formatExternalDirectoryDenyReason, formatExternalDirectoryUserDeniedReason,
-  // and formatExternalDirectoryHardStopHint have moved to denial-messages.ts.
-  // Their behavior is tested in denial-messages.test.ts.
+  // and formatExternalDirectoryHardStopHint are now renders over the prompt
+  // payload. Their behavior is tested in presentation/agent-renderer.test.ts.
 });
 
 // ── Path scope: gate applicability ────────────────────────────────────────
@@ -95,7 +74,7 @@ describe("external_directory path scope", () => {
       tools: ALL_TOOLS,
     });
     const event = makeToolCallEvent("read", {
-      input: { path: `${CWD}/src/index.ts` },
+      input: { path: `${EXT_DIR_CWD}/src/index.ts` },
     });
     const result = await handler.handleToolCall(event, makeCtx());
     // Should not be blocked — the external_directory gate is skipped,
@@ -131,32 +110,34 @@ describe("external_directory path scope", () => {
     expect(result).toBeDefined();
   });
 
-  it.each(
-    ALL_PATH_BEARING_TOOLS,
-  )("blocks %s with an out-of-cwd path when external_directory is deny", async (toolName) => {
-    const { handler } = makeHandler({
-      session: { checkPermission: makeExtDirCheck("deny") },
-      tools: ALL_TOOLS,
-    });
-    const event = makeToolCallEvent(toolName, {
-      input: { path: EXTERNAL_PATH },
-    });
-    const result = await handler.handleToolCall(event, makeCtx());
-    expect(result).toMatchObject({ action: "block" });
-  });
+  it.each(ALL_PATH_BEARING_TOOLS)(
+    "blocks %s with an out-of-cwd path when external_directory is deny",
+    async (toolName) => {
+      const { handler } = makeHandler({
+        session: { checkPermission: makeExtDirCheck("deny") },
+        tools: ALL_TOOLS,
+      });
+      const event = makeToolCallEvent(toolName, {
+        input: { path: EXTERNAL_PATH },
+      });
+      const result = await handler.handleToolCall(event, makeCtx());
+      expect(result).toMatchObject({ action: "block" });
+    },
+  );
 
-  it.each(
-    OPTIONAL_PATH_TOOLS,
-  )("skips external_directory check for %s when path is omitted", async (toolName) => {
-    const { handler } = makeHandler({
-      session: { checkPermission: makeExtDirCheck("deny") },
-      tools: ALL_TOOLS,
-    });
-    // No path in input — external_directory gate should not fire
-    const event = makeToolCallEvent(toolName);
-    const result = await handler.handleToolCall(event, makeCtx());
-    expect(result).toEqual({ action: "allow" });
-  });
+  it.each(OPTIONAL_PATH_TOOLS)(
+    "skips external_directory check for %s when path is omitted",
+    async (toolName) => {
+      const { handler } = makeHandler({
+        session: { checkPermission: makeExtDirCheck("deny") },
+        tools: ALL_TOOLS,
+      });
+      // No path in input — external_directory gate should not fire
+      const event = makeToolCallEvent(toolName);
+      const result = await handler.handleToolCall(event, makeCtx());
+      expect(result).toEqual({ action: "allow" });
+    },
+  );
 });
 
 // ── Policy state matrix: allow and deny ────────────────────────────────────
@@ -179,12 +160,8 @@ describe("external_directory policy state — allow", () => {
     });
     const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx());
-    const decisions = getDecisionEvents(events);
-    const extDirDecision = decisions.find(
-      (d) => d.surface === "external_directory",
-    );
-    expect(extDirDecision).toMatchObject({
-      surface: "external_directory",
+    expect(findExtDirDecision(events)).toMatchObject({
+      surface: "external_directory_read",
       result: "allow",
       resolution: "policy_allow",
     });
@@ -197,11 +174,7 @@ describe("external_directory policy state — allow", () => {
     });
     const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx());
-    const reviewCalls = (logger.review as ReturnType<typeof vi.fn>).mock.calls;
-    const blockEntries = reviewCalls.filter(
-      ([eventName]: string[]) => eventName === "permission_request.blocked",
-    );
-    expect(blockEntries).toHaveLength(0);
+    expect(blockReviewEntries(logger)).toHaveLength(0);
   });
 });
 
@@ -220,12 +193,7 @@ describe("external_directory — allow external reads, gate external writes (#14
   it("prompts for write to external path when external_directory allows but write is ask", async () => {
     const { handler, prompter } = makeHandler({
       session: { checkPermission: makeExtDirCheck("allow", "ask") },
-      prompter: {
-        canConfirm: vi.fn().mockReturnValue(true),
-        prompt: vi
-          .fn<GatePrompter["prompt"]>()
-          .mockResolvedValue({ approved: true, state: "approved" }),
-      },
+      prompter: makeApprovingPrompter(),
       tools: ALL_TOOLS,
     });
     const event = makeToolCallEvent("write", {
@@ -234,7 +202,7 @@ describe("external_directory — allow external reads, gate external writes (#14
     const result = await handler.handleToolCall(event, makeCtx());
     // external_directory passes; write gate prompts and user approves
     expect(result).toEqual({ action: "allow" });
-    expect(prompter.prompt).toHaveBeenCalledOnce();
+    expect(prompter.escalate).toHaveBeenCalledOnce();
   });
 
   it("blocks write to external path when external_directory allows but write is deny", async () => {
@@ -249,7 +217,7 @@ describe("external_directory — allow external reads, gate external writes (#14
     expect(result).toMatchObject({ action: "block" });
   });
 
-  it("emits separate decision events for external_directory and write surfaces", async () => {
+  it("emits only the denying surface's decision event", async () => {
     const { handler, events } = makeHandler({
       session: { checkPermission: makeExtDirCheck("allow", "deny") },
       tools: ALL_TOOLS,
@@ -259,20 +227,16 @@ describe("external_directory — allow external reads, gate external writes (#14
     });
     await handler.handleToolCall(event, makeCtx());
     const decisions = getDecisionEvents(events);
-    const extDirDecision = decisions.find(
-      (d) => d.surface === "external_directory",
-    );
     const writeDecision = decisions.find((d) => d.surface === "write");
-    expect(extDirDecision).toMatchObject({
-      surface: "external_directory",
-      result: "allow",
-      resolution: "policy_allow",
-    });
     expect(writeDecision).toMatchObject({
       surface: "write",
       result: "deny",
       resolution: "policy_deny",
     });
+    // The `write` deny pre-empts every other gate, so the boundary gate that
+    // would have allowed this path never runs and states no decision about a
+    // call that did not happen (#899).
+    expect(findExtDirDecision(events)).toBeUndefined();
   });
 });
 
@@ -308,12 +272,9 @@ describe("external_directory policy state — deny", () => {
     });
     const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx());
-    const reviewCalls = (logger.review as ReturnType<typeof vi.fn>).mock.calls;
-    const blockEntries = reviewCalls.filter(
-      ([eventName]: string[]) => eventName === "permission_request.blocked",
-    );
-    expect(blockEntries.length).toBeGreaterThanOrEqual(1);
-    expect(blockEntries[0][1]).toMatchObject({
+    const entries = blockReviewEntries(logger);
+    expect(entries.length).toBeGreaterThanOrEqual(1);
+    expect(entries[0][1]).toMatchObject({
       resolution: "policy_denied",
     });
   });
@@ -325,12 +286,8 @@ describe("external_directory policy state — deny", () => {
     });
     const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx());
-    const decisions = getDecisionEvents(events);
-    const extDirDecision = decisions.find(
-      (d) => d.surface === "external_directory",
-    );
-    expect(extDirDecision).toMatchObject({
-      surface: "external_directory",
+    expect(findExtDirDecision(events)).toMatchObject({
+      surface: "external_directory_read",
       result: "deny",
       resolution: "policy_deny",
     });
@@ -343,12 +300,7 @@ describe("external_directory policy state — ask", () => {
   it("does not block when user approves", async () => {
     const { handler } = makeHandler({
       session: { checkPermission: makeExtDirCheck("ask") },
-      prompter: {
-        canConfirm: vi.fn().mockReturnValue(true),
-        prompt: vi
-          .fn<GatePrompter["prompt"]>()
-          .mockResolvedValue({ approved: true, state: "approved" }),
-      },
+      prompter: makeApprovingPrompter(),
       tools: ALL_TOOLS,
     });
     const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
@@ -359,22 +311,13 @@ describe("external_directory policy state — ask", () => {
   it("emits user_approved decision when user approves", async () => {
     const { handler, events } = makeHandler({
       session: { checkPermission: makeExtDirCheck("ask") },
-      prompter: {
-        canConfirm: vi.fn().mockReturnValue(true),
-        prompt: vi
-          .fn<GatePrompter["prompt"]>()
-          .mockResolvedValue({ approved: true, state: "approved" }),
-      },
+      prompter: makeApprovingPrompter(),
       tools: ALL_TOOLS,
     });
     const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx());
-    const decisions = getDecisionEvents(events);
-    const extDirDecision = decisions.find(
-      (d) => d.surface === "external_directory",
-    );
-    expect(extDirDecision).toMatchObject({
-      surface: "external_directory",
+    expect(findExtDirDecision(events)).toMatchObject({
+      surface: "external_directory_read",
       result: "allow",
       resolution: "user_approved",
     });
@@ -383,12 +326,7 @@ describe("external_directory policy state — ask", () => {
   it("blocks when user denies", async () => {
     const { handler } = makeHandler({
       session: { checkPermission: makeExtDirCheck("ask") },
-      prompter: {
-        canConfirm: vi.fn().mockReturnValue(true),
-        prompt: vi
-          .fn<GatePrompter["prompt"]>()
-          .mockResolvedValue({ approved: false, state: "denied" }),
-      },
+      prompter: makeDenyingPrompter(),
       tools: ALL_TOOLS,
     });
     const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
@@ -399,22 +337,13 @@ describe("external_directory policy state — ask", () => {
   it("emits user_denied decision when user denies", async () => {
     const { handler, events } = makeHandler({
       session: { checkPermission: makeExtDirCheck("ask") },
-      prompter: {
-        canConfirm: vi.fn().mockReturnValue(true),
-        prompt: vi
-          .fn<GatePrompter["prompt"]>()
-          .mockResolvedValue({ approved: false, state: "denied" }),
-      },
+      prompter: makeDenyingPrompter(),
       tools: ALL_TOOLS,
     });
     const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx());
-    const decisions = getDecisionEvents(events);
-    const extDirDecision = decisions.find(
-      (d) => d.surface === "external_directory",
-    );
-    expect(extDirDecision).toMatchObject({
-      surface: "external_directory",
+    expect(findExtDirDecision(events)).toMatchObject({
+      surface: "external_directory_read",
       result: "deny",
       resolution: "user_denied",
     });
@@ -423,14 +352,7 @@ describe("external_directory policy state — ask", () => {
   it("block reason includes denialReason when user provides one", async () => {
     const { handler } = makeHandler({
       session: { checkPermission: makeExtDirCheck("ask") },
-      prompter: {
-        canConfirm: vi.fn().mockReturnValue(true),
-        prompt: vi.fn<GatePrompter["prompt"]>().mockResolvedValue({
-          approved: false,
-          state: "denied",
-          denialReason: "not needed",
-        }),
-      },
+      prompter: makeDenyingPrompter("not needed"),
       tools: ALL_TOOLS,
     });
     const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
@@ -442,10 +364,7 @@ describe("external_directory policy state — ask", () => {
   it("blocks with confirmation_unavailable when no UI is available", async () => {
     const { handler } = makeHandler({
       session: { checkPermission: makeExtDirCheck("ask") },
-      prompter: {
-        canConfirm: vi.fn().mockReturnValue(false),
-        prompt: vi.fn<GatePrompter["prompt"]>(),
-      },
+      prompter: makeUnavailablePrompter(),
       tools: ALL_TOOLS,
     });
     const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
@@ -454,49 +373,23 @@ describe("external_directory policy state — ask", () => {
       makeCtx({ hasUI: false }),
     );
     expect(result).toMatchObject({ action: "block" });
-    expect((result as { reason?: string }).reason).toContain(
-      "outside the working directory",
+    // The gate surface names the boundary; an unavailable verdict states only
+    // that approval was unreachable, since no retry shape changes that.
+    expect((result as { reason?: string }).reason).toBe(
+      `${EXTENSION_TAG} This 'external_directory_read' call for tool 'read' for path '${EXTERNAL_PATH}' requires approval, but no interactive UI is available.`,
     );
-  });
-
-  it("writes review-log entry with confirmation_unavailable when no UI", async () => {
-    const { handler, logger } = makeHandler({
-      session: { checkPermission: makeExtDirCheck("ask") },
-      prompter: {
-        canConfirm: vi.fn().mockReturnValue(false),
-        prompt: vi.fn<GatePrompter["prompt"]>(),
-      },
-      tools: ALL_TOOLS,
-    });
-    const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
-    await handler.handleToolCall(event, makeCtx({ hasUI: false }));
-    const reviewCalls = (logger.review as ReturnType<typeof vi.fn>).mock.calls;
-    const blockEntries = reviewCalls.filter(
-      ([eventName]: string[]) => eventName === "permission_request.blocked",
-    );
-    expect(blockEntries.length).toBeGreaterThanOrEqual(1);
-    expect(blockEntries[0][1]).toMatchObject({
-      resolution: "confirmation_unavailable",
-    });
   });
 
   it("emits confirmation_unavailable decision when no UI", async () => {
     const { handler, events } = makeHandler({
       session: { checkPermission: makeExtDirCheck("ask") },
-      prompter: {
-        canConfirm: vi.fn().mockReturnValue(false),
-        prompt: vi.fn<GatePrompter["prompt"]>(),
-      },
+      prompter: makeUnavailablePrompter(),
       tools: ALL_TOOLS,
     });
     const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx({ hasUI: false }));
-    const decisions = getDecisionEvents(events);
-    const extDirDecision = decisions.find(
-      (d) => d.surface === "external_directory",
-    );
-    expect(extDirDecision).toMatchObject({
-      surface: "external_directory",
+    expect(findExtDirDecision(events)).toMatchObject({
+      surface: "external_directory_read",
       result: "deny",
       resolution: "confirmation_unavailable",
     });
@@ -516,7 +409,7 @@ describe("external_directory per-agent override", () => {
           _input: unknown,
           agentName?: string,
         ): PermissionCheckResult => {
-          if (surface === "external_directory") {
+          if (surfaceFamilyOf(surface) === "external_directory") {
             const state =
               agentName === "special-agent" ? "allow" : ("deny" as const);
             return {
@@ -547,9 +440,7 @@ describe("external_directory per-agent override", () => {
     const result1 = await handler1.handleToolCall(event, makeCtx());
     expect(result1).toEqual({ action: "allow" });
 
-    const decisions1 = getDecisionEvents(events1);
-    const extDir1 = decisions1.find((d) => d.surface === "external_directory");
-    expect(extDir1).toMatchObject({
+    expect(findExtDirDecision(events1)).toMatchObject({
       result: "allow",
       resolution: "policy_allow",
       agentName: "special-agent",
@@ -578,10 +469,7 @@ describe("external_directory decision event fields", () => {
     });
     const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx());
-    const decisions = getDecisionEvents(events);
-    const extDirDecision = decisions.find(
-      (d) => d.surface === "external_directory",
-    );
+    const extDirDecision = findExtDirDecision(events);
     expect(extDirDecision).toBeDefined();
     expect(extDirDecision!.value).toBe(EXTERNAL_PATH);
   });
@@ -596,11 +484,7 @@ describe("external_directory decision event fields", () => {
     });
     const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx());
-    const decisions = getDecisionEvents(events);
-    const extDirDecision = decisions.find(
-      (d) => d.surface === "external_directory",
-    );
-    expect(extDirDecision).toMatchObject({
+    expect(findExtDirDecision(events)).toMatchObject({
       agentName: "my-agent",
     });
   });
@@ -612,11 +496,7 @@ describe("external_directory decision event fields", () => {
     });
     const event = makeToolCallEvent("read", { input: { path: EXTERNAL_PATH } });
     await handler.handleToolCall(event, makeCtx());
-    const decisions = getDecisionEvents(events);
-    const extDirDecision = decisions.find(
-      (d) => d.surface === "external_directory",
-    );
-    expect(extDirDecision).toMatchObject({
+    expect(findExtDirDecision(events)).toMatchObject({
       agentName: null,
     });
   });

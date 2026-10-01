@@ -4,7 +4,11 @@
  */
 import { describe, expect, it, vi } from "vitest";
 
-import type { GatePrompter } from "#src/gate-prompter";
+import type { AskEscalator } from "#src/authority/authorizer-selection";
+import {
+  DECIDED_BY_ABSENT_AUTHORITY,
+  DECIDED_BY_HUMAN,
+} from "#test/helpers/decision-fixtures";
 import {
   getDecisionEvents,
   makeCheckResult,
@@ -113,10 +117,11 @@ describe("handleToolCall decision events — user_approved", () => {
           .mockReturnValue(makeCheckResult({ state: "ask" })),
       },
       prompter: {
-        canConfirm: vi.fn().mockReturnValue(true),
-        prompt: vi
-          .fn<GatePrompter["prompt"]>()
-          .mockResolvedValue({ approved: true, state: "approved" }),
+        escalate: vi.fn<AskEscalator["escalate"]>().mockResolvedValue({
+          approved: true,
+          state: "approved",
+          decidedBy: DECIDED_BY_HUMAN,
+        }),
       },
     });
 
@@ -138,10 +143,10 @@ describe("handleToolCall decision events — user_approved", () => {
           .mockReturnValue(makeCheckResult({ state: "ask" })),
       },
       prompter: {
-        canConfirm: vi.fn().mockReturnValue(true),
-        prompt: vi.fn<GatePrompter["prompt"]>().mockResolvedValue({
+        escalate: vi.fn<AskEscalator["escalate"]>().mockResolvedValue({
           approved: true,
           state: "approved_for_session",
+          decidedBy: DECIDED_BY_HUMAN,
         }),
       },
     });
@@ -168,10 +173,11 @@ describe("handleToolCall decision events — user_denied", () => {
           .mockReturnValue(makeCheckResult({ state: "ask" })),
       },
       prompter: {
-        canConfirm: vi.fn().mockReturnValue(true),
-        prompt: vi
-          .fn<GatePrompter["prompt"]>()
-          .mockResolvedValue({ approved: false, state: "denied" }),
+        escalate: vi.fn<AskEscalator["escalate"]>().mockResolvedValue({
+          approved: false,
+          state: "denied",
+          decidedBy: DECIDED_BY_HUMAN,
+        }),
       },
     });
 
@@ -197,8 +203,12 @@ describe("handleToolCall decision events — confirmation_unavailable", () => {
           .mockReturnValue(makeCheckResult({ state: "ask" })),
       },
       prompter: {
-        canConfirm: vi.fn().mockReturnValue(false),
-        prompt: vi.fn<GatePrompter["prompt"]>(),
+        escalate: vi.fn<AskEscalator["escalate"]>().mockResolvedValue({
+          approved: false,
+          state: "denied",
+          confirmationUnavailable: true,
+          decidedBy: DECIDED_BY_ABSENT_AUTHORITY,
+        }),
       },
     });
 
@@ -248,7 +258,7 @@ describe("handleToolCall decision events — infrastructure_auto_allowed", () =>
 // ── auto_approved path (yolo mode) ───────────────────────────────────
 
 describe("handleToolCall decision events — auto_approved", () => {
-  it("emits allow with auto_approved when prompt returns autoApproved:true", async () => {
+  it("emits allow with auto_approved when yolo decided the escalated ask", async () => {
     const { handler, events } = makeHandler({
       session: {
         checkPermission: vi
@@ -256,11 +266,10 @@ describe("handleToolCall decision events — auto_approved", () => {
           .mockReturnValue(makeCheckResult({ state: "ask" })),
       },
       prompter: {
-        canConfirm: vi.fn().mockReturnValue(true),
-        prompt: vi.fn<GatePrompter["prompt"]>().mockResolvedValue({
+        escalate: vi.fn<AskEscalator["escalate"]>().mockResolvedValue({
           approved: true,
           state: "approved",
-          autoApproved: true,
+          decidedBy: { kind: "yolo", pattern: "*" },
         }),
       },
     });

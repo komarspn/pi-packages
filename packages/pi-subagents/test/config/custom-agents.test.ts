@@ -52,7 +52,7 @@ You are a security auditor.`);
     const agent = result.get("auditor")!;
     expect(agent.name).toBe("auditor");
     expect(agent.description).toBe("Security Auditor");
-    expect(agent.builtinToolNames).toEqual(["read", "grep", "find"]);
+    expect(agent.toolNames).toEqual(["read", "grep", "find"]);
     expect(agent.model).toBe("anthropic/claude-opus-4-6");
     expect(agent.thinking).toBe("high");
     expect(agent.maxTurns).toBe(30);
@@ -73,7 +73,7 @@ Just a prompt.`);
 
     expect(agent.name).toBe("minimal");
     expect(agent.description).toBe("minimal"); // defaults to filename
-    expect(agent.builtinToolNames).toEqual(BUILTIN_TOOL_NAMES); // all tools
+    expect(agent.toolNames).toEqual(BUILTIN_TOOL_NAMES); // all tools
     expect(agent.model).toBeUndefined();
     expect(agent.thinking).toBeUndefined();
     expect(agent.maxTurns).toBeUndefined();
@@ -91,7 +91,7 @@ Just a prompt.`);
 
     expect(agent.name).toBe("bare");
     expect(agent.description).toBe("bare");
-    expect(agent.builtinToolNames).toEqual(BUILTIN_TOOL_NAMES);
+    expect(agent.toolNames).toEqual(BUILTIN_TOOL_NAMES);
     expect(agent.promptMode).toBe("append");
     expect(agent.systemPrompt).toBe("Just a system prompt, no frontmatter.");
   });
@@ -104,7 +104,7 @@ tools: none
 No tools.`);
 
     const result = loadCustomAgents(tmpDir);
-    expect(result.get("notool")!.builtinToolNames).toEqual([]);
+    expect(result.get("notool")!.toolNames).toEqual([]);
   });
 
   it("passes through unknown tool names (not filtered)", () => {
@@ -115,20 +115,161 @@ tools: read, my_custom_tool, grep
 Custom tools.`);
 
     const result = loadCustomAgents(tmpDir);
-    // Unknown tool names are passed through — filtering happens at tool creation time
-    expect(result.get("custom-tools")!.builtinToolNames).toEqual(["read", "my_custom_tool", "grep"]);
+    // An extension-registered tool name is a supported `tools:` entry: the child's
+    // allowlist admits it when the extension registers it during bind (#725).
+    expect(result.get("custom-tools")!.toolNames).toEqual(["read", "my_custom_tool", "grep"]);
   });
 
-  it("passes through thinking level as-is (no validation)", () => {
-    writeAgent("anythink", `---
-thinking: turbo
+  describe("tools field forms", () => {
+    it("accepts a YAML block sequence", () => {
+      writeAgent("block-seq", `---
+tools:
+  - read
+  - my_custom_tool
+  - grep
 ---
 
-Any thinking.`);
+Block sequence.`);
 
-    const result = loadCustomAgents(tmpDir);
-    // Pi validates at session creation — we just pass through
-    expect(result.get("anythink")!.thinking).toBe("turbo");
+      const result = loadCustomAgents(tmpDir);
+      expect(result.get("block-seq")!.toolNames).toEqual(["read", "my_custom_tool", "grep"]);
+    });
+
+    it("accepts a YAML flow sequence", () => {
+      writeAgent("flow-seq", `---
+tools: [read, grep]
+---
+
+Flow sequence.`);
+
+      const result = loadCustomAgents(tmpDir);
+      expect(result.get("flow-seq")!.toolNames).toEqual(["read", "grep"]);
+    });
+
+    it("treats a single-element none sequence as no tools", () => {
+      writeAgent("seq-none", `---
+tools: [none]
+---
+
+No tools.`);
+
+      const result = loadCustomAgents(tmpDir);
+      expect(result.get("seq-none")!.toolNames).toEqual([]);
+    });
+
+    it("treats an empty sequence as no tools", () => {
+      writeAgent("seq-empty", `---
+tools: []
+---
+
+No tools.`);
+
+      const result = loadCustomAgents(tmpDir);
+      expect(result.get("seq-empty")!.toolNames).toEqual([]);
+    });
+
+    it("keeps a comma inside a quoted sequence entry", () => {
+      writeAgent("seq-comma", `---
+tools: ["read", "weird,name"]
+---
+
+Comma entry.`);
+
+      const result = loadCustomAgents(tmpDir);
+      expect(result.get("seq-comma")!.toolNames).toEqual(["read", "weird,name"]);
+    });
+  });
+
+  describe("locked field", () => {
+    it("is undefined when the key is absent", () => {
+      writeAgent("open", `---\nmodel: haiku\n---\n\nOpen.`);
+
+      expect(loadCustomAgents(tmpDir).get("open")!.locked).toBeUndefined();
+    });
+
+    it("reads `true` as locking every field the file sets", () => {
+      writeAgent("pinned", `---\nmodel: haiku\nlocked: true\n---\n\nPinned.`);
+
+      expect(loadCustomAgents(tmpDir).get("pinned")!.locked).toBe(true);
+    });
+
+    it("reads `false` as no lock at all", () => {
+      writeAgent("unpinned", `---\nmodel: haiku\nlocked: false\n---\n\nUnpinned.`);
+
+      expect(loadCustomAgents(tmpDir).get("unpinned")!.locked).toBeUndefined();
+    });
+
+    it("reads a comma-separated scalar", () => {
+      writeAgent("scalar", `---\nlocked: model, thinking\n---\n\nScalar.`);
+
+      expect(loadCustomAgents(tmpDir).get("scalar")!.locked).toEqual(["model", "thinking"]);
+    });
+
+    it("reads a YAML flow sequence", () => {
+      writeAgent("seq", `---\nlocked: [model, max_turns]\n---\n\nSequence.`);
+
+      expect(loadCustomAgents(tmpDir).get("seq")!.locked).toEqual(["model", "max_turns"]);
+    });
+
+    it("reads every lockable field name", () => {
+      writeAgent("all", `---\nlocked: [model, thinking, max_turns, inherit_context, run_in_background]\n---\n\nAll.`);
+
+      expect(loadCustomAgents(tmpDir).get("all")!.locked).toEqual([
+        "model",
+        "thinking",
+        "max_turns",
+        "inherit_context",
+        "run_in_background",
+      ]);
+    });
+
+    it("drops an entry that is not a lockable field", () => {
+      writeAgent("typo", `---\nlocked: [model, tools]\n---\n\nTypo.`);
+
+      expect(loadCustomAgents(tmpDir).get("typo")!.locked).toEqual(["model"]);
+    });
+
+    it("is undefined when every entry is dropped", () => {
+      writeAgent("alltypo", `---\nlocked: [tools]\n---\n\nAll typo.`);
+
+      expect(loadCustomAgents(tmpDir).get("alltypo")!.locked).toBeUndefined();
+    });
+
+    it("reads `none` as no lock", () => {
+      writeAgent("nolock", `---\nlocked: none\n---\n\nNo lock.`);
+
+      expect(loadCustomAgents(tmpDir).get("nolock")!.locked).toBeUndefined();
+    });
+  });
+
+  describe("thinking level", () => {
+    it.each(["off", "minimal", "low", "medium", "high", "xhigh", "max"])(
+      "keeps %s",
+      (level) => {
+        writeAgent("thinker", `---\nthinking: ${level}\n---\n\nA thinker.`);
+
+        expect(loadCustomAgents(tmpDir).get("thinker")!.thinking).toBe(level);
+      },
+    );
+
+    /**
+     * Pi does not reject an unrecognized level — clampThinkingLevel misses it in
+     * its ordered table and falls to the first supported level, which is always
+     * "off". Passing it through would silently disable thinking for an agent whose
+     * author asked for more of it, so the loader drops the field and the agent
+     * inherits the parent's level instead (Refs #834).
+     */
+    it("drops an unrecognized level rather than letting the SDK clamp it to off", () => {
+      writeAgent("anythink", `---\nthinking: turbo\n---\n\nAny thinking.`);
+
+      expect(loadCustomAgents(tmpDir).get("anythink")!.thinking).toBeUndefined();
+    });
+
+    it("drops a level that differs only in case", () => {
+      writeAgent("shouty", `---\nthinking: HIGH\n---\n\nShouting.`);
+
+      expect(loadCustomAgents(tmpDir).get("shouty")!.thinking).toBeUndefined();
+    });
   });
 
   it("accepts max_turns: 0 as unlimited", () => {

@@ -12,6 +12,12 @@ export interface MockSession {
 	steer: Mock<(...args: unknown[]) => Promise<unknown>>;
 	sessionManager: { getSessionFile: Mock<() => unknown> };
 	getToolDefinition: Mock<(name: string) => unknown>;
+	hasExtensionHandlers: Mock<(eventType: string) => boolean>;
+	extensionRunner: { emit: Mock<(event: unknown) => Promise<unknown>> };
+	/** The child's current model, as `AgentSession.model` reports it. */
+	model: { provider: string; id: string } | undefined;
+	/** The child's current thinking level, as `AgentSession.thinkingLevel` reports it. */
+	thinkingLevel: string;
 }
 
 /**
@@ -42,6 +48,8 @@ export function toAgentSession(session: MockSession): AgentSession {
  * For tests that only need an Agent to own a `.session` / `.outputFile`: the
  * turn-driving methods are inert vi.fn() spies, and `steer`/`dispose` delegate
  * to the underlying MockSession so existing session-spy assertions keep working.
+ * `dispose` resolves a promise, mirroring the real teardown that awaits the
+ * child's `session_shutdown` before disposing the session.
  */
 export function createSubagentSessionStub(
 	session: MockSession = createMockSession(),
@@ -53,8 +61,9 @@ export function createSubagentSessionStub(
 		runTurnLoop: vi.fn().mockResolvedValue({ responseText: "done", aborted: false, steered: false }),
 		resumeTurnLoop: vi.fn().mockResolvedValue("resumed"),
 		steer: vi.fn((message: string): Promise<void> => session.steer(message) as Promise<void>),
-		dispose: vi.fn((): void => {
+		dispose: vi.fn((): Promise<void> => {
 			session.dispose();
+			return Promise.resolve();
 		}),
 		getConversation: vi.fn((): string => ""),
 		getContextPercent: vi.fn((): number | null => null),
@@ -65,6 +74,8 @@ export function createSubagentSessionStub(
 		})),
 		get messages(): readonly unknown[] { return session.messages; },
 		get agentMessages(): readonly unknown[] { return session.messages; },
+		get model(): MockSession["model"] { return session.model; },
+		get thinkingLevel(): string { return session.thinkingLevel; },
 		getToolDefinition: vi.fn((name: string): unknown => session.getToolDefinition(name)),
 	};
 }
@@ -110,6 +121,15 @@ export function createMockSession(overrides: Record<string, unknown> = {}): Mock
 		steer: vi.fn().mockResolvedValue(undefined),
 		sessionManager: { getSessionFile: vi.fn() },
 		getToolDefinition: vi.fn((_name: string): unknown => undefined),
+		// Extension-runner seam read by emitChildSessionShutdown on disposal (#709).
+		// Defaults to "this child has shutdown handlers" so every teardown path
+		// under test exercises the emit rather than its skip branch.
+		hasExtensionHandlers: vi.fn((_eventType: string): boolean => true),
+		extensionRunner: {
+			emit: vi.fn((_event: unknown): Promise<unknown> => Promise.resolve(undefined)),
+		},
+		model: undefined,
+		thinkingLevel: "off",
 	};
 
 	return { ...base, ...overrides };

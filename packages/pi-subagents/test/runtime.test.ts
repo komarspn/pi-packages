@@ -1,11 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
+import type { ParentPromptOptions, ParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import { createSubagentRuntime, SubagentRuntime } from "#src/runtime";
 import type { SessionContext } from "#src/types";
+import { makeModel } from "#test/helpers/make-model";
 import { STUB_SNAPSHOT } from "#test/helpers/stub-ctx";
 
 const mockBuildParentSnapshot = vi.hoisted(() =>
-  vi.fn<(ctx: SessionContext, inheritContext?: boolean) => ParentSnapshot>(),
+  vi.fn<
+    (
+      ctx: SessionContext,
+      inheritContext?: boolean,
+      promptOptions?: ParentPromptOptions,
+    ) => ParentSnapshot
+  >(),
 );
 
 vi.mock("#src/lifecycle/parent-snapshot", () => ({
@@ -16,7 +23,7 @@ function makeSessionCtx(overrides?: Partial<SessionContext>): SessionContext {
   return {
     cwd: "/test/cwd",
     model: undefined,
-    modelRegistry: undefined,
+    modelRegistry: { find: () => undefined, getAll: () => [] },
     getSystemPrompt: () => "test prompt",
     sessionManager: {
       getSessionFile: () => "/sessions/test.jsonl",
@@ -91,7 +98,7 @@ describe("SubagentRuntime context query methods", () => {
     runtime.setSessionContext(ctx);
     mockBuildParentSnapshot.mockReturnValueOnce(STUB_SNAPSHOT);
     const result = runtime.buildSnapshot(true);
-    expect(mockBuildParentSnapshot).toHaveBeenCalledWith(ctx, true);
+    expect(mockBuildParentSnapshot).toHaveBeenCalledWith(ctx, true, undefined);
     expect(result).toBe(STUB_SNAPSHOT);
   });
 
@@ -101,16 +108,46 @@ describe("SubagentRuntime context query methods", () => {
     runtime.setSessionContext(ctx);
     mockBuildParentSnapshot.mockReturnValueOnce(STUB_SNAPSHOT);
     runtime.buildSnapshot(false);
-    expect(mockBuildParentSnapshot).toHaveBeenCalledWith(ctx, false);
+    expect(mockBuildParentSnapshot).toHaveBeenCalledWith(ctx, false, undefined);
+  });
+
+  describe("prompt-options capture", () => {
+    it("passes the latest captured options to buildParentSnapshot", () => {
+      const runtime = createSubagentRuntime();
+      const ctx = makeSessionCtx();
+      runtime.setSessionContext(ctx);
+      const options: ParentPromptOptions = { customPrompt: "You are a specialist." };
+      runtime.setSystemPromptOptions(options);
+      mockBuildParentSnapshot.mockReturnValueOnce(STUB_SNAPSHOT);
+
+      runtime.buildSnapshot(false);
+
+      expect(mockBuildParentSnapshot).toHaveBeenCalledWith(ctx, false, options);
+    });
+
+    it("keeps only the most recent capture", () => {
+      const runtime = createSubagentRuntime();
+      const ctx = makeSessionCtx();
+      runtime.setSessionContext(ctx);
+      const latest: ParentPromptOptions = { customPrompt: "second" };
+      runtime.setSystemPromptOptions({ customPrompt: "first" });
+      runtime.setSystemPromptOptions(latest);
+      mockBuildParentSnapshot.mockReturnValueOnce(STUB_SNAPSHOT);
+
+      runtime.buildSnapshot(false);
+
+      expect(mockBuildParentSnapshot).toHaveBeenCalledWith(ctx, false, latest);
+    });
   });
 
   it("getModelInfo returns model and modelRegistry from current context", () => {
     const runtime = createSubagentRuntime();
     const registry = { find: () => undefined, getAll: () => [], getAvailable: () => [] };
-    const ctx = makeSessionCtx({ model: { id: "claude-sonnet", name: "Claude Sonnet" }, modelRegistry: registry });
+    const model = makeModel({ id: "claude-sonnet", name: "Claude Sonnet" });
+    const ctx = makeSessionCtx({ model, modelRegistry: registry });
     runtime.setSessionContext(ctx);
     const info = runtime.getModelInfo();
-    expect(info.parentModel).toEqual({ id: "claude-sonnet", name: "Claude Sonnet" });
+    expect(info.parentModel).toBe(model);
     expect(info.modelRegistry).toBe(registry);
   });
 

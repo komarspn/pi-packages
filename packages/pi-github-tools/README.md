@@ -64,47 +64,18 @@ Useful for diagnostics without constructing `gh` invocations.
 | `workflow` | string | yes      | Workflow filename without extension   |
 | `limit`    | number | no       | Number of runs to return (default: 5) |
 
-### Release tools
+### Transient-failure retry
 
-#### `release_pr_find`
+Every read-only `gh` call these tools make — `ci_find`, `ci_watch`, and `ci_list` — retries a transient failure up to three times, waiting 1 s, 4 s, then 9 s.
+The retry count and backoff curve match [`@octokit/plugin-retry`](https://github.com/octokit/plugin-retry.js)'s defaults.
 
-Find the release-please PR after a push to `main`.
-Polls until an open release-please PR appears or the timeout expires.
+Retried: HTTP 5xx, GitHub's `no server is currently available` GraphQL error, and transport errors (connection reset, unexpected EOF, i/o timeout, TLS handshake timeout).
+Not retried: any 4xx, including rate limiting — retrying those is useless or harmful.
 
-| Parameter | Type   | Required | Description                    |
-| --------- | ------ | -------- | ------------------------------ |
-| `timeout` | number | no       | Seconds to wait (default: 120) |
+Mutations (`gh pr merge`, `gh issue close`) are never retried automatically.
+For a merge, the verification described above is what makes a retry decision safe.
 
-Returns PR number, title, head branch, mergeable status, and URL.
-
-#### `release_pr_merge`
-
-Merge a release-please PR after confirming it is clean.
-Checks `MERGEABLE` + `CLEAN` status, merges, and runs `git pull --ff-only`.
-
-| Parameter   | Type   | Required | Description                                          |
-| ----------- | ------ | -------- | ---------------------------------------------------- |
-| `pr_number` | number | yes      | The PR number to merge                               |
-| `method`    | string | no       | Merge strategy: `"rebase"`, `"squash"`, or `"merge"` |
-
-Merge method precedence (highest to lowest):
-
-1. Explicit `method` parameter
-2. `defaultMergeMethod` from [configuration](#configuration)
-3. `"merge"` (hardcoded fallback)
-
-Returns merge confirmation with new HEAD SHA, or a structured error if not mergeable.
-
-#### `release_watch`
-
-Wait for a release tag to appear on HEAD after merging a release-please PR.
-Polls every 10 s until a tag appears or the timeout expires.
-
-| Parameter | Type   | Required | Description                    |
-| --------- | ------ | -------- | ------------------------------ |
-| `timeout` | number | no       | Seconds to wait (default: 180) |
-
-Returns the tag name, version, and SHA.
+In a polling tool the backoff counts against the call's `timeout`, so retries cannot silently extend the wait the caller asked for.
 
 ### Issue tools
 
@@ -127,35 +98,35 @@ A typical CI + release flow using these tools:
 2. Use ci_find with the pushed SHA to locate the CI run.
 3. Use ci_watch to wait for the CI run to complete.
 4. Merge the PR.
-5. Use release_pr_find to locate the release-please PR.
-6. Use release_pr_merge to merge it.
-7. Use release_watch to wait for the release tag to land.
-8. Use issue_close to close the shipped issue.
+5. Dispatch the repository's release workflow for the shipped package.
+6. Use ci_find and ci_watch with that workflow to follow the release run.
+7. Use issue_close to close the shipped issue.
 ```
 
-## Configuration
+## Scope and non-goals
 
-Optional JSON config files control default behavior.
-Two locations are supported — project config takes precedence over global:
+**Purpose.**
+The ship workflow used to have the agent `sleep` and re-invoke `gh` in a prose loop, which burned turns and behaved differently every run.
+These tools replace that loop with bounded polling, streamed progress, and structured success, timeout, and failure states.
 
-| Scope   | Path                                                 |
-| ------- | ---------------------------------------------------- |
-| Global  | `~/.pi/agent/extensions/pi-github-tools/config.json` |
-| Project | `.pi/extensions/pi-github-tools/config.json`         |
+**In scope.**
+Making a tool wait where a human would otherwise wait, making a failure legible as a named `reason` a prompt can branch on, surviving transient GitHub errors on reads, and refusing to leave an outcome ambiguous.
 
-### Options
+**Non-goals.**
 
-| Key                  | Type                                  | Default   | Description                                   |
-| -------------------- | ------------------------------------- | --------- | --------------------------------------------- |
-| `defaultMergeMethod` | `"rebase"` \| `"squash"` \| `"merge"` | `"merge"` | Default merge strategy for `release_pr_merge` |
+- _A general-purpose GitHub toolkit._
+  The surface is scoped to the CI and issue-close flow an agent runs end to end.
+  An operation with no polling problem — opening a PR, editing labels, dispatching a workflow — is a plain `gh` call and stays one.
+- _Release-tool wrappers._
+  Earlier versions shipped `release_pr_find`, `release_pr_merge`, and `release_watch`, which encoded release-please's pull-request conventions.
+  A release triggered as a workflow is an ordinary Actions run, so `ci_find` and `ci_watch` already follow it and no release-specific tool is needed.
+- _A GitHub API client._
+  The `gh` CLI is the sole external binary dependency, and there are no runtime dependencies at all.
+- _Auto-retrying mutations._
+  Reads retry on transient failures; `issue_close` does not, since a retried close would post a duplicate comment.
 
-### Example
-
-```json
-{
-  "defaultMergeMethod": "squash"
-}
-```
+**Where adjacent requests belong.**
+Whether to release now, and which packages a release bumps → the calling prompt, not the tool.
 
 ## Architecture
 
@@ -171,8 +142,6 @@ src/
 └── lib/                  # portable business logic
     ├── ci.ts             # findRun, watchRun, listRuns
     ├── ci-helpers.ts     # CIJob, findRetryDelay, formatProgress
-    ├── config.ts         # config loading and normalization
-    ├── release.ts        # findReleasePR, mergeReleasePR, watchRelease
     ├── issue.ts          # closeIssue
     ├── github.ts         # gh(), ghJson(), git(), detectRepo()
     └── process.ts        # runCommand(), sleep()

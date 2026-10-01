@@ -1,6 +1,6 @@
 {
   "name": "@gotgenes/pi-nocd",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Pi extension that injects the resolved working directory into the system prompt so the agent never cd-prefixes the current working directory",
   "keywords": [
     "pi-package",
@@ -29,6 +29,12 @@
     "node": ">=22"
   },
   "type": "module",
+  "files": [
+    "src",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "pi": {
     "extensions": [
       "./src/index.ts"

@@ -1,9 +1,26 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// Mock node:fs so realpathSync (used by canonicalizePath) is controllable.
+// Default implementation is identity — lexical tests are unaffected.
+const realpathSync = vi.hoisted(() =>
+  vi.fn<(path: string) => string>((p) => p),
+);
+vi.mock("node:fs", () => ({
+  realpathSync,
+  default: { realpathSync },
+}));
+
+import { AccessPath } from "#src/access-intent/access-path";
 import type { GateDescriptor } from "#src/handlers/gates/descriptor";
 import { isGateDescriptor } from "#src/handlers/gates/descriptor";
 import { describePathGate } from "#src/handlers/gates/path";
 import type { ToolCallContext } from "#src/handlers/gates/types";
+import {
+  pathFlavorForPlatform,
+  posixPathFlavor,
+  win32PathFlavor,
+} from "#src/path/path-flavor";
+import { PathNormalizer } from "#src/path/path-normalizer";
 
 import {
   makeGateCheckResult as makeCheckResult,
@@ -24,14 +41,27 @@ function makeTcc(overrides: Partial<ToolCallContext> = {}): ToolCallContext {
   };
 }
 
+// The gate reads the path normalizer (platform + cwd baked in) from the
+// session; here it is bound to the makeTcc default cwd.
+const normalizer = new PathNormalizer(
+  pathFlavorForPlatform(process.platform),
+  "/test/project",
+);
+
 // ── tests ──────────────────────────────────────────────────────────────────
 
 describe("describePathGate", () => {
+  beforeEach(() => {
+    realpathSync.mockReset();
+    realpathSync.mockImplementation((p: string) => p);
+  });
+
   it("returns null for non-path-bearing tools", () => {
     const resolver = makeResolver();
     const result = describePathGate(
       makeTcc({ toolName: "bash", input: { command: "ls" } }),
       resolver,
+      normalizer,
     );
     expect(result).toBeNull();
     expect(resolver.resolve).not.toHaveBeenCalled();
@@ -42,13 +72,14 @@ describe("describePathGate", () => {
     const result = describePathGate(
       makeTcc({ toolName: "read", input: {} }),
       resolver,
+      normalizer,
     );
     expect(result).toBeNull();
   });
 
   it("returns null when path check result is allow", () => {
     const resolver = makeResolver(makeCheckResult({ state: "allow" }));
-    const result = describePathGate(makeTcc(), resolver);
+    const result = describePathGate(makeTcc(), resolver, normalizer);
     expect(result).toBeNull();
   });
 
@@ -61,7 +92,7 @@ describe("describePathGate", () => {
         origin: "builtin",
       }),
     );
-    const result = describePathGate(makeTcc(), resolver);
+    const result = describePathGate(makeTcc(), resolver, normalizer);
     expect(result).toBeNull();
   });
 
@@ -74,7 +105,7 @@ describe("describePathGate", () => {
         origin: "global",
       }),
     );
-    const result = describePathGate(makeTcc(), resolver);
+    const result = describePathGate(makeTcc(), resolver, normalizer);
     expect(result).not.toBeNull();
     expect(isGateDescriptor(result)).toBe(true);
   });
@@ -83,11 +114,11 @@ describe("describePathGate", () => {
     const resolver = makeResolver(
       makeCheckResult({ state: "deny", matchedPattern: "*.env" }),
     );
-    const result = describePathGate(makeTcc(), resolver);
+    const result = describePathGate(makeTcc(), resolver, normalizer);
     expect(result).not.toBeNull();
     expect(isGateDescriptor(result)).toBe(true);
     const desc = result as GateDescriptor;
-    expect(desc.surface).toBe("path");
+    expect(desc.surface).toBe("path_read");
     expect(desc.preCheck?.state).toBe("deny");
   });
 
@@ -95,11 +126,11 @@ describe("describePathGate", () => {
     const resolver = makeResolver(
       makeCheckResult({ state: "ask", matchedPattern: "*.env" }),
     );
-    const result = describePathGate(makeTcc(), resolver);
+    const result = describePathGate(makeTcc(), resolver, normalizer);
     expect(result).not.toBeNull();
     expect(isGateDescriptor(result)).toBe(true);
     const desc = result as GateDescriptor;
-    expect(desc.surface).toBe("path");
+    expect(desc.surface).toBe("path_read");
     expect(desc.preCheck?.state).toBe("ask");
   });
 
@@ -110,10 +141,11 @@ describe("describePathGate", () => {
     const result = describePathGate(
       makeTcc({ input: { path: "/test/project/src/.env" } }),
       resolver,
+      normalizer,
     ) as GateDescriptor;
     expect(result.sessionApproval).toBeDefined();
-    expect(result.sessionApproval?.surface).toBe("path");
-    expect(result.sessionApproval?.representativePattern).toBeDefined();
+    expect(result.sessionApproval?.grants[0]?.surface).toBe("path_read");
+    expect(result.sessionApproval?.grants).toHaveLength(1);
   });
 
   it("binds a current-directory file's session approval to the cwd subtree", () => {
@@ -123,42 +155,124 @@ describe("describePathGate", () => {
     const result = describePathGate(
       makeTcc({ input: { path: "index.html" }, cwd: "/test/project" }),
       resolver,
+      normalizer,
     ) as GateDescriptor;
-    expect(result.sessionApproval?.surface).toBe("path");
-    expect(result.sessionApproval?.representativePattern).toBe(
-      "/test/project/*",
-    );
+    expect(result.sessionApproval?.grants[0]?.surface).toBe("path_read");
+    expect(
+      result.sessionApproval?.grants.map((grant) => grant.pattern),
+    ).toEqual(["/test/project/*"]);
   });
 
   it("descriptor denialContext references the file path and tool name", () => {
     const resolver = makeResolver(
       makeCheckResult({ state: "deny", matchedPattern: "*.env" }),
     );
-    const result = describePathGate(makeTcc(), resolver) as GateDescriptor;
-    expect(result.denialContext).toEqual({
-      kind: "path",
-      toolName: "read",
-      pathValue: ".env",
-      agentName: undefined,
+    const result = describePathGate(
+      makeTcc(),
+      resolver,
+      normalizer,
+    ) as GateDescriptor;
+    expect(result.payload.kind).toBe("path");
+    expect(result.payload.request.toolName).toBe("read");
+    expect(result.payload.request.value).toBe(".env");
+    expect(result.payload.request.requester.agentName).toBeNull();
+  });
+
+  it("carries the child-fixed access facts on promptDetails (path surface)", () => {
+    const resolver = makeResolver(
+      makeCheckResult({ state: "ask", matchedPattern: "*.env" }),
+    );
+    const result = describePathGate(
+      makeTcc(),
+      resolver,
+      normalizer,
+    ) as GateDescriptor;
+    const accessPath = AccessPath.forPath(".env", {
+      cwd: "/test/project",
+      flavor: posixPathFlavor,
     });
+    expect(result.promptDetails.accessIntent).toEqual({
+      surface: "path_read",
+      matchValues: accessPath.matchValues(),
+      boundaryValue: accessPath.boundaryValue(),
+    });
+  });
+
+  it("logContext carries the request facts and no prompt wording", () => {
+    const resolver = makeResolver(
+      makeCheckResult({ state: "ask", matchedPattern: "*.env" }),
+    );
+    const result = describePathGate(
+      makeTcc({ agentName: "agent-1", toolCallId: "tc-5" }),
+      resolver,
+      normalizer,
+    ) as GateDescriptor;
+    // Full-shape rather than a subset: the request facts and the request id are
+    // stamped by the runner, so these five fields are the whole of the gate's
+    // own contribution.
+    expect(result.logContext).toEqual({
+      source: "tool_call",
+      toolCallId: "tc-5",
+      toolName: "read",
+      agentName: "agent-1",
+      path: ".env",
+    });
+  });
+
+  it("emits a path payload naming the matched rule", () => {
+    const resolver = makeResolver(
+      makeCheckResult({ state: "ask", matchedPattern: "*.env" }),
+    );
+    const result = describePathGate(
+      makeTcc(),
+      resolver,
+      normalizer,
+    ) as GateDescriptor;
+
+    expect(result.payload.kind).toBe("path");
+    expect(result.payload.request.value).toBe(".env");
+    expect(result.payload.request.matchedPattern).toBe("*.env");
   });
 
   it("descriptor decision uses surface 'path' and the file path as value", () => {
     const resolver = makeResolver(
       makeCheckResult({ state: "deny", matchedPattern: "*.env" }),
     );
-    const result = describePathGate(makeTcc(), resolver) as GateDescriptor;
-    expect(result.decision.surface).toBe("path");
+    const result = describePathGate(
+      makeTcc(),
+      resolver,
+      normalizer,
+    ) as GateDescriptor;
+    expect(result.decision.surface).toBe("path_read");
     expect(result.decision.value).toBe(".env");
   });
 
-  it("resolves the path surface with the file path and agent name", () => {
+  it("resolves the path surface with an access-path intent and agent name", () => {
     const resolver = makeResolver(makeCheckResult({ state: "allow" }));
-    describePathGate(makeTcc({ agentName: "my-agent" }), resolver);
-    expect(resolver.resolve).toHaveBeenCalledWith(
-      "path",
-      { path: ".env" },
-      "my-agent",
+    describePathGate(makeTcc({ agentName: "my-agent" }), resolver, normalizer);
+    expect(resolver.resolve).toHaveBeenCalledWith({
+      kind: "access-path",
+      surface: "path_read",
+      path: AccessPath.forPath(".env", {
+        cwd: "/test/project",
+        flavor: posixPathFlavor,
+      }),
+      agentName: "my-agent",
+    });
+  });
+
+  it("emits an access-path whose matchValues include the symlink-resolved form (#486)", () => {
+    // /test/project/.env is a symlink to /vault/secret.env.
+    realpathSync.mockImplementation((p: string) =>
+      p === "/test/project/.env" ? "/vault/secret.env" : p,
+    );
+    const resolver = makeResolver(makeCheckResult({ state: "allow" }));
+    describePathGate(makeTcc(), resolver, normalizer);
+
+    const intent = resolver.resolve.mock.lastCall?.[0];
+    expect(intent?.kind).toBe("access-path");
+    expect(intent?.kind === "access-path" && intent.path.matchValues()).toEqual(
+      ["/test/project/.env", ".env", "/vault/secret.env"],
     );
   });
 });
@@ -177,21 +291,24 @@ describe("describePathGate — home-relative paths", () => {
     const result = describePathGate(
       makeTcc({ input: { path: "~/.ssh/config" } }),
       resolver,
+      normalizer,
     ) as GateDescriptor;
 
     expect(isGateDescriptor(result)).toBe(true);
     expect(result.preCheck?.state).toBe("deny");
-    // Raw path preserved in denial context for display.
-    expect(result.denialContext).toMatchObject({
-      kind: "path",
-      toolName: "read",
-      pathValue: "~/.ssh/config",
+    // Raw path preserved on the payload for display.
+    expect(result.payload.kind).toBe("path");
+    expect(result.payload.request.toolName).toBe("read");
+    expect(result.payload.request.value).toBe("~/.ssh/config");
+    expect(resolver.resolve).toHaveBeenCalledWith({
+      kind: "access-path",
+      surface: "path_read",
+      path: AccessPath.forPath("~/.ssh/config", {
+        cwd: "/test/project",
+        flavor: posixPathFlavor,
+      }),
+      agentName: undefined,
     });
-    expect(resolver.resolve).toHaveBeenCalledWith(
-      "path",
-      { path: "~/.ssh/config" },
-      undefined,
-    );
   });
 
   it("passes raw $HOME/... path to resolver and builds descriptor on deny", () => {
@@ -201,14 +318,13 @@ describe("describePathGate — home-relative paths", () => {
     const result = describePathGate(
       makeTcc({ input: { path: "$HOME/.ssh/config" } }),
       resolver,
+      normalizer,
     ) as GateDescriptor;
 
     expect(isGateDescriptor(result)).toBe(true);
     expect(result.preCheck?.state).toBe("deny");
-    expect(result.denialContext).toMatchObject({
-      kind: "path",
-      pathValue: "$HOME/.ssh/config",
-    });
+    expect(result.payload.kind).toBe("path");
+    expect(result.payload.request.value).toBe("$HOME/.ssh/config");
   });
 
   it("returns null when home-relative path resolves to allow", () => {
@@ -216,6 +332,7 @@ describe("describePathGate — home-relative paths", () => {
     const result = describePathGate(
       makeTcc({ input: { path: "~/.ssh/config" } }),
       resolver,
+      normalizer,
     );
     expect(result).toBeNull();
   });
@@ -226,10 +343,13 @@ describe("describePathGate — home-relative paths", () => {
 describe("describePathGate — extension and MCP tools (#352)", () => {
   function extractorLookup(toolName: string, key: string) {
     return {
-      get: (name: string) =>
+      resolve: (name: string) =>
         name === toolName
-          ? (input: Record<string, unknown>) =>
-              typeof input[key] === "string" ? input[key] : undefined
+          ? {
+              extractor: (input: Record<string, unknown>) =>
+                typeof input[key] === "string" ? input[key] : undefined,
+              origin: "local" as const,
+            }
           : undefined,
     };
   }
@@ -241,13 +361,18 @@ describe("describePathGate — extension and MCP tools (#352)", () => {
     const result = describePathGate(
       makeTcc({ toolName: "my-ext", input: { path: ".env" } }),
       resolver,
+      normalizer,
     );
     expect(isGateDescriptor(result)).toBe(true);
-    expect(resolver.resolve).toHaveBeenCalledWith(
-      "path",
-      { path: ".env" },
-      undefined,
-    );
+    expect(resolver.resolve).toHaveBeenCalledWith({
+      kind: "access-path",
+      surface: "path",
+      path: AccessPath.forPath(".env", {
+        cwd: "/test/project",
+        flavor: posixPathFlavor,
+      }),
+      agentName: undefined,
+    });
   });
 
   it("gates an MCP tool via arguments.path", () => {
@@ -257,13 +382,18 @@ describe("describePathGate — extension and MCP tools (#352)", () => {
     const result = describePathGate(
       makeTcc({ toolName: "mcp", input: { arguments: { path: ".env" } } }),
       resolver,
+      normalizer,
     );
     expect(isGateDescriptor(result)).toBe(true);
-    expect(resolver.resolve).toHaveBeenCalledWith(
-      "path",
-      { path: ".env" },
-      undefined,
-    );
+    expect(resolver.resolve).toHaveBeenCalledWith({
+      kind: "access-path",
+      surface: "path",
+      path: AccessPath.forPath(".env", {
+        cwd: "/test/project",
+        flavor: posixPathFlavor,
+      }),
+      agentName: undefined,
+    });
   });
 
   it("uses a registered extractor's path for a custom-shaped tool", () => {
@@ -273,13 +403,18 @@ describe("describePathGate — extension and MCP tools (#352)", () => {
     describePathGate(
       makeTcc({ toolName: "ffgrep", input: { target: "/etc/passwd" } }),
       resolver,
+      normalizer,
       extractorLookup("ffgrep", "target"),
     );
-    expect(resolver.resolve).toHaveBeenCalledWith(
-      "path",
-      { path: "/etc/passwd" },
-      undefined,
-    );
+    expect(resolver.resolve).toHaveBeenCalledWith({
+      kind: "access-path",
+      surface: "path",
+      path: AccessPath.forPath("/etc/passwd", {
+        cwd: "/test/project",
+        flavor: posixPathFlavor,
+      }),
+      agentName: undefined,
+    });
   });
 
   it("returns null for an extension tool without a path", () => {
@@ -287,8 +422,98 @@ describe("describePathGate — extension and MCP tools (#352)", () => {
     const result = describePathGate(
       makeTcc({ toolName: "my-ext", input: { other: true } }),
       resolver,
+      normalizer,
     );
     expect(result).toBeNull();
     expect(resolver.resolve).not.toHaveBeenCalled();
+  });
+
+  describe("tool-identity direction routing", () => {
+    /** The gate names the narrowest `path`-family surface the tool proves. */
+    function surfacesFor(toolName: string) {
+      const resolver = makeResolver(
+        makeCheckResult({ state: "ask", matchedPattern: "*.env" }),
+      );
+      const descriptor = describePathGate(
+        makeTcc({ toolName, input: { path: ".env" } }),
+        resolver,
+        normalizer,
+      ) as GateDescriptor;
+      return {
+        intent: vi.mocked(resolver.resolve).mock.calls[0][0].surface,
+        descriptor: descriptor.surface,
+        approval: descriptor.sessionApproval?.grants[0]?.surface,
+        facts: descriptor.promptDetails.accessIntent?.surface,
+        decision: descriptor.decision.surface,
+        payload: descriptor.payload.request.surface,
+      };
+    }
+
+    it.each(["read", "grep", "find", "ls"])(
+      "names path_read for %s, whose read is proven by its identity",
+      (toolName) => {
+        expect(surfacesFor(toolName)).toEqual({
+          intent: "path_read",
+          descriptor: "path_read",
+          approval: "path_read",
+          facts: "path_read",
+          decision: "path_read",
+          payload: "path_read",
+        });
+      },
+    );
+
+    it("names path_write for write", () => {
+      expect(surfacesFor("write")).toEqual({
+        intent: "path_write",
+        descriptor: "path_write",
+        approval: "path_write",
+        facts: "path_write",
+        decision: "path_write",
+        payload: "path_write",
+      });
+    });
+
+    it("names the bare family for edit, which reads and writes", () => {
+      expect(surfacesFor("edit")).toEqual({
+        intent: "path",
+        descriptor: "path",
+        approval: "path",
+        facts: "path",
+        decision: "path",
+        payload: "path",
+      });
+    });
+
+    it("keeps the payload kind 'path' so renderer dispatch is untouched", () => {
+      const result = describePathGate(
+        makeTcc({ toolName: "read" }),
+        makeResolver(
+          makeCheckResult({ state: "ask", matchedPattern: "*.env" }),
+        ),
+        normalizer,
+      ) as GateDescriptor;
+      expect(result.payload.kind).toBe("path");
+    });
+  });
+
+  it("derives the session approval through the injected flavor, not the host", () => {
+    // A native Windows path carries backslash separators the *host* POSIX
+    // `node:path` cannot see, so an ambient derivation collapses it to `./*`
+    // and the recorded grant matches nothing (#655).
+    const result = describePathGate(
+      makeTcc({
+        input: { path: "src\\foo.ts" },
+        cwd: "C:\\Projects\\App",
+      }),
+      makeResolver(makeCheckResult({ state: "ask", matchedPattern: "*.ts" })),
+      new PathNormalizer(win32PathFlavor, "C:\\Projects\\App"),
+    );
+    expect(isGateDescriptor(result)).toBe(true);
+    expect(
+      (result as GateDescriptor).sessionApproval?.grants.map(
+        (grant) => grant.pattern,
+      ),
+    ).toEqual(["c:\\projects\\app\\src\\*"]);
   });
 });

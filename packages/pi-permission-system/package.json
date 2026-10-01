@@ -1,10 +1,13 @@
 {
   "name": "@komarspn/pi-permission-system",
-  "version": "16.0.2",
+  "version": "36.2.0",
   "description": "Permission enforcement extension for the Pi coding agent.",
   "type": "module",
   "exports": {
-    ".": "./src/service.ts"
+    ".": {
+      "types": "./dist/public.d.ts",
+      "default": "./src/service.ts"
+    }
   },
   "imports": {
     "#src/*": "./src/*",
@@ -12,17 +15,31 @@
   },
   "files": [
     "src",
-    "test",
+    "dist",
     "config/config.example.json",
     "schemas/permissions.schema.json",
+    "docs/*.md",
+    "docs/guides",
+    "docs/migration",
+    "docs/assets",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {
     "check": "tsc --noEmit",
+    "build:types": "rollup -c rollup.dts.config.mjs",
+    "prepack": "pnpm run build:types",
+    "gen:schema": "node --experimental-strip-types scripts/generate-permissions-schema.ts && biome format --write schemas/permissions.schema.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "verify:public-types": "bash scripts/verify-public-types.sh",
+    "measure:core-coverage": "node scripts/measure-core-coverage.mjs",
+    "measure:path-false-positives": "node scripts/measure-path-false-positives.mjs",
+    "measure:statement-descent": "node scripts/measure-statement-descent.mjs",
+    "measure:statement-operands": "node scripts/measure-statement-operands.mjs",
+    "measure:unresolved-redirects": "node scripts/measure-unresolved-redirects.mjs",
+    "measure:wrapper-transparency": "node scripts/measure-wrapper-transparency.mjs",
     "lint:md": "rumdl check *.md docs/**/*.md",
     "lint": "biome check . && eslint . && pnpm run lint:md"
   },
@@ -71,12 +88,15 @@
     "@earendil-works/pi-coding-agent": "0.79.1",
     "@earendil-works/pi-tui": "0.79.1",
     "@types/node": "catalog:",
+    "rollup": "catalog:",
+    "rollup-plugin-dts": "catalog:",
     "rumdl": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
   "dependencies": {
     "tree-sitter-bash": "^0.25.1",
-    "web-tree-sitter": "^0.26.9"
+    "web-tree-sitter": "^0.26.9",
+    "zod": "^4.4.3"
   }
 }

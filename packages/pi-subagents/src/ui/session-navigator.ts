@@ -4,56 +4,69 @@
  *
  * SDK/TUI consumer half of native session navigation. The unit-testable core
  * (selection, sourcing) lives in `session-navigation.ts`; this module wires that
- * core to the command picker and a read-only scrollable overlay, and owns the
+ * core to the command picker and a read-only scrollable pane, and owns the
  * renderer — it mounts Pi's interactive components (`AssistantMessageComponent`,
  * `ToolExecutionComponent`, …) into a `Container`, mirroring Pi's own
  * `renderSessionContext` mapping. Rendering lives here, not in the pure module,
  * because the components require a `TUI`, `cwd`, and markdown theme.
  *
- * The overlay is strictly read-only — steering stays in the `steer_subagent` tool
- * and the widget. It consumes a `TranscriptSource`, so the evicted-agent-source
- * follow-up swaps the source without touching the renderer or the overlay.
+ * Its chrome is two labeled rules in the style of Pi's editor border: the top
+ * names the agent, its task, model, and thinking level; the bottom carries the
+ * scroll position and key hints. Both take the thinking level's border colour,
+ * read from the source on every render, so a live child's change repaints them.
+ *
+ * The pane is strictly read-only — steering stays in the `steer_subagent` tool
+ * and the widget. It consumes a `TranscriptSource`, so a released agent's disk
+ * snapshot (`fileSnapshotSource`) swaps in without touching the renderer or the pane.
+ *
+ * It mounts through `ui.custom`'s non-overlay path deliberately: Pi's regular-mode
+ * renderer composites overlays into the buffer that backs scrollback, so an overlay
+ * mount bakes this pane's chrome into terminal history. See
+ * `docs/decisions/0007-transcript-viewer-is-not-an-overlay.md`.
  */
 
-import {
-  AssistantMessageComponent,
-  BashExecutionComponent,
-  BranchSummaryMessageComponent,
-  CompactionSummaryMessageComponent,
-  getMarkdownTheme,
-  parseSkillBlock,
-  SkillInvocationMessageComponent,
-  type ToolDefinition,
-  ToolExecutionComponent,
-  UserMessageComponent,
-} from "@earendil-works/pi-coding-agent";
+import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import {
   type Component,
-  Container,
   type MarkdownTheme,
   matchesKey,
-  Spacer,
   type TUI,
   truncateToWidth,
-  visibleWidth,
 } from "@earendil-works/pi-tui";
 import type { AgentConfigLookup } from "#src/config/agent-types";
-import type { EvictedSubagent } from "#src/lifecycle/subagent-manager";
-import type { SessionMessage } from "#src/types";
-import { describeActivity, type Theme } from "#src/ui/display";
-import { fileSnapshotSource, listNavigableAgents, liveSource, type NavigableSubagent, type TranscriptSource } from "#src/ui/session-navigation";
+import { formatModel, type ModelIdentity, type Theme } from "#src/ui/display";
+import { labeledRule } from "#src/ui/labeled-rule";
+import {
+  type EntryHeading,
+  fileSnapshotSource,
+  listNavigableAgents,
+  liveSource,
+  type NavigableSubagent,
+  type TranscriptSource,
+} from "#src/ui/session-navigation";
+import { TranscriptContent } from "#src/ui/transcript-content";
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Chrome lines: top border + header + header sep + footer sep + footer + bottom border. */
-const CHROME_LINES = 6;
+/** Chrome lines: the header rule and the footer rule. The pane is docked, so it needs no frame. */
+const CHROME_LINES = 2;
 const MIN_VIEWPORT = 3;
 const VIEWPORT_HEIGHT_PCT = 70;
 
-/** Component factory shape Pi's `ui.custom` invokes to mount an overlay. */
-export type OverlayComponentFactory<R> = (
+/**
+ * The pane's theme: the shared narrow `Theme` plus the one method only the pane
+ * needs. Pi's own `Theme` satisfies it; the widening stays here so the other
+ * render sites' theme stubs do not grow.
+ */
+export type TranscriptTheme = Theme & {
+  /** Pi's editor-border colour for a thinking level; an unknown level paints as `off`. */
+  getThinkingBorderColor(level: string): (text: string) => string;
+};
+
+/** Component factory shape Pi's `ui.custom` invokes to mount a component. */
+export type CustomComponentFactory<R> = (
   tui: TUI,
-  theme: Theme,
+  theme: TranscriptTheme,
   keybindings: unknown,
   done: (result: R) => void,
 ) => Component;
@@ -62,15 +75,13 @@ export type OverlayComponentFactory<R> = (
 export interface SessionNavigatorUI {
   select(title: string, options: string[]): Promise<string | undefined>;
   notify(message: string, level: "info" | "warning" | "error"): void;
-  custom<R>(component: OverlayComponentFactory<R>, options?: unknown): Promise<R>;
+  custom<R>(component: CustomComponentFactory<R>, options?: unknown): Promise<R>;
 }
 
 /** Parameters for one `/subagents:sessions` invocation. */
 export interface SessionNavigatorParams {
   ui: SessionNavigatorUI;
   agents: readonly NavigableSubagent[];
-  /** Descriptors of agents evicted by the cleanup sweep, sourced from disk when picked. */
-  evicted: readonly EvictedSubagent[];
   registry: AgentConfigLookup;
   /** Working directory for tool-call rendering (relative path display). */
   cwd: string;
@@ -78,11 +89,13 @@ export interface SessionNavigatorParams {
   readFile: (path: string) => string;
 }
 
-/** Options for the read-only transcript overlay. */
-export interface TranscriptOverlayOptions {
+/** Options for the read-only transcript pane. */
+export interface TranscriptPaneOptions {
   tui: TUI;
-  theme: Theme;
+  theme: TranscriptTheme;
   source: TranscriptSource;
+  /** Who produced the transcript, named in the header rule. */
+  heading: EntryHeading;
   done: (result: undefined) => void;
   cwd: string;
   markdownTheme: MarkdownTheme;
@@ -96,8 +109,8 @@ export interface TranscriptOverlayOptions {
  * manager, so it stays a reactive consumer with no inbound call into the core.
  */
 export class SessionNavigatorHandler {
-  async handle({ ui, agents, evicted, registry, cwd, readFile }: SessionNavigatorParams): Promise<void> {
-    const entries = listNavigableAgents(agents, evicted, registry);
+  async handle({ ui, agents, registry, cwd, readFile }: SessionNavigatorParams): Promise<void> {
+    const entries = listNavigableAgents(agents, registry);
     if (entries.length === 0) {
       ui.notify("No subagent sessions to view.", "info");
       return;
@@ -120,54 +133,48 @@ export class SessionNavigatorHandler {
     const markdownTheme = getMarkdownTheme();
     await ui.custom<undefined>(
       (tui, theme, _keybindings, done) =>
-        new TranscriptOverlay({ tui, theme, source, done, cwd, markdownTheme }),
-      {
-        overlay: true,
-        overlayOptions: { anchor: "center", width: "90%", maxHeight: `${VIEWPORT_HEIGHT_PCT}%` },
-      },
+        new TranscriptPane({ tui, theme, source, heading: entry.heading, done, cwd, markdownTheme }),
+      { overlay: false },
     );
   }
 }
 
 /**
- * Read-only scrollable transcript overlay.
+ * Read-only scrollable transcript pane.
  *
- * Caches a `Container` of Pi's per-entry components and rebuilds it only when the
- * source changes (live agents) — each paint reuses the cached tree, so markdown
- * highlighting does not re-run per frame. This class owns scroll state, chrome,
- * and the running-agent streaming indicator; the component mapping lives in
- * `buildTranscriptComponents`.
+ * Owns scroll state, chrome, and key handling; the rows it paints come from a
+ * `TranscriptContent` collaborator, which holds the transcript's components and
+ * refreshes them when the source changes (live agents).
  */
-export class TranscriptOverlay implements Component {
+export class TranscriptPane implements Component {
   private scrollOffset = 0;
   private autoScroll = true;
   private unsubscribe: (() => void) | undefined;
   private closed = false;
 
   private readonly tui: TUI;
-  private readonly theme: Theme;
+  private readonly theme: TranscriptTheme;
   private readonly source: TranscriptSource;
+  private readonly heading: EntryHeading;
   private readonly done: (result: undefined) => void;
-  private readonly cwd: string;
-  private readonly markdownTheme: MarkdownTheme;
-  private content: Container;
+  private readonly content: TranscriptContent;
+  /** Width the host last rendered at; input must use the same layout. */
+  private renderedWidth: number | undefined;
 
-  constructor({ tui, theme, source, done, cwd, markdownTheme }: TranscriptOverlayOptions) {
+  constructor({ tui, theme, source, heading, done, cwd, markdownTheme }: TranscriptPaneOptions) {
     this.tui = tui;
     this.theme = theme;
     this.source = source;
+    this.heading = heading;
     this.done = done;
-    this.cwd = cwd;
-    this.markdownTheme = markdownTheme;
-    this.content = this.rebuild();
-    this.unsubscribe = source.subscribe(() => {
+    this.content = new TranscriptContent({ tui, cwd, markdownTheme, source });
+    this.unsubscribe = source.subscribe((event) => {
       if (this.closed) return;
-      this.content = this.rebuild();
+      this.content.apply(event);
       this.tui.requestRender();
     });
   }
 
-  // fallow-ignore-next-line unused-class-member
   handleInput(data: string): void {
     if (matchesKey(data, "escape") || matchesKey(data, "q")) {
       this.closed = true;
@@ -175,9 +182,7 @@ export class TranscriptOverlay implements Component {
       return;
     }
 
-    const totalLines = this.buildContentLines(this.innerWidth()).length;
-    const viewportHeight = this.viewportHeight();
-    const maxScroll = Math.max(0, totalLines - viewportHeight);
+    const { viewportHeight, maxScroll } = this.scrollBounds(this.inputWidth());
 
     if (matchesKey(data, "up") || matchesKey(data, "k")) {
       this.scrollOffset = Math.max(0, this.scrollOffset - 1);
@@ -203,38 +208,29 @@ export class TranscriptOverlay implements Component {
   render(width: number): string[] {
     if (width < 6) return [];
     const th = this.theme;
-    const innerW = width - 4;
+    this.renderedWidth = width;
     const lines: string[] = [];
 
-    const pad = (s: string, len: number): string => s + " ".repeat(Math.max(0, len - visibleWidth(s)));
-    const row = (content: string): string =>
-      th.fg("border", "│") + " " + truncateToWidth(pad(content, innerW), innerW) + " " + th.fg("border", "│");
-    const hrTop = th.fg("border", `╭${"─".repeat(width - 2)}╮`);
-    const hrBot = th.fg("border", `╰${"─".repeat(width - 2)}╯`);
-    const hrMid = row(th.fg("dim", "─".repeat(innerW)));
+    // Rows span at most the width the host supplied: pi-tui rejects a wider one.
+    const fit = (content: string): string => truncateToWidth(content, width);
+    const { model, thinkingLevel } = this.source.sessionModel();
+    const paint = th.getThinkingBorderColor(thinkingLevel ?? "off");
 
-    lines.push(hrTop);
-    lines.push(row(th.bold("Subagent session")));
-    lines.push(hrMid);
+    lines.push(labeledRule(width, paint, this.headerLabels(model, thinkingLevel)));
 
-    const contentLines = this.buildContentLines(innerW);
-    const viewportHeight = this.viewportHeight();
-    const maxScroll = Math.max(0, contentLines.length - viewportHeight);
+    const { totalLines, viewportHeight, maxScroll } = this.scrollBounds(width);
     if (this.autoScroll) this.scrollOffset = maxScroll;
     const visibleStart = Math.min(this.scrollOffset, maxScroll);
-    const visible = contentLines.slice(visibleStart, visibleStart + viewportHeight);
-    for (let i = 0; i < viewportHeight; i++) lines.push(row(visible[i] ?? ""));
+    const visible = this.content.slice(width, visibleStart, viewportHeight);
+    for (let i = 0; i < viewportHeight; i++) lines.push(fit(visible[i] ?? ""));
 
-    lines.push(hrMid);
     const scrollPct =
-      contentLines.length <= viewportHeight
+      totalLines <= viewportHeight
         ? "100%"
-        : `${Math.round(((visibleStart + viewportHeight) / contentLines.length) * 100)}%`;
-    const footerLeft = th.fg("dim", `${contentLines.length} lines · ${scrollPct}`);
-    const footerRight = th.fg("dim", "↑↓ scroll · PgUp/PgDn · Esc close");
-    const footerGap = Math.max(1, innerW - visibleWidth(footerLeft) - visibleWidth(footerRight));
-    lines.push(row(footerLeft + " ".repeat(footerGap) + footerRight));
-    lines.push(hrBot);
+        : `${Math.round(((visibleStart + viewportHeight) / totalLines) * 100)}%`;
+    const position = th.fg("dim", `${totalLines} lines · ${scrollPct}`);
+    const hints = th.fg("dim", "↑↓ scroll · PgUp/PgDn · Esc close");
+    lines.push(labeledRule(width, paint, [position], [hints]));
 
     return lines;
   }
@@ -244,7 +240,6 @@ export class TranscriptOverlay implements Component {
     this.content.invalidate();
   }
 
-  // fallow-ignore-next-line unused-class-member
   dispose(): void {
     this.closed = true;
     if (this.unsubscribe) {
@@ -255,150 +250,58 @@ export class TranscriptOverlay implements Component {
 
   // ---- Private ----
 
-  private innerWidth(): number {
-    return Math.max(0, this.tui.terminal.columns - 4);
+  /**
+   * Header labels, most to least informative: the rule drops the task first,
+   * then the model and thinking level, before it truncates the agent's name.
+   */
+  private headerLabels(model: ModelIdentity | undefined, thinkingLevel: string | undefined): string[] {
+    const th = this.theme;
+    const { name, modeLabel, description } = this.heading;
+    const identity = th.bold(name) + (modeLabel ? ` ${th.fg("muted", `(${modeLabel})`)}` : "");
+    const runtime = describeRuntime(model, thinkingLevel);
+    const runtimeTag = runtime ? th.fg("muted", ` · ${runtime}`) : "";
+    return [`${identity}  ${th.fg("muted", description)}${runtimeTag}`, identity + runtimeTag, identity];
   }
 
-  private viewportHeight(): number {
-    const maxRows = Math.floor((this.tui.terminal.rows * VIEWPORT_HEIGHT_PCT) / 100);
-    return Math.max(MIN_VIEWPORT, maxRows - CHROME_LINES);
+  /**
+   * Scroll geometry at a given layout width.
+   *
+   * The single place a width becomes a viewport height, so `render` and
+   * `handleInput` cannot disagree about how far the transcript scrolls.
+   */
+  private scrollBounds(width: number): { totalLines: number; viewportHeight: number; maxScroll: number } {
+    const totalLines = this.content.lineCount(width);
+    const viewportHeight = this.viewportHeight(totalLines);
+    return { totalLines, viewportHeight, maxScroll: Math.max(0, totalLines - viewportHeight) };
   }
 
-  private buildContentLines(innerW: number): string[] {
-    if (innerW <= 0) return [];
-    const lines = this.content.render(innerW);
-    const streaming = this.source.streaming();
-    if (streaming) {
-      lines.push("", `◍ ${describeActivity(streaming.activeTools, streaming.responseText)}`);
-    }
-    return lines.map((l) => truncateToWidth(l, innerW));
+  /**
+   * The width `handleInput` must lay out at: the one the host actually supplied,
+   * so scroll bounds match the layout on screen. Before the first paint there is
+   * none, so fall back to the full terminal width.
+   */
+  private inputWidth(): number {
+    return this.renderedWidth ?? this.tui.terminal.columns;
   }
 
-  private rebuild(): Container {
-    return buildTranscriptComponents(this.source.getMessages(), {
-      tui: this.tui,
-      cwd: this.cwd,
-      markdownTheme: this.markdownTheme,
-      getToolDefinition: (name) => this.source.getToolDefinition(name),
-    });
+  /**
+   * Rows the transcript gets: what it needs, capped at the pane's share of the
+   * terminal so a long or live transcript cannot crowd out the conversation, and
+   * floored so a short one still reads as a pane.
+   */
+  private viewportHeight(totalLines: number): number {
+    const cap = Math.floor((this.tui.terminal.rows * VIEWPORT_HEIGHT_PCT) / 100) - CHROME_LINES;
+    return Math.max(MIN_VIEWPORT, Math.min(totalLines, cap));
   }
-}
-
-/** Dependencies the per-entry component tree needs from the SDK/TUI environment. */
-interface TranscriptRenderOptions {
-  tui: TUI;
-  cwd: string;
-  markdownTheme: MarkdownTheme;
-  getToolDefinition: (name: string) => ToolDefinition | undefined;
 }
 
 /**
- * Build a `Container` of Pi's per-entry components from a message snapshot,
- * mirroring Pi's own interactive-mode `renderSessionContext` mapping. Tool
- * results are matched to their tool-call components by id, exactly as Pi does.
- * `custom`-role messages are skipped — rendering them needs the child session's
- * message-renderer registry, which the navigator does not hold.
+ * `anthropic/claude-sonnet-5 • high`, in Pi's footer wording: `thinking off` rather
+ * than a bare `off`, and `thinking <level>` when no model is named to attach it to.
  */
-function buildTranscriptComponents(
-  messages: readonly SessionMessage[],
-  opts: TranscriptRenderOptions,
-): Container {
-  const container = new Container();
-  const pendingTools = new Map<string, ToolExecutionComponent>();
-  for (const message of messages) {
-    addMessageComponents(container, message, pendingTools, opts);
-  }
-  return container;
-}
-
-function addMessageComponents(
-  container: Container,
-  message: SessionMessage,
-  pendingTools: Map<string, ToolExecutionComponent>,
-  opts: TranscriptRenderOptions,
-): void {
-  switch (message.role) {
-    case "assistant": {
-      container.addChild(new AssistantMessageComponent(message, false, opts.markdownTheme));
-      for (const content of message.content) {
-        if (content.type !== "toolCall") continue;
-        const tool = new ToolExecutionComponent(
-          content.name,
-          content.id,
-          content.arguments,
-          { showImages: false },
-          opts.getToolDefinition(content.name),
-          opts.tui,
-          opts.cwd,
-        );
-        tool.setExpanded(true);
-        container.addChild(tool);
-        pendingTools.set(content.id, tool);
-      }
-      break;
-    }
-    case "toolResult": {
-      pendingTools.get(message.toolCallId)?.updateResult(message);
-      pendingTools.delete(message.toolCallId);
-      break;
-    }
-    case "user": {
-      addUserComponents(container, message.content, opts.markdownTheme);
-      break;
-    }
-    case "bashExecution": {
-      const bash = new BashExecutionComponent(message.command, opts.tui, message.excludeFromContext);
-      if (message.output) bash.appendOutput(message.output);
-      bash.setComplete(message.exitCode, message.cancelled, undefined, message.fullOutputPath);
-      container.addChild(bash);
-      break;
-    }
-    case "compactionSummary": {
-      container.addChild(new Spacer(1));
-      const summary = new CompactionSummaryMessageComponent(message, opts.markdownTheme);
-      summary.setExpanded(true);
-      container.addChild(summary);
-      break;
-    }
-    case "branchSummary": {
-      container.addChild(new Spacer(1));
-      const summary = new BranchSummaryMessageComponent(message, opts.markdownTheme);
-      summary.setExpanded(true);
-      container.addChild(summary);
-      break;
-    }
-  }
-}
-
-/** Render a user message (skill block + text) into the container, mirroring Pi. */
-function addUserComponents(
-  container: Container,
-  content: string | readonly { type: string; text?: string }[],
-  markdownTheme: MarkdownTheme,
-): void {
-  const text = userMessageText(content);
-  if (!text) return;
-  if (container.children.length > 0) container.addChild(new Spacer(1));
-
-  const skillBlock = parseSkillBlock(text);
-  if (!skillBlock) {
-    container.addChild(new UserMessageComponent(text, markdownTheme));
-    return;
-  }
-  const skill = new SkillInvocationMessageComponent(skillBlock, markdownTheme);
-  skill.setExpanded(true);
-  container.addChild(skill);
-  if (skillBlock.userMessage) {
-    container.addChild(new Spacer(1));
-    container.addChild(new UserMessageComponent(skillBlock.userMessage, markdownTheme));
-  }
-}
-
-/** Concatenate the text blocks of a user message's content (mirrors Pi). */
-function userMessageText(content: string | readonly { type: string; text?: string }[]): string {
-  if (typeof content === "string") return content;
-  return content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text ?? "")
-    .join("");
+function describeRuntime(model: ModelIdentity | undefined, thinkingLevel: string | undefined): string {
+  if (!model) return thinkingLevel ? `thinking ${thinkingLevel}` : "";
+  if (!thinkingLevel) return formatModel(model);
+  const level = thinkingLevel === "off" ? "thinking off" : thinkingLevel;
+  return `${formatModel(model)} • ${level}`;
 }

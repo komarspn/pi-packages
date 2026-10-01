@@ -28,6 +28,63 @@ Stop after recording the decision and handing off; do not start implementation h
    Record the author's name + email for the `Co-authored-by:` trailer (see Attribution).
 4. Determine the target package(s) from the changed files (`gh pr diff $1 --name-only`).
    The package owns where the triage note lands (`packages/<PKG>/docs/retro/`); cross-package work uses the top-level `docs/retro/`.
+5. Note the PR's base commit (`gh pr view $1 --json baseRefOid`) — every "does this defect exist" question below is asked against **current `main`**, not against the PR's narrative.
+6. Establish whether the defect can reach **us**.
+   Check the `@gotgenes/*` extensions this repo actually runs under — including ones outside this monorepo, such as `pi-anthropic-auth` — for something that already mitigates it.
+   A defect we are immune to is still real; its priority and its owner are not the same.
+
+A fork PR's `statusCheckRollup` is often **empty**, for two indistinguishable reasons: the run awaits maintainer approval, or it has not been created yet (~4 minutes on a fork-branch push).
+Absent checks mean *not run*, never *passed*; do not read `mergeable`/`mergeStateStatus` as evidence of a green build.
+Tell them apart with `gh api "repos/gotgenes/pi-packages/actions/runs?head_sha=<sha>" --jq .total_count`: `0` is not-yet-created, and an `action_required` run needs `gh api -X POST repos/gotgenes/pi-packages/actions/runs/<id>/approve`.
+Call `ci_find` with `timeout: 300` on a fork PR, not the 120 s default.
+An already-approved fork runs later pushes automatically, so do not wait on an approval that is not pending.
+Running the checks yourself per the Verify gate below settles it regardless of which reason applies.
+
+## Verify the defect (required gate — do this before evaluating the diff)
+
+A PR body is a claim, not evidence.
+Most of the cost of a bad review is spent evaluating the implementation of a problem that does not exist.
+Establish the problem is real **on current `main`** before you read the diff for design.
+
+1. **Reproduce it.**
+   Write a throwaway test (or run an existing one) that exercises the claimed defect against current `main` and watch it fail.
+   Delete the scratch file afterward; it is evidence, not a deliverable.
+   If you cannot make it fail, you have not confirmed the bug — say so plainly and stop before the design evaluation.
+2. **Check whether it is already fixed.**
+   Search for the guard the PR is re-adding: `git log --oneline -S "<symbol>" -- <path>`, then `git tag --contains <sha>` to find the first release containing it, and `git merge-base --is-ancestor <sha> <tag>` to test a specific version.
+   A defect fixed in an earlier release means the reporter is on an old version — the answer is an upgrade and a version request, not a patch.
+3. **Locate the real boundary.**
+   Confirm which code path actually produces the failure, and whether the PR touches that path.
+   A patch that hardens a path the failure never reaches is not a fix.
+4. **Check the regression risk in the other direction.**
+   Ask what the touched path does correctly *today* and whether the patch degrades it.
+   Narrowing, truncating, or short-circuiting a path that is already correct is a regression wearing a fix's clothing — weigh that against the claimed benefit.
+5. **Verify any alternative you propose.**
+   An evaluation that names a better seam is a claim about code you have not run.
+   Hold it to the same standard as the defect: confirm the alternative's call order and available data in the compiled source before recommending it.
+6. **Read the downstream consumer.**
+   When the report names another project as the failure path — a provider, a bridge, a host harness — read that project before judging the diff: `fetch_content` its repo, then its `docs/`/`diag/` and the module the report blames.
+   Ask there the same question item 2 asks here: is it already fixed, and does the reporter's version have it?
+   `pnpm view <pkg> dist.tarball` fetches what they actually ran.
+
+Record the outcome of this gate in the evaluation, with the commands and results that back it.
+If the defect is unconfirmed, the `ask-user` decision gate below should offer "ask the reporter for version + fresh repro" as a direction.
+
+## Run the checks yourself
+
+Never trust a PR's "all tests pass" claim; it is routinely made without running the repo's full gate.
+
+1. Check the branch out in a scratch worktree so your own tree stays clean:
+
+   ```bash
+   git fetch origin pull/$1/head:pr-$1
+   git worktree add /tmp/pr-$1 pr-$1
+   ```
+
+2. From that worktree, run `pnpm run check`, `pnpm run lint`, and the affected package's tests.
+   `pnpm run lint` catches what a contributor's local run usually misses — Biome's `organizeImports` assist fails on an import appended out of order, which is a CI failure even when every test passes.
+3. Tear the worktree down when finished: `git worktree remove /tmp/pr-$1 --force && git branch -D pr-$1`.
+4. Report each result concretely (the failing rule, the failing test) rather than "checks fail".
 
 ## Load skills
 
@@ -36,6 +93,9 @@ Stop after recording the decision and handing off; do not start implementation h
 - Load the `code-design` skill for the design heuristics you will judge the PR against.
 - Load the `design-review` skill when the PR touches shared interfaces or layer wiring.
 - Load the `testing` skill if the PR changes tests.
+- Load the `reproduction` skill before the Verify gate's probes; its review-log and real-artifact sources are where a claim's blast radius is measured.
+- Load the `reading-artifacts` skill before reading the PR's status or thread as evidence, and the `git-workflow` skill before a commit that credits the contributor.
+- Load the `clarification-gates` skill before the `Decide` step's `ask_user` call.
 
 ## Evaluate
 
@@ -43,7 +103,7 @@ Read the diff (`gh pr diff $1`) and the modules it touches.
 Separate the **underlying problem** from **this implementation** and judge both:
 
 - **Problem** — is it real and worth solving in this package?
-  Reproduce or locate the gap in the code.
+  This is settled by the Verify gate above, not by the PR body's account of it.
 - **Approach soundness** — run the `code-design` heuristics.
   Look specifically for:
   - Speculative generality / maintenance traps: types or fields that are declared but never read at runtime (single-inhabitant enums, envelopes whose only consumed field is one value).
@@ -53,6 +113,9 @@ Separate the **underlying problem** from **this implementation** and judge both:
   If so it is breaking (`feat!:` / `fix!:`).
 - **Surface** — for security-sensitive packages, what does the change expose or gate?
   Is it least-privilege?
+- **Test coverage** — a bug-fix PR must ship a test that fails without the fix and passes with it.
+  Confirm the diff actually contains one (`gh pr diff $1 --name-only`); a source-only bug fix is not eligible for "adopt as-is" and the missing test is a required change.
+  For a fix in a package with a `PathFlavor`-style injected seam, the test must exercise the seam rather than the ambient host behavior.
 
 Write a short, concrete evaluation (cite files and symbols), naming what is valuable (often: the capability + the API shape) and what you would change (often: collapse an over-built abstraction to what is actually consumed).
 
@@ -65,6 +128,8 @@ Offer at least:
 1. **Adopt the capability, plan a simplified design** — keep what is valuable, drop the over-built parts; use the PR as reference, not the merge target. (Usually the right answer.)
 2. **Adopt the PR mostly as-is** — the approach is already idiomatic and right-sized.
 3. **Decline / defer** — the gap is real but not a priority, or you want to design it yourself later.
+4. **Ask the reporter for version + fresh repro** — offer this whenever the Verify gate could not confirm the defect on current `main`, and lead with it when the archaeology shows it was fixed in an earlier release.
+   The PR stays open pending the reply; credit the contributor and show the evidence that it does not reproduce.
 
 Fold any genuine design ambiguities (breaking-vs-non-breaking, default behavior, scope boundaries) into the same `ask-user` call.
 Let the operator's answers drive the recorded decision.
@@ -80,18 +145,21 @@ Whichever direction is chosen, the contributor gets explicit, durable credit:
   ```
 
 - The PR close comment (ship stage) thanks `@<login>` by name and links the implementing SHA(s).
-- Never use `Closes #$1` in a commit (it pre-empts the curated close comment, per AGENTS.md); reference the PR as `Refs #$1` / `(#$1)`.
+- Never use `Closes #$1` in a commit (it pre-empts the curated close comment, per the `git-workflow` skill); reference the PR as `Refs #$1` / `(#$1)`.
 
 ## Record the decision and hand off
 
 Write a triage note so the next stage has the full context.
-Path: `packages/<PKG>/docs/retro/NNNN-<slug>.md` (single-package) or `docs/retro/NNNN-<slug>.md` (cross-package), where `NNNN` matches the PR number and `<slug>` is derived from the title.
+Path: `packages/<PKG>/docs/retro/NNNN-<slug>.md` (single-package) or `docs/retro/NNNN-<slug>.md` (cross-package), with `<slug>` derived from the title.
+`NNNN` is the **issue** the PR addresses (read the PR body for `Refs #N` / `Closes #N`), not the PR number — the directory is issue-keyed and `/plan-issue` looks the retro up by issue number.
+Fall back to the PR number only when the PR references no issue.
 If the file does not exist, create it with frontmatter:
 
 ```yaml
 ---
-issue: $1
-issue_title: "<exact PR title>"
+issue: <the issue the PR addresses; $1 only if it references none>
+issue_title: "<exact issue title>"
+pr: $1
 ---
 ```
 
@@ -118,9 +186,11 @@ Append with the `Edit` tool (or `Write` for a new file), not a shell heredoc.
 
 Then hand off based on the decision:
 
-1. **Simplified design** — commit the triage note (`docs(pr-review): triage PR #$1 → adopt-with-simplified-design`), then tell the operator to run `/plan-issue #$1`.
+1. **Simplified design** — commit the triage note (`docs(pr-review): triage PR #$1 → adopt-with-simplified-design`), then tell the operator to run `/plan-issue #<issue>` — the issue number the note is keyed to, not `#$1`.
    `/plan-issue` reads this retro note as prior context: the direction is already decided here, so its Decide gate is satisfied — it should plan around the recorded decision rather than re-litigate it.
-2. **Adopt as-is** — produce a focused review checklist (correctness, convention fit, test coverage, behavior-change/breaking call-out, attribution) and either request changes on the PR or proceed to merge per the operator's call.
+2. **Adopt as-is** — produce a focused review checklist (correctness, convention fit, test coverage, behavior-change/breaking call-out, attribution), then land it per the operator's call: request changes, merge as-is, or push your own fixes onto the contributor's branch and `gh pr merge --rebase`.
+   That third ending needs `gh pr view $1 --json maintainerCanModify` to report `true`; it keeps `main` correct at every commit and preserves per-commit authorship.
+   `maintainerCanModify` is the evidence — a `git push --dry-run` reporting `Everything up-to-date` is not.
 3. **Decline / defer** — commit the triage note, then close the PR with a comment that credits `@<login>`, explains the reasoning, and (if the problem is real) points at a tracked follow-up.
 
 Commit the triage note before stopping: `git add <retro-file> && git commit -m "docs(pr-review): triage PR #$1 → <decision>"` (e.g. `adopt-as-is`, `decline`), matching the form in direction 1.

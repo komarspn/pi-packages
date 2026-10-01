@@ -1,6 +1,6 @@
 {
   "name": "@gotgenes/pi-autoformat",
-  "version": "5.1.6",
+  "version": "5.1.10",
   "description": "Pi extension package for prompt-end auto-formatting",
   "imports": {
     "#src/*": "./src/*",
@@ -37,6 +37,15 @@
     "node": ">=22"
   },
   "type": "module",
+  "files": [
+    "src",
+    "schemas",
+    "docs/*.md",
+    "docs/assets",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "pi": {
     "extensions": [
       "./src/extension.ts"
@@ -44,10 +53,15 @@
   },
   "scripts": {
     "check": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --project unit",
+    "test:acceptance": "vitest run --project acceptance",
+    "test:all": "vitest run",
     "test:watch": "vitest",
     "lint:md": "rumdl check *.md docs/**/*.md",
     "lint": "biome check . && eslint . && pnpm run lint:md"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.79.0"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",

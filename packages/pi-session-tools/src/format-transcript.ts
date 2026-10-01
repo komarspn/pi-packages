@@ -15,6 +15,15 @@ export interface TranscriptEntry {
   type: string;
 }
 
+/** Rendering choices a caller can make about how much of each turn to show. */
+export interface TranscriptOptions {
+  /**
+   * Replace each user turn's body with a length placeholder.
+   * A stage-attribution pass wants the shape of a session, not its prompts.
+   */
+  elideUserText?: boolean;
+}
+
 interface ToolResultInfo {
   toolName: string;
   isError: boolean;
@@ -139,9 +148,13 @@ function collectAssistantToolCallIds(entries: TranscriptEntry[]): Set<string> {
 function formatUserMessage(
   message: Record<string, unknown>,
   num: number,
+  options: TranscriptOptions,
 ): string {
   const text = extractTextContent(message.content);
-  return `${num}. user\n${text}`;
+  const body = options.elideUserText
+    ? `[text elided: ${text.length} chars]`
+    : text;
+  return `${num}. user\n${body}`;
 }
 
 function formatAssistantMessage(
@@ -192,6 +205,13 @@ function formatMetadataEntry(entry: TranscriptEntry): string | null {
         typeof e.thinkingLevel === "string" ? e.thinkingLevel : "unknown";
       return `[thinking] \u2192 ${level}`;
     }
+    case "session_info": {
+      // An empty name is the SDK's explicit title clear, not a stage boundary.
+      const name = typeof e.name === "string" ? e.name.trim() : "";
+      return name ? `[session] \u2192 ${name}` : null;
+    }
+    case "branch_marker":
+      return formatBranchMarker(e);
     case "branch_summary": {
       const summary = typeof e.summary === "string" ? e.summary : "";
       const snippet = summary.slice(0, BRANCH_SUMMARY_SNIPPET_LENGTH);
@@ -200,7 +220,29 @@ function formatMetadataEntry(entry: TranscriptEntry): string | null {
       return `[branch] ${snippet}${ellipsis}`;
     }
     default:
-      // custom, label, session_info, custom_message: omitted
+      // custom, label, custom_message: omitted
+      return null;
+  }
+}
+
+/**
+ * Format a synthetic branch marker.
+ *
+ * `omitted` stands in for a run of abandoned entries that live-path rendering
+ * dropped, and names the parameter that brings them back; the begin/end pair
+ * brackets the same run when the caller asked to see it.
+ */
+function formatBranchMarker(marker: Record<string, unknown>): string | null {
+  const count = typeof marker.count === "number" ? marker.count : 0;
+  const entries = count === 1 ? "1 entry" : `${count} entries`;
+  switch (marker.marker) {
+    case "omitted":
+      return `[abandoned branch] ${entries} omitted (branches: "all" to include)`;
+    case "abandoned_begin":
+      return `[abandoned branch begins] ${entries}`;
+    case "abandoned_end":
+      return "[abandoned branch ends]";
+    default:
       return null;
   }
 }
@@ -224,7 +266,10 @@ function formatBashMessage(message: Record<string, unknown>): string {
  * by matching toolCallId. Orphan tool results (no matching call) render
  * as standalone lines. Entries are separated by `---` dividers.
  */
-export function formatTranscript(entries: TranscriptEntry[]): string {
+export function formatTranscript(
+  entries: TranscriptEntry[],
+  options: TranscriptOptions = {},
+): string {
   const resultMap = buildToolResultMap(entries);
   const assistantToolCallIds = collectAssistantToolCallIds(entries);
 
@@ -247,7 +292,7 @@ export function formatTranscript(entries: TranscriptEntry[]): string {
 
     if (role === "user") {
       turnNum++;
-      parts.push(formatUserMessage(message, turnNum));
+      parts.push(formatUserMessage(message, turnNum, options));
     } else if (role === "assistant") {
       turnNum++;
       parts.push(formatAssistantMessage(message, turnNum, resultMap));

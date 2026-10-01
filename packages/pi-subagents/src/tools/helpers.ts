@@ -2,20 +2,6 @@ import type { AgentConfigLookup } from "#src/config/agent-types";
 import { getLifetimeTotal, type LifetimeUsage } from "#src/lifecycle/usage";
 import { type AgentDetails, formatTokens } from "#src/ui/display";
 
-/** Parenthetical status note for completed agent result text. */
-export function getStatusNote(status: string): string {
-  switch (status) {
-    case "aborted":
-      return " (aborted \u2014 max turns exceeded, output may be incomplete)";
-    case "steered":
-      return " (wrapped up \u2014 reached turn limit)";
-    case "stopped":
-      return " (stopped by user)";
-    default:
-      return "";
-  }
-}
-
 /** Build AgentDetails from a base + record-specific fields. */
 export function buildDetails(
   base: Pick<AgentDetails, "displayName" | "description" | "subagentType" | "modelName" | "tags">,
@@ -47,8 +33,19 @@ export function buildDetails(
   };
 }
 
-/** Tool execute return value for a text response. */
-export function textResult(msg: string, details?: unknown) {
+/** Render a spawn's advisories as the prefix a result's leading line follows, or "" when there are none. */
+export function renderSpawnNotes(notes: readonly string[]): string {
+  return notes.length > 0 ? `${notes.join("\n")}\n\n` : "";
+}
+
+/**
+ * Tool execute return value for a text response.
+ *
+ * Generic over the details payload so a tool with its own presentation metadata
+ * can attach it; defaults to `AgentDetails`, which is what every subagent-tool
+ * call site passes.
+ */
+export function textResult<T = AgentDetails>(msg: string, details?: T) {
   return { content: [{ type: "text" as const, text: msg }], details };
 }
 
@@ -72,9 +69,8 @@ export interface TypeListRegistry extends AgentConfigLookup {
  * Extracted from index.ts so it can be called inside createAgentTool.
  */
 export function buildTypeListText(registry: TypeListRegistry, agentDir: string): string {
-  const isEnabled = (name: string) => registry.resolveAgentConfig(name).enabled !== false;
-  const defaultNames = registry.getDefaultAgentNames().filter(isEnabled);
-  const userNames = registry.getUserAgentNames().filter(isEnabled);
+  const defaultNames = registry.getDefaultAgentNames().filter((name) => isEnabledAgent(registry, name));
+  const userNames = registry.getUserAgentNames().filter((name) => isEnabledAgent(registry, name));
 
   const defaultDescs = defaultNames.map((name) => {
     const cfg = registry.resolveAgentConfig(name);
@@ -88,12 +84,29 @@ export function buildTypeListText(registry: TypeListRegistry, agentDir: string):
   });
 
   return [
-    "Default agents:",
-    ...defaultDescs,
+    ...(defaultDescs.length > 0 ? ["Default agents:", ...defaultDescs] : []),
     ...(customDescs.length > 0 ? ["", "Custom agents:", ...customDescs] : []),
     "",
     `Custom agents can be defined in .pi/agents/<name>.md (project) or ${agentDir}/agents/<name>.md (global) — they are picked up automatically. Project-level agents override global ones. Creating a .md file with the same name as a default agent overrides it.`,
   ].join("\n");
+}
+
+/** True when an agent config is present and not explicitly disabled. */
+function isEnabledAgent(registry: AgentConfigLookup, name: string): boolean {
+  return registry.resolveAgentConfig(name).enabled !== false;
+}
+
+/**
+ * Collect the per-agent usage guidelines for the subagent tool's Guidelines: block.
+ * Sourced from each enabled default agent's `toolGuideline`, in registry order,
+ * so a disabled built-in drops its guideline automatically.
+ */
+export function buildAgentGuidelines(registry: TypeListRegistry): string[] {
+  return registry
+    .getDefaultAgentNames()
+    .filter((name) => isEnabledAgent(registry, name))
+    .map((name) => registry.resolveAgentConfig(name).toolGuideline)
+    .filter((line): line is string => line !== undefined);
 }
 
 /** Derive a short model label from a model string. */

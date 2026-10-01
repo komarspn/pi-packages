@@ -4,14 +4,17 @@
  * `makeHandler` builds a real PermissionSession + PermissionResolver and wires
  * them into the handler and pipelines exactly as `index.ts` does.
  * Call-site overrides for permission results flow through
- * `permissionManager.checkPermission`; session state overrides are applied
+ * `permissionManager.check`; session state overrides are applied
  * via vi.spyOn on the real session instance.
  */
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { vi } from "vitest";
-
-import { GateDecisionReporter } from "#src/decision-reporter";
-import type { GatePrompter } from "#src/gate-prompter";
+import type { ResolvedAccessIntent } from "#src/access-intent/access-intent";
+import { surfaceFamilyOf } from "#src/access-intent/path-surfaces";
+import type { AskEscalator } from "#src/authority/authorizer-selection";
+import type { ShellToolsConfig } from "#src/config/config-schema";
+import { DEFAULT_EXTENSION_CONFIG } from "#src/config/extension-config";
+import type { ToolRegistry } from "#src/exposure/tool-registry";
 import { GateRunner } from "#src/handlers/gates/runner";
 import {
   type SkillInputGateInputs,
@@ -22,16 +25,18 @@ import {
   ToolCallGatePipeline,
 } from "#src/handlers/gates/tool-call-gate-pipeline";
 import { PermissionGateHandler } from "#src/handlers/permission-gate-handler";
-import type { PermissionDecisionEvent } from "#src/permission-events";
-import { PERMISSIONS_DECISION_CHANNEL } from "#src/permission-events";
-import type { Rule } from "#src/rule";
-import { SessionRules } from "#src/session-rules";
-import type { ToolRegistry } from "#src/tool-registry";
+import { GateDecisionReporter } from "#src/logging/decision-reporter";
+import type { Rule } from "#src/policy/rule";
+import type { PermissionDecisionEvent } from "#src/service/permission-events";
+import { PERMISSIONS_DECISION_CHANNEL } from "#src/service/permission-events";
+import { SessionRules } from "#src/session/session-rules";
 import type { PermissionCheckResult, PermissionState } from "#src/types";
+import { DECIDED_BY_HUMAN } from "./decision-fixtures";
 import {
+  makeConfigStore,
   makeRealResolver,
   makeRealSession,
-} from "#test/helpers/session-fixtures";
+} from "./session-fixtures";
 
 // ── MockGateHandlerSession ────────────────────────────────────────────────
 
@@ -72,6 +77,7 @@ export function makeCtx(
   return {
     cwd: "/test/project",
     hasUI: true,
+    isProjectTrusted: vi.fn<() => boolean>().mockReturnValue(true),
     ui: {
       setStatus: vi.fn(),
       notify: vi.fn(),
@@ -81,10 +87,22 @@ export function makeCtx(
     sessionManager: {
       getEntries: vi.fn().mockReturnValue([]),
       getSessionDir: vi.fn().mockReturnValue("/sessions/test"),
+      getSessionId: vi.fn().mockReturnValue("test-session"),
+      getSessionName: vi.fn((): string | undefined => undefined),
       addEntry: vi.fn(),
     },
     ...overrides,
   } as unknown as ExtensionContext;
+}
+
+/**
+ * A `ConfigIssueReporting` double for the two handlers that drive it.
+ *
+ * Unannotated return type so callers keep full `vi.fn()` access on `report`
+ * (for `mockImplementation` in the call-order tests).
+ */
+export function makeConfigIssueReporter() {
+  return { report: vi.fn<() => void>() };
 }
 
 export function makeToolCallEvent(
@@ -122,10 +140,49 @@ export function makeToolRegistry(
   overrides: Partial<ToolRegistry> = {},
 ): ToolRegistry {
   return {
-    getAll: vi.fn().mockReturnValue([{ name: "read" }, { name: "bash" }]),
+    getAll: vi.fn().mockReturnValue([
+      { name: "read", promptGuidelines: ["Use read to examine files."] },
+      { name: "bash", promptGuidelines: ["Use bash for file operations."] },
+    ]),
     getActive: vi.fn().mockReturnValue(["read", "bash"]),
     setActive: vi.fn(),
     ...overrides,
+  };
+}
+
+/**
+ * `ToolRegistry` double that models Pi's real feedback loop: `getActive()`
+ * reads back whatever the last `setActive()` accepted, so each turn's filtered
+ * output becomes the next turn's observed active set.
+ *
+ * It also mirrors `setActiveToolsByName`, which resolves every requested name
+ * against the full tool registry and silently ignores the ones it does not
+ * know — so a name reactivated after being withheld only takes effect while
+ * the tool is still registered.
+ *
+ * The static {@link makeToolRegistry} above cannot express either behavior;
+ * tests that span turns need this one.
+ */
+export function makeStatefulToolRegistry(seed: {
+  active: readonly string[];
+  registered?: readonly string[];
+}) {
+  const registered = new Set(seed.registered ?? seed.active);
+  let active = [...seed.active];
+  return {
+    getAll: vi.fn((): unknown[] => [...registered].map((name) => ({ name }))),
+    getActive: vi.fn((): string[] => [...active]),
+    setActive: vi.fn((names: string[]): void => {
+      active = names.filter((name) => registered.has(name));
+    }),
+    /** Drop a tool from the registry, as unloading its extension would. */
+    unregister: (name: string): void => {
+      registered.delete(name);
+    },
+    /** Add a tool to the registry without activating it. */
+    register: (name: string): void => {
+      registered.add(name);
+    },
   };
 }
 
@@ -137,6 +194,12 @@ export function makeToolRegistry(
  * Returns the matching per-surface result or `defaultResult`.
  * Pass the returned function as `session.checkPermission` in a `makeHandler`
  * override bag — it is applied to `permissionManager.checkPermission`.
+ *
+ * A `bySurface` key naming a bare surface family (`path`,
+ * `external_directory`) answers for its directional members too, modeling the
+ * load-time sugar expansion a real config gets: a test declaring
+ * `{ external_directory: "deny" }` means the whole family is denied. Key on a
+ * directional surface directly to give the two directions different verdicts.
  *
  * Return type is intentionally unannotated so callers retain full `vi.fn()`
  * mock access (`mock.calls`, `toHaveBeenCalledWith`, etc.).
@@ -153,7 +216,11 @@ export function makeSurfaceCheck(
   return vi
     .fn<MockGateHandlerSession["checkPermission"]>()
     .mockImplementation((surface): PermissionCheckResult => {
-      const base = bySurface[surface] ?? defaultResult;
+      // A family key answers for its members, as sugar expansion would.
+      const key = Object.hasOwn(bySurface, surface)
+        ? surface
+        : surfaceFamilyOf(surface);
+      const base = bySurface[key] ?? defaultResult;
       return {
         toolName: surface,
         source: "tool",
@@ -224,35 +291,53 @@ export function makeHandler(overrides?: {
       systemPrompt?: string,
     ) => string | null;
   };
-  /** Override the GatePrompter passed to GateRunner. Defaults to an allow-all stub. */
-  prompter?: GatePrompter;
+  /** Override the AskEscalator passed to GateRunner. Defaults to an allow-all stub. */
+  prompter?: AskEscalator;
   toolRegistry?: Partial<ToolRegistry>;
   /** Sugar: builds the `getAll` mock from a list of tool names. */
   tools?: string[];
+  /** Inject `shellTools` aliases into the session config (#574). */
+  shellTools?: ShellToolsConfig;
+  /** Standing yolo setting for the runner's residual-ask grant (#712). */
+  yolo?: boolean;
 }) {
+  const configStore =
+    overrides?.shellTools !== undefined
+      ? makeConfigStore({
+          current: vi.fn().mockReturnValue({
+            ...DEFAULT_EXTENSION_CONFIG,
+            shellTools: overrides.shellTools,
+          }),
+        })
+      : undefined;
   const { session, permissionManager, sessionRules, forwarding, logger } =
-    makeRealSession();
+    makeRealSession(configStore ? { configStore } : undefined);
   const { resolver } = makeRealResolver(permissionManager, sessionRules);
 
   // Apply session override bag to the real collaborators.
   const so = overrides?.session;
   const surfaceCheck = so?.checkPermission;
   if (surfaceCheck) {
-    vi.mocked(permissionManager.checkPermission).mockImplementation(
-      surfaceCheck,
-    );
-    // The bash path and external-directory gates resolve through
-    // checkPathPolicy; route it through the same surface dispatcher (threading
-    // the real surface) so `path` / `external_directory` overrides apply to
-    // bash tokens and tool paths alike (#418).
-    vi.mocked(permissionManager.checkPathPolicy).mockImplementation(
-      (values, agentName, sessionRules, surface = "path") =>
-        surfaceCheck(
-          surface,
-          { path: values[0] ?? "*" },
-          agentName,
+    // Route the unified check(intent) through the surface dispatcher so
+    // makeSurfaceCheck / makeBashCommandCheck overrides apply to all gate
+    // paths via the single manager entry point (#478).
+    vi.mocked(permissionManager.check).mockImplementation(
+      (intent: ResolvedAccessIntent, sessionRules) => {
+        if (intent.kind === "path-values") {
+          return surfaceCheck(
+            intent.surface,
+            { path: intent.values[0] ?? "*" },
+            intent.agentName,
+            sessionRules,
+          );
+        }
+        return surfaceCheck(
+          intent.surface,
+          intent.input,
+          intent.agentName,
           sessionRules,
-        ),
+        );
+      },
     );
   }
   if (so?.getActiveSkillEntries) {
@@ -290,18 +375,19 @@ export function makeHandler(overrides?: {
   const pipeline = new ToolCallGatePipeline(resolver, session);
   const skillInputPipeline = new SkillInputGatePipeline(resolver);
   const reporter = new GateDecisionReporter(logger, events);
-  const prompter: GatePrompter = overrides?.prompter ?? {
-    canConfirm: vi.fn().mockReturnValue(true),
-    prompt: vi
-      .fn<GatePrompter["prompt"]>()
-      .mockResolvedValue({ approved: true, state: "approved" }),
+  const prompter: AskEscalator = overrides?.prompter ?? {
+    escalate: vi.fn<AskEscalator["escalate"]>().mockResolvedValue({
+      approved: true,
+      state: "approved",
+      decidedBy: DECIDED_BY_HUMAN,
+    }),
   };
   const runner = new GateRunner(
     resolver,
     recorder,
     prompter,
     reporter,
-    { recordApproval: vi.fn() } as never,
+    () => overrides?.yolo ?? false,
   );
   const handler = new PermissionGateHandler(
     session,

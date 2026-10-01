@@ -1,11 +1,13 @@
 import { getMarkdownTheme, initTheme } from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { AgentTypeRegistry } from "#src/config/agent-types";
 import type { SessionMessage } from "#src/types";
-import type { TranscriptSource } from "#src/ui/session-navigation";
-import { SessionNavigatorHandler, TranscriptOverlay } from "#src/ui/session-navigator";
+import type { EntryHeading, SessionModel, TranscriptSource } from "#src/ui/session-navigation";
+import { SessionNavigatorHandler, TranscriptPane } from "#src/ui/session-navigator";
 import { makeNavigable } from "#test/helpers/make-navigable";
+import { fakeSource, mockTui } from "#test/helpers/transcript-fixtures";
 
 const registry = new AgentTypeRegistry(() => new Map());
 
@@ -13,41 +15,41 @@ const registry = new AgentTypeRegistry(() => new Map());
 // at startup before any command runs. Tests must initialize it explicitly.
 beforeAll(() => initTheme(undefined, false));
 
-function mockTui(rows = 40, columns = 80): TUI {
-  return { terminal: { rows, columns }, requestRender: vi.fn() } as unknown as TUI;
-}
+/** One SGR colour per thinking level, so a test can tell which level painted a rule. */
+const LEVEL_CODES: Record<string, number> = { off: 0, minimal: 1, low: 2, medium: 3, high: 4, xhigh: 5, max: 6 };
+const levelColour = (level: string): string => `\x1b[38;5;${LEVEL_CODES[level] ?? 9}m`;
+const stripAnsi = (text: string): string => text.replace(/\x1b\[[0-9;]*m/g, "");
 
+/** Plain-text theme; the thinking-border painter wraps in zero-width SGR codes. */
 function ansiTheme() {
   return {
     fg: (_color: string, text: string) => text,
     bold: (text: string) => text,
+    getThinkingBorderColor: (level: string) => (text: string) => `${levelColour(level)}${text}\x1b[39m`,
   };
 }
 
-function fakeSource(overrides: Partial<TranscriptSource> = {}): TranscriptSource {
-  return {
-    getMessages: () => [{ role: "user", content: "Hello world" }] as unknown as SessionMessage[],
-    subscribe: () => () => {},
-    streaming: () => undefined,
-    getToolDefinition: () => undefined,
-    ...overrides,
-  };
-}
+const DEFAULT_HEADING: EntryHeading = { name: "Explore", modeLabel: undefined, description: "Find auth files" };
 
-function makeOverlay(opts: { source?: TranscriptSource; done?: (r: undefined) => void; tui?: TUI } = {}) {
-  return new TranscriptOverlay({
+function makePane(
+  opts: { source?: TranscriptSource; done?: (r: undefined) => void; tui?: TUI; heading?: EntryHeading } = {},
+) {
+  return new TranscriptPane({
     tui: opts.tui ?? mockTui(),
     theme: ansiTheme(),
     source: opts.source ?? fakeSource(),
+    heading: opts.heading ?? DEFAULT_HEADING,
     done: opts.done ?? vi.fn(),
     cwd: "/test/cwd",
     markdownTheme: getMarkdownTheme(),
   });
 }
 
-describe("TranscriptOverlay", () => {
+const SONNET_HIGH: SessionModel = { model: { provider: "anthropic", id: "claude-sonnet-5" }, thinkingLevel: "high" };
+
+describe("TranscriptPane", () => {
   it("renders the transcript content", () => {
-    const lines = makeOverlay().render(80);
+    const lines = makePane().render(80);
     expect(lines.some((l) => l.includes("Hello world"))).toBe(true);
   });
 
@@ -60,22 +62,22 @@ describe("TranscriptOverlay", () => {
         return () => {};
       },
     });
-    makeOverlay({ source, tui });
+    makePane({ source, tui });
     captured?.();
     expect(tui.requestRender).toHaveBeenCalledOnce();
   });
 
   it("closes and calls done on Escape", () => {
     const done = vi.fn();
-    const overlay = makeOverlay({ done });
-    overlay.handleInput("\x1b");
+    const pane = makePane({ done });
+    pane.handleInput("\x1b");
     expect(done).toHaveBeenCalledWith(undefined);
   });
 
   it("unsubscribes on dispose", () => {
     const unsub = vi.fn();
-    const overlay = makeOverlay({ source: fakeSource({ subscribe: () => unsub }) });
-    overlay.dispose();
+    const pane = makePane({ source: fakeSource({ subscribe: () => unsub }) });
+    pane.dispose();
     expect(unsub).toHaveBeenCalledOnce();
   });
 
@@ -88,36 +90,176 @@ describe("TranscriptOverlay", () => {
         return () => {};
       },
     });
-    const overlay = makeOverlay({ source, tui });
-    overlay.dispose();
+    const pane = makePane({ source, tui });
+    pane.dispose();
     captured?.();
     expect(tui.requestRender).not.toHaveBeenCalled();
-  });
-
-  it("renders a tool call through Pi's tool-execution component", () => {
-    const messages = [
-      {
-        role: "assistant",
-        content: [{ type: "toolCall", id: "tc-1", name: "read", arguments: { path: "/x.ts" } }],
-        stopReason: "toolUse",
-      },
-      { role: "toolResult", toolCallId: "tc-1", toolName: "read", content: [{ type: "text", text: "file body" }], isError: false },
-    ] as unknown as SessionMessage[];
-    const out = makeOverlay({ source: fakeSource({ getMessages: () => messages }) })
-      .render(80)
-      .join("\n");
-    expect(out).toContain("read");
   });
 
   it("appends the streaming-activity indicator while running", () => {
     const source = fakeSource({
       streaming: () => ({ activeTools: new Map([["k", "read"]]), responseText: "" }),
     });
-    const out = makeOverlay({ source }).render(80).join("\n");
+    const out = makePane({ source }).render(80).join("\n");
     expect(out).toContain("◍");
   });
 
-  it("rebuilds the component tree when the source changes", () => {
+  describe("chrome", () => {
+    // One message of numbered rows, so every visible row is identifiable content.
+    const numbered = [
+      { role: "user", content: Array.from({ length: 80 }, (_, i) => `r${String(i).padStart(3, "0")}`).join("\n") },
+    ] as unknown as SessionMessage[];
+
+    it("paints no frame: no corners or side borders, and rules only on the first and last rows", () => {
+      const lines = makePane().render(80);
+      expect(lines.join("\n")).not.toMatch(/[╭╮╰╯│]/);
+      const ruled = lines.flatMap((line, i) => (line.includes("─") ? [i] : []));
+      expect(ruled).toEqual([0, lines.length - 1]);
+    });
+
+    it("never paints a row wider than it was given", () => {
+      const source = fakeSource({ sessionModel: () => SONNET_HIGH });
+      for (const width of [6, 20, 57, 80]) {
+        const pane = makePane({ source, heading: { name: "Agent", modeLabel: "twin", description: "Refactor the auth module" } });
+        for (const line of pane.render(width)) expect(visibleWidth(line), `width ${width}`).toBeLessThanOrEqual(width);
+      }
+    });
+
+    it("spends only two rows on chrome, leaving the rest to the transcript", () => {
+      // 40 rows * 70% = 28 for the pane. A header and a footer leave a 26-row
+      // viewport, of which 25 carry numbered text and one is the user-message
+      // component's own trailing row. The box cost four more and showed 21.
+      const pane = makePane({
+        tui: mockTui(40, 80),
+        source: fakeSource({ getMessages: () => numbered }),
+      });
+      const shown = pane.render(80).filter((line) => /r\d{3}/.test(line)).length;
+      expect(shown).toBe(25);
+    });
+  });
+
+  describe("header rule", () => {
+    const heading: EntryHeading = { name: "Agent", modeLabel: "twin", description: "Refactor auth" };
+    const headerAt = (width: number, sessionModel: SessionModel = SONNET_HIGH): string =>
+      stripAnsi(makePane({ heading, source: fakeSource({ sessionModel: () => sessionModel }) }).render(width)[0] ?? "");
+
+    it("names the agent, its mode, its task, its model, and its thinking level", () => {
+      expect(headerAt(80)).toBe(`── Agent (twin)  Refactor auth · anthropic/claude-sonnet-5 • high ${"─".repeat(14)}`);
+    });
+
+    it("says 'thinking off' rather than a bare 'off'", () => {
+      expect(headerAt(80, { ...SONNET_HIGH, thinkingLevel: "off" })).toContain("anthropic/claude-sonnet-5 • thinking off");
+    });
+
+    it("names the thinking level on its own when the model is unknown", () => {
+      expect(headerAt(80, { model: undefined, thinkingLevel: "high" })).toContain("Refactor auth · thinking high");
+    });
+
+    it("drops the task first as the width shrinks", () => {
+      expect(headerAt(55)).toBe(`── Agent (twin) · anthropic/claude-sonnet-5 • high ${"─".repeat(4)}`);
+    });
+
+    it("drops the model next, keeping the agent's name", () => {
+      expect(headerAt(30)).toBe(`── Agent (twin) ${"─".repeat(14)}`);
+    });
+  });
+
+  describe("rule colour", () => {
+    it("paints both rules for the child's thinking level", () => {
+      const lines = makePane({ source: fakeSource({ sessionModel: () => SONNET_HIGH }) }).render(80);
+      expect(lines[0]?.startsWith(`${levelColour("high")}── `)).toBe(true);
+      expect(lines.at(-1)?.startsWith(`${levelColour("high")}── `)).toBe(true);
+    });
+
+    it("repaints when the child's thinking level changes", () => {
+      let current: SessionModel = SONNET_HIGH;
+      const pane = makePane({ source: fakeSource({ sessionModel: () => current }) });
+      pane.render(80);
+      current = { ...SONNET_HIGH, thinkingLevel: "low" };
+      expect(pane.render(80)[0]?.startsWith(levelColour("low"))).toBe(true);
+    });
+
+    it("paints an unknown level as 'off'", () => {
+      const lines = makePane({ source: fakeSource({ sessionModel: () => ({ model: undefined, thinkingLevel: undefined }) }) }).render(80);
+      expect(lines[0]?.startsWith(levelColour("off"))).toBe(true);
+    });
+  });
+
+  describe("footer rule", () => {
+    const footerAt = (width: number): string => stripAnsi(makePane().render(width).at(-1) ?? "");
+
+    it("carries the scroll position on the left and the key hints on the right", () => {
+      const footer = footerAt(80);
+      expect(footer.startsWith("── 3 lines · 100% ─")).toBe(true);
+      expect(footer.endsWith(" ↑↓ scroll · PgUp/PgDn · Esc close ──")).toBe(true);
+    });
+
+    it("drops the key hints, keeping the position, when both do not fit", () => {
+      expect(footerAt(40)).toBe(`── 3 lines · 100% ${"─".repeat(22)}`);
+    });
+  });
+
+  describe("height", () => {
+    // A user message of n rows renders as n + 2 transcript lines.
+    const rowsOf = (n: number) =>
+      [
+        { role: "user", content: Array.from({ length: n }, (_, i) => `r${String(i).padStart(3, "0")}`).join("\n") },
+      ] as unknown as SessionMessage[];
+
+    const paneFor = (messages: SessionMessage[]) =>
+      makePane({ tui: mockTui(40, 80), source: fakeSource({ getMessages: () => messages }) });
+
+    it("takes only the rows its transcript needs", () => {
+      // 12 transcript rows, well under the cap, plus a header and a footer.
+      expect(paneFor(rowsOf(10)).render(80)).toHaveLength(14);
+    });
+
+    it("stops growing at its share of the terminal", () => {
+      // 82 transcript rows clamp to a 26-row viewport: 40 rows * 70%, less chrome.
+      expect(paneFor(rowsOf(80)).render(80)).toHaveLength(28);
+    });
+
+    it("keeps a minimum viewport when there is nothing to show", () => {
+      expect(paneFor([]).render(80)).toHaveLength(5);
+    });
+  });
+
+  describe("scroll bounds", () => {
+    // The host may lay a component out at a width narrower than the terminal.
+    // The terminal here is 200 columns while the component is rendered at 180,
+    // and the fixture text is sized to wrap to two rows at the render width but
+    // one row at the full terminal width — so scroll math computed at the wrong
+    // width yields the wrong maxScroll.
+    const LAYOUT_WIDTH = 180;
+    const wrappingMessages = Array.from({ length: 30 }, (_, i) => ({
+      role: "user",
+      content: `${String(i).padStart(3, "0")} ${"wrap".repeat(46)}`,
+    })) as unknown as SessionMessage[];
+
+    function paneAtBottom() {
+      const pane = makePane({
+        tui: mockTui(40, 200),
+        source: fakeSource({ getMessages: () => wrappingMessages }),
+      });
+      const atBottom = pane.render(LAYOUT_WIDTH);
+      return { pane, atBottom };
+    }
+
+    it("scrolls up from the bottom on a terminal wider than the render width", () => {
+      const { pane, atBottom } = paneAtBottom();
+      pane.handleInput("\x1b[A");
+      expect(pane.render(LAYOUT_WIDTH)).not.toEqual(atBottom);
+    });
+
+    it("returns to the bottom when scrolling back down", () => {
+      const { pane, atBottom } = paneAtBottom();
+      pane.handleInput("\x1b[A");
+      pane.handleInput("\x1b[B");
+      expect(pane.render(LAYOUT_WIDTH)).toEqual(atBottom);
+    });
+  });
+
+  it("refreshes its content when the source changes", () => {
     let messages = [{ role: "user", content: "first" }] as unknown as SessionMessage[];
     let captured: (() => void) | undefined;
     const source = fakeSource({
@@ -127,11 +269,11 @@ describe("TranscriptOverlay", () => {
         return () => {};
       },
     });
-    const overlay = makeOverlay({ source });
-    expect(overlay.render(80).join("\n")).toContain("first");
+    const pane = makePane({ source });
+    expect(pane.render(80).join("\n")).toContain("first");
     messages = [{ role: "user", content: "second" }] as unknown as SessionMessage[];
     captured?.();
-    expect(overlay.render(80).join("\n")).toContain("second");
+    expect(pane.render(80).join("\n")).toContain("second");
   });
 });
 
@@ -146,37 +288,37 @@ describe("SessionNavigatorHandler", () => {
 
   // Invoke the component factory captured by the handler's ui.custom call and
   // render it — the act (handle) stays explicit in each test.
-  function renderCapturedOverlay(ui: ReturnType<typeof makeUI>, width = 80): string[] {
+  function renderCapturedPane(ui: ReturnType<typeof makeUI>, width = 80): string[] {
     const factory = ui.custom.mock.calls[0][0] as (
       tui: TUI,
       theme: ReturnType<typeof ansiTheme>,
       kb: unknown,
       done: (r: undefined) => void,
     ) => Component;
-    const overlay = factory(mockTui(), ansiTheme(), undefined, vi.fn());
-    return overlay.render(width);
+    const pane = factory(mockTui(), ansiTheme(), undefined, vi.fn());
+    return pane.render(width);
   }
 
   const noReadFile = (): string => {
     throw new Error("readFile not expected in this test");
   };
 
-  it("notifies and skips the overlay when no sessions are navigable", async () => {
+  it("notifies and skips the pane when no sessions are navigable", async () => {
     const ui = makeUI();
-    const notReady = makeNavigable({ isSessionReady: () => false });
-    await new SessionNavigatorHandler().handle({ ui, agents: [notReady], evicted: [], registry, cwd: "/test/cwd", readFile: noReadFile });
+    const notReady = makeNavigable({ isSessionReady: () => false, outputFile: undefined });
+    await new SessionNavigatorHandler().handle({ ui, agents: [notReady], registry, cwd: "/test/cwd", readFile: noReadFile });
     expect(ui.notify).toHaveBeenCalledWith("No subagent sessions to view.", "info");
     expect(ui.custom).not.toHaveBeenCalled();
   });
 
-  it("does not open the overlay when the operator cancels the picker", async () => {
+  it("does not open the pane when the operator cancels the picker", async () => {
     const ui = makeUI(undefined);
-    await new SessionNavigatorHandler().handle({ ui, agents: [makeNavigable()], evicted: [], registry, cwd: "/test/cwd", readFile: noReadFile });
+    await new SessionNavigatorHandler().handle({ ui, agents: [makeNavigable()], registry, cwd: "/test/cwd", readFile: noReadFile });
     expect(ui.select).toHaveBeenCalledOnce();
     expect(ui.custom).not.toHaveBeenCalled();
   });
 
-  it("opens a read-only overlay sourced from the picked record", async () => {
+  it("opens a read-only pane sourced from the picked record", async () => {
     const messages = [{ role: "assistant", content: [{ type: "text", text: "picked agent reply" }] }] as unknown as SessionMessage[];
     const record = makeNavigable({ agentMessages: messages });
     const [label] = (() => {
@@ -187,47 +329,71 @@ describe("SessionNavigatorHandler", () => {
     })();
     const ui = makeUI(label);
 
-    await new SessionNavigatorHandler().handle({ ui, agents: [record], evicted: [], registry, cwd: "/test/cwd", readFile: noReadFile });
+    await new SessionNavigatorHandler().handle({ ui, agents: [record], registry, cwd: "/test/cwd", readFile: noReadFile });
 
     expect(ui.custom).toHaveBeenCalledOnce();
     // Invariant #423: the handler is a reactive consumer — it sources the
     // transcript and never reads tool definitions off the record itself; only
-    // the overlay does, lazily, through the TranscriptSource at render time.
+    // the pane does, lazily, through the TranscriptSource at render time.
     expect(record.getToolDefinition).not.toHaveBeenCalled();
     // Invoke the captured component factory and render to confirm it is sourced from the picked record.
-    expect(renderCapturedOverlay(ui).some((l) => l.includes("picked agent reply"))).toBe(true);
+    expect(renderCapturedPane(ui).some((l) => l.includes("picked agent reply"))).toBe(true);
   });
 
-  it("opens an overlay sourced from the persisted file when an evicted agent is picked", async () => {
+  it("heads the pane with the picked agent's name and task", async () => {
+    const ui = makeUI("Agent (Test task) · 2 tools · completed · 3.0s");
+    await new SessionNavigatorHandler().handle({ ui, agents: [makeNavigable()], registry, cwd: "/test/cwd", readFile: noReadFile });
+    expect(stripAnsi(renderCapturedPane(ui)[0] ?? "").startsWith("── Agent (twin)  Test task ")).toBe(true);
+  });
+
+  it("mounts the transcript outside Pi's overlay compositor", async () => {
+    // Regular-mode overlays are composited into the buffer that backs scrollback,
+    // so an overlay mount bakes the pane's chrome into terminal history (#733).
+    const ui = makeUI("Agent (Test task) · 2 tools · completed · 3.0s");
+
+    await new SessionNavigatorHandler().handle({
+      ui,
+      agents: [makeNavigable()],
+      registry,
+      cwd: "/test/cwd",
+      readFile: noReadFile,
+    });
+
+    expect(ui.custom).toHaveBeenCalledWith(expect.any(Function), { overlay: false });
+  });
+
+  it("opens a pane sourced from the persisted file when a released agent is picked", async () => {
     const jsonl = [
       { type: "session", version: 3, id: "s1", timestamp: "2026-06-23T00:00:00Z", cwd: "/proj" },
-      { type: "message", id: "m1", parentId: null, timestamp: "2026-06-23T00:00:01Z", message: { role: "assistant", content: [{ type: "text", text: "evicted reply" }] } },
+      { type: "message", id: "m1", parentId: null, timestamp: "2026-06-23T00:00:01Z", message: { role: "assistant", content: [{ type: "text", text: "released reply" }] } },
     ]
       .map((entry) => JSON.stringify(entry))
       .join("\n");
     const readFile = vi.fn(() => jsonl);
-    const evicted = [
-      { id: "e1", type: "general-purpose", description: "Old task", status: "completed" as const, startedAt: 1000, completedAt: 4000, toolUses: 5, outputFile: "/tasks/e1.jsonl" },
-    ];
-    const ui = makeUI("Agent (Old task) · 5 tools · completed · 3.0s · evicted (snapshot)");
+    const released = makeNavigable({
+      id: "e1", description: "Old task", status: "completed", startedAt: 1000, completedAt: 4000, toolUses: 5,
+      isSessionReady: () => false, outputFile: "/tasks/e1.jsonl",
+    });
+    const ui = makeUI("Agent (Old task) · 5 tools · completed · 3.0s · session released (snapshot)");
 
-    await new SessionNavigatorHandler().handle({ ui, agents: [], evicted, registry, cwd: "/test/cwd", readFile });
+    await new SessionNavigatorHandler().handle({ ui, agents: [released], registry, cwd: "/test/cwd", readFile });
 
     expect(readFile).toHaveBeenCalledWith("/tasks/e1.jsonl");
     expect(ui.custom).toHaveBeenCalledOnce();
-    expect(renderCapturedOverlay(ui).some((l) => l.includes("evicted reply"))).toBe(true);
+    expect(renderCapturedPane(ui).some((l) => l.includes("released reply"))).toBe(true);
   });
 
-  it("notifies and skips the overlay when the session file cannot be read", async () => {
+  it("notifies and skips the pane when the session file cannot be read", async () => {
     const readFile = vi.fn(() => {
       throw new Error("ENOENT");
     });
-    const evicted = [
-      { id: "e1", type: "general-purpose", description: "Old task", status: "completed" as const, startedAt: 1000, completedAt: 4000, toolUses: 5, outputFile: "/tasks/e1.jsonl" },
-    ];
-    const ui = makeUI("Agent (Old task) · 5 tools · completed · 3.0s · evicted (snapshot)");
+    const released = makeNavigable({
+      id: "e1", description: "Old task", status: "completed", startedAt: 1000, completedAt: 4000, toolUses: 5,
+      isSessionReady: () => false, outputFile: "/tasks/e1.jsonl",
+    });
+    const ui = makeUI("Agent (Old task) · 5 tools · completed · 3.0s · session released (snapshot)");
 
-    await new SessionNavigatorHandler().handle({ ui, agents: [], evicted, registry, cwd: "/test/cwd", readFile });
+    await new SessionNavigatorHandler().handle({ ui, agents: [released], registry, cwd: "/test/cwd", readFile });
 
     expect(ui.notify).toHaveBeenCalledWith("Could not read the session transcript file.", "error");
     expect(ui.custom).not.toHaveBeenCalled();

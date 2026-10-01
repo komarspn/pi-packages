@@ -13,10 +13,13 @@ For plans with red→green test cycles, use `/tdd-plan` instead.
 
 Before locating or reading the plan, make sure the working tree is up to date with the remote:
 
-1. Run `git pull --ff-only`.
-2. If it fails for **any** reason — uncommitted changes, divergent history, merge conflict, network error, detached HEAD — stop immediately and report the failure to the user.
+1. Determine the branch: `git branch --show-current`.
+2. **Worktree branch** (an `issue-*` branch): run `git fetch origin` and proceed.
+   A diverged `origin/main` (a sibling peer landed first) is expected here — do **not** `git pull --ff-only` and stop; the worktree ship flow (`/sync-worktree`) owns rebasing onto `origin/main`.
+3. **Trunk** (`main`): run `git pull --ff-only`.
+   If it fails for **any** reason — uncommitted changes, divergent history, merge conflict, network error, detached HEAD — stop immediately and report the failure to the user.
    Do not attempt to stash, rebase, force, or otherwise resolve.
-3. Only proceed once the pull reports a clean fast-forward (or `Already up to date.`).
+   Only proceed once the pull reports a clean fast-forward (or `Already up to date.`).
 
 ## Locate the plan
 
@@ -41,17 +44,18 @@ Check whether prior sessions have already done work on this issue:
 1. Extract the issue number from the plan filename (pattern `NNNN-`) or its frontmatter `issue:` field.
 2. Search for an existing retro file: look for `packages/*/docs/retro/NNNN-*.md` and `docs/retro/NNNN-*.md` matching the issue number.
 3. If a retro file exists, read it.
-   Prior stage entries contain summaries and observations from earlier sessions (e.g., planning decisions, risks identified, alternatives rejected).
 4. Use this context to inform your work — it may contain warnings about edge cases, decisions that were already debated, or friction points to avoid repeating.
 
 ## Load skills
 
-Before executing the plan, load skills relevant to the change:
+Before executing the plan, load skills relevant to the change.
+Skip any already in this session's context — the trunk flow runs planning, implementation, ship, and retro in one process — but re-load after a compaction, which drops the body while leaving the memory of having read it.
 
 - Load the `package-<PKG>` skill (e.g., `package-pi-permission-system`) for package-specific architecture, priorities, and testing context.
 - Load the `code-design` skill if the plan touches code.
 - Load the `markdown-conventions` skill if the plan touches markdown or docs.
 - Load the `pre-completion` skill — you will use it after the final step to dispatch the quality reviewer.
+- Load the `git-workflow` skill before the first commit, and the `edit-tool` skill before a multi-entry `Edit`, a scripted substitution, or a block insertion.
 
 ## Verify green baseline
 
@@ -64,6 +68,9 @@ If any check fails, stop and report to the user.
 Do not start from a broken baseline.
 
 ## Execute the plan steps
+
+When the plan carries Tidy-First preparatory steps (`refactor:`/`test:` steps naming the friction they prepare), they are ordinary steps here.
+Execute them in place, each as its own commit — `/plan-issue` already dispatched the assessor, so run no separate assessment.
 
 For **each** numbered step in the plan's "TDD Order" (or equivalent execution section), in order:
 
@@ -87,6 +94,15 @@ Do not bundle unrelated steps into one commit.
 If a step uncovers a problem the plan didn't anticipate, fix it as part of the same commit and note the deviation in the commit body.
 If the deviation is large, stop and ask.
 
+Before a decision record narrows or replaces a published contract (an event payload, a wire format, a service method), list that contract's current fields and their stability guarantees.
+A field the record never mentions is a field an implementer drops.
+
+## Filing an issue mid-implementation
+
+When a step surfaces work outside the plan's scope, file it and keep going — do not scope-creep the step.
+Then load the `roadmap-fit` skill and follow it: an issue spun off while its package has an open improvement phase gets a recorded disposition at filing time, not at phase close, which is too late to fold anything in.
+The skill exits at its first step when no phase is open, and recording a disposition never authorizes implementing the work now.
+
 ## After the last step
 
 1. If any `src/` or `test/` files were touched (even tangentially), run the full suite: `pnpm run test`.
@@ -95,8 +111,10 @@ If the deviation is large, stop and ask.
    Must succeed.
 3. Run the linter one final time: `pnpm run lint`.
    Commit any fixup as `style:` if you haven't pushed yet.
-4. If `packages/<PKG>/docs/architecture/` exists and the issue completes a numbered roadmap step, prefix `✅` on both the step heading and its Mermaid diagram node — a `Landed:` detail line is not a substitute for the `✅`; flip the phase status row only when every step in the phase is done; commit as `docs:`.
-5. **Do not edit `CHANGELOG.md`** — release-please owns it and will generate entries from your Conventional Commit messages on the next release.
+4. If `packages/<PKG>/docs/architecture/` exists and the issue completes a roadmap step, prefix `✅` on both the step heading and its Mermaid diagram node — a `Landed:` detail line is not a substitute for the `✅`; flip the phase status row only when every step in the phase is done; commit as `docs:`.
+   Confirm both landed before committing: `grep -cE '✅.*#<N>\b' <arch-doc>` must report 2 — no lint gate sees a missing `✅`.
+   Key it on the issue number, not the step's ordinal: the heading and the node both carry `#<N>` whether the phase identifies its steps by ordinal or by issue.
+5. **Do not edit `CHANGELOG.md`** — the release workflow owns it and will generate entries from your Conventional Commit messages on the next release.
 
 ## Pre-completion review
 
@@ -152,4 +170,4 @@ Append with the `Edit` tool (or `Write` for a new file), not a shell heredoc.
 When appending a new stage to an existing retro, anchor the `Edit` on the file's last line or use `Write` with the full content — the repeated `### Observations` / `### Session summary` headers make header-anchored edits ambiguous.
 
 Stop.
-The next step is `/ship-issue`.
+The next step is `/ship <N>` on trunk, or `/sync-worktree <N>` (peer session) then `/ship <N>` at the root on an `issue-<N>-*` branch.

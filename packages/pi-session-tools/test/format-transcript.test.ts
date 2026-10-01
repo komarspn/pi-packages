@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { formatTranscript } from "#src/format-transcript";
+import { BRANCH_MARKER_TYPE, type BranchMarkerEntry } from "#src/session-tree";
+
+function omittedMarker(count: number): BranchMarkerEntry {
+  return { type: BRANCH_MARKER_TYPE, marker: "omitted", count };
+}
+
+function beginMarker(count: number): BranchMarkerEntry {
+  return { type: BRANCH_MARKER_TYPE, marker: "abandoned_begin", count };
+}
+
+function endMarker(): BranchMarkerEntry {
+  return { type: BRANCH_MARKER_TYPE, marker: "abandoned_end" };
+}
 
 function makeUserEntry(content: unknown, id = "1") {
   return {
@@ -486,6 +499,24 @@ describe("formatTranscript — metadata entries", () => {
     );
   });
 
+  it("renders every model_change it is handed, leaving phantom pruning to entry selection", () => {
+    const entries = [
+      {
+        type: "model_change",
+        provider: "anthropic",
+        modelId: "claude-sonnet-4-20250514",
+      },
+      {
+        type: "model_change",
+        provider: "anthropic",
+        modelId: "claude-opus-4-20250514",
+      },
+    ];
+    expect(formatTranscript(entries)).toBe(
+      "[model change] → anthropic/claude-sonnet-4-20250514\n\n---\n\n[model change] → anthropic/claude-opus-4-20250514",
+    );
+  });
+
   it("formats a thinking_level_change entry", () => {
     const entries = [
       {
@@ -600,14 +631,29 @@ describe("formatTranscript — metadata entries", () => {
     expect(formatTranscript(entries)).toBe("");
   });
 
-  it("omits session_info entries", () => {
+  it("renders a session_info entry as a stage boundary", () => {
     const entries = [
       {
         type: "session_info",
         id: "1",
         parentId: null,
         timestamp: "t",
-        name: "My session",
+        name: "#934 Ship — Audit and prune the agent documentation",
+      },
+    ];
+    expect(formatTranscript(entries)).toBe(
+      "[session] → #934 Ship — Audit and prune the agent documentation",
+    );
+  });
+
+  it("omits a session_info entry whose name is an explicit clear", () => {
+    const entries = [
+      {
+        type: "session_info",
+        id: "1",
+        parentId: null,
+        timestamp: "t",
+        name: "   ",
       },
     ];
     expect(formatTranscript(entries)).toBe("");
@@ -798,6 +844,98 @@ describe("formatTranscript — basic message formatting", () => {
     const entries = [makeAssistantEntry(["First block.", "Second block."])];
     expect(formatTranscript(entries)).toBe(
       "1. assistant [anthropic/claude-sonnet-4-20250514]\nFirst block.\nSecond block.",
+    );
+  });
+});
+
+describe("formatTranscript — eliding user text", () => {
+  const mixed = [
+    makeUserEntry("a long prompt body"),
+    makeAssistantEntry("the reply"),
+    {
+      type: "session_info",
+      id: "3",
+      parentId: "2",
+      timestamp: "t",
+      name: "#940 TDD",
+    },
+    makeUserEntry("another prompt", "4"),
+  ];
+
+  it("replaces a user body with its length", () => {
+    const result = formatTranscript(mixed, { elideUserText: true });
+    expect(result).toContain("1. user\n[text elided: 18 chars]");
+    expect(result).toContain("3. user\n[text elided: 14 chars]");
+    expect(result).not.toContain("a long prompt body");
+  });
+
+  it("numbers turns exactly as the unelided transcript does", () => {
+    const turnHeaders = (text: string) =>
+      text.split("\n").filter((line) => /^\d+\. (user|assistant)/.test(line));
+    expect(
+      turnHeaders(formatTranscript(mixed, { elideUserText: true })),
+    ).toEqual(turnHeaders(formatTranscript(mixed)));
+  });
+
+  it("leaves assistant turns, tool lines, and metadata untouched", () => {
+    const withoutUserTurns = (text: string) =>
+      text
+        .split("\n\n---\n\n")
+        .filter((block) => !/^\d+\. user\n/.test(block))
+        .join("\n\n---\n\n");
+    expect(
+      withoutUserTurns(formatTranscript(mixed, { elideUserText: true })),
+    ).toBe(withoutUserTurns(formatTranscript(mixed)));
+  });
+
+  it("still renders a turn whose body is empty", () => {
+    const result = formatTranscript([makeUserEntry("")], {
+      elideUserText: true,
+    });
+    expect(result).toBe("1. user\n[text elided: 0 chars]");
+  });
+
+  it("renders the body when the option is absent", () => {
+    expect(formatTranscript([makeUserEntry("hello")], {})).toBe(
+      "1. user\nhello",
+    );
+  });
+});
+
+describe("branch markers", () => {
+  it("names the omitted count and how to see the entries", () => {
+    expect(formatTranscript([omittedMarker(331)])).toBe(
+      '[abandoned branch] 331 entries omitted (branches: "all" to include)',
+    );
+  });
+
+  it("renders a single omitted entry in the singular", () => {
+    expect(formatTranscript([omittedMarker(1)])).toBe(
+      '[abandoned branch] 1 entry omitted (branches: "all" to include)',
+    );
+  });
+
+  it("brackets an abandoned run", () => {
+    expect(
+      formatTranscript([
+        beginMarker(2),
+        makeUserEntry("retracted", "2"),
+        endMarker(),
+      ]),
+    ).toBe(
+      "[abandoned branch begins] 2 entries\n\n---\n\n" +
+        "1. user\nretracted\n\n---\n\n" +
+        "[abandoned branch ends]",
+    );
+  });
+
+  it("omits a marker whose variant it does not recognize", () => {
+    const unknownVariant = {
+      type: BRANCH_MARKER_TYPE,
+      marker: "nonsense",
+    } as unknown as BranchMarkerEntry;
+    expect(formatTranscript([unknownVariant, makeUserEntry("hello")])).toBe(
+      "1. user\nhello",
     );
   });
 });

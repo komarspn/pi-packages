@@ -2,22 +2,27 @@
  * Shared gate-level test fixtures for gate descriptor and runner tests.
  */
 import { vi } from "vitest";
-import type { DecisionReporter } from "#src/decision-reporter";
-import type { DenialContext } from "#src/denial-messages";
-import type { GatePrompter } from "#src/gate-prompter";
+import type { AskEscalator } from "#src/authority/authorizer-selection";
+import type { ShellToolsConfig } from "#src/config/config-schema";
+import type { SkillPromptEntry } from "#src/exposure/skill-prompt-sanitizer";
 import type { GateDescriptor } from "#src/handlers/gates/descriptor";
 import { GateRunner } from "#src/handlers/gates/runner";
 import type { SkillInputGateInputs } from "#src/handlers/gates/skill-input-gate-pipeline";
 import type { ToolCallGateInputs } from "#src/handlers/gates/tool-call-gate-pipeline";
 import type { ToolCallContext } from "#src/handlers/gates/types";
-import type { ScopedPermissionResolver } from "#src/permission-resolver";
-import type { PersistentApprovalRecorder } from "#src/persistent-approval-recorder";
-import type { SessionApprovalRecorder } from "#src/session-approval-recorder";
-import type { SkillPromptEntry } from "#src/skill-prompt-sanitizer";
-import type { ToolPreviewFormatterOptions } from "#src/tool-preview-formatter";
+import type { DecisionReporter } from "#src/logging/decision-reporter";
+import { pathFlavorForPlatform } from "#src/path/path-flavor";
+import { PathNormalizer } from "#src/path/path-normalizer";
+import type { ScopedPermissionResolver } from "#src/policy/permission-resolver";
+import type { SessionApprovalRecorder } from "#src/session/session-approval-recorder";
+import type { ToolPreviewFormatterOptions } from "#src/tool-input/tool-preview-formatter";
 import type { PermissionCheckResult } from "#src/types";
-
-import { makeCheckResult } from "#test/helpers/handler-fixtures";
+import { DECIDED_BY_HUMAN } from "./decision-fixtures";
+import { makeCheckResult } from "./handler-fixtures";
+import {
+  makeGatePromptDetails,
+  makePromptPayload,
+} from "./prompt-details-fixtures";
 
 /**
  * Permission resolver mock with an optional default check result.
@@ -27,20 +32,45 @@ import { makeCheckResult } from "#test/helpers/handler-fixtures";
  */
 export function makeResolver(defaultCheck?: PermissionCheckResult) {
   const resolve = vi.fn<ScopedPermissionResolver["resolve"]>();
-  const resolvePathPolicy =
-    vi.fn<ScopedPermissionResolver["resolvePathPolicy"]>();
   if (defaultCheck) {
     resolve.mockReturnValue(defaultCheck);
-    resolvePathPolicy.mockReturnValue(defaultCheck);
   }
-  return { resolve, resolvePathPolicy };
+  return { resolve };
+}
+
+/**
+ * Permission resolver mock that denies exactly one surface.
+ *
+ * Every other surface answers the neutral `makeCheckResult()` allow, so a
+ * block can only have come from the gate that resolves on the named surface —
+ * which is what lets a pipeline test name the (asking gate, denying gate)
+ * pairing it is exercising.
+ *
+ * Return type is intentionally unannotated so callers retain full `vi.fn()`
+ * mock access.
+ */
+export function makeSurfaceDenyingResolver(
+  surface: string,
+  denyOverrides: Partial<PermissionCheckResult> = {},
+) {
+  const resolver = makeResolver();
+  resolver.resolve.mockImplementation((intent) =>
+    intent.surface === surface
+      ? makeCheckResult({
+          state: "deny",
+          matchedPattern: "*",
+          ...denyOverrides,
+        })
+      : makeCheckResult(),
+  );
+  return resolver;
 }
 
 /**
  * Gate descriptor factory with runner-test defaults.
  *
- * Uses deny as the default `denialContext` check result so tests that
- * verify block paths don't need to override the surface check.
+ * Carries the payload every render over this descriptor reads, so a test that
+ * verifies a block path gets rendered denial text without overriding it.
  */
 export function makeDescriptor(
   overrides: Partial<GateDescriptor> = {},
@@ -48,17 +78,16 @@ export function makeDescriptor(
   return {
     surface: "read",
     input: {},
-    denialContext: {
-      kind: "tool",
-      check: makeCheckResult({ state: "deny", matchedPattern: "*" }),
-    },
-    promptDetails: {
-      source: "tool_call",
-      agentName: null,
-      message: "Allow tool 'read'?",
+    payload: makePromptPayload({
+      request: {
+        ...makePromptPayload().request,
+        matchedPattern: "*",
+      },
+    }),
+    promptDetails: makeGatePromptDetails({
       toolCallId: "tc-1",
       toolName: "read",
-    },
+    }),
     logContext: {
       source: "tool_call",
       toolCallId: "tc-1",
@@ -96,12 +125,13 @@ export function makeGateRunner(
   overrides: {
     resolveResult?: PermissionCheckResult;
     resolve?: ScopedPermissionResolver["resolve"];
-    resolvePathPolicy?: ScopedPermissionResolver["resolvePathPolicy"];
     recordSessionApproval?: SessionApprovalRecorder["recordSessionApproval"];
-    recordPersistentApproval?: PersistentApprovalRecorder["recordApproval"];
-    canConfirm?: GatePrompter["canConfirm"];
-    prompt?: GatePrompter["prompt"];
+    escalate?: AskEscalator["escalate"];
     reporter?: Partial<DecisionReporter>;
+    /** Standing yolo setting for the runner's residual-ask grant. */
+    yolo?: boolean;
+    /** Live yolo reader, for tests that toggle the setting between runs. */
+    isYoloEnabled?: () => boolean;
   } = {},
 ) {
   const reporter = makeReporter(overrides.reporter);
@@ -112,81 +142,33 @@ export function makeGateRunner(
       .mockReturnValue(
         overrides.resolveResult ?? makeCheckResult({ matchedPattern: "*" }),
       );
-  const resolvePathPolicy =
-    overrides.resolvePathPolicy ??
-    vi
-      .fn<ScopedPermissionResolver["resolvePathPolicy"]>()
-      .mockReturnValue(
-        overrides.resolveResult ?? makeCheckResult({ matchedPattern: "*" }),
-      );
   const recordSessionApproval =
     overrides.recordSessionApproval ??
     (vi.fn() as SessionApprovalRecorder["recordSessionApproval"]);
-  const recordPersistentApproval =
-    overrides.recordPersistentApproval ??
-    (vi.fn() as PersistentApprovalRecorder["recordApproval"]);
-  const canConfirm =
-    overrides.canConfirm ??
-    (vi.fn().mockReturnValue(true) as GatePrompter["canConfirm"]);
-  const prompt =
-    overrides.prompt ??
-    vi
-      .fn<GatePrompter["prompt"]>()
-      .mockResolvedValue({ approved: true, state: "approved" });
+  const escalate =
+    overrides.escalate ??
+    vi.fn<AskEscalator["escalate"]>().mockResolvedValue({
+      approved: true,
+      state: "approved",
+      decidedBy: DECIDED_BY_HUMAN,
+    });
+  const isYoloEnabled =
+    overrides.isYoloEnabled ?? ((): boolean => overrides.yolo ?? false);
   const runner = new GateRunner(
-    { resolve, resolvePathPolicy },
+    { resolve },
     { recordSessionApproval },
-    { canConfirm, prompt },
+    { escalate },
     reporter,
-    { recordApproval: recordPersistentApproval } as PersistentApprovalRecorder,
+    isYoloEnabled,
   );
   return {
     runner,
     deps: {
       resolve,
-      resolvePathPolicy,
       recordSessionApproval,
-      recordPersistentApproval,
-      canConfirm,
-      prompt,
+      escalate,
       reporter,
     },
-  };
-}
-
-/**
- * Gate descriptor variant with write-surface defaults and a caller-supplied
- * denialContext.
- *
- * Use instead of `makeDescriptor` when the test exercises denial-message
- * formatting — the write surface and its matching promptDetails/logContext
- * keep the message helpers' field access consistent.
- */
-export function makeDenialDescriptor(
-  denialContext: DenialContext,
-  overrides: Partial<GateDescriptor> = {},
-): GateDescriptor {
-  return {
-    surface: "write",
-    input: {},
-    denialContext,
-    promptDetails: {
-      source: "tool_call",
-      agentName: null,
-      message: "Allow tool 'write'?",
-      toolCallId: "tc-1",
-      toolName: "write",
-    },
-    logContext: {
-      source: "tool_call",
-      toolCallId: "tc-1",
-      toolName: "write",
-    },
-    decision: {
-      surface: "write",
-      value: "write",
-    },
-    ...overrides,
   };
 }
 
@@ -224,22 +206,21 @@ export function makePathDispatchResolver(
   defaultResult: PermissionCheckResult,
 ) {
   const resolve = vi.fn<ScopedPermissionResolver["resolve"]>();
-  resolve.mockImplementation((_surface, input) => {
-    const path = (input as Record<string, unknown>).path;
-    if (typeof path === "string" && path in byPath) {
-      return byPath[path];
+  resolve.mockImplementation((intent) => {
+    if (intent.kind === "tool") {
+      const path = (intent.input as Record<string, unknown>).path;
+      if (typeof path === "string" && path in byPath) {
+        return byPath[path];
+      }
+      return defaultResult;
     }
-    return defaultResult;
-  });
-  const resolvePathPolicy =
-    vi.fn<ScopedPermissionResolver["resolvePathPolicy"]>();
-  resolvePathPolicy.mockImplementation((values) => {
+    const values = intent.path.matchValues();
     for (const value of values) {
       if (value in byPath) return byPath[value];
     }
     return defaultResult;
   });
-  return { resolve, resolvePathPolicy };
+  return { resolve };
 }
 
 /**
@@ -273,6 +254,8 @@ export function makeGateInputs(
     getActiveSkillEntries?: () => SkillPromptEntry[];
     getInfrastructureReadDirs?: () => string[];
     getToolPreviewLimits?: () => ToolPreviewFormatterOptions;
+    getPathNormalizer?: () => PathNormalizer;
+    getShellToolAliases?: () => ShellToolsConfig | undefined;
   } = {},
 ): ToolCallGateInputs {
   return {
@@ -286,8 +269,19 @@ export function makeGateInputs(
       vi.fn<() => ToolPreviewFormatterOptions>(() => ({
         toolInputPreviewMaxLength: 500,
         toolTextSummaryMaxLength: 100,
-        toolInputLogPreviewMaxLength: 200,
       })),
+    getPathNormalizer:
+      overrides.getPathNormalizer ??
+      vi.fn<() => PathNormalizer>(
+        () =>
+          new PathNormalizer(
+            pathFlavorForPlatform(process.platform),
+            "/test/cwd",
+          ),
+      ),
+    getShellToolAliases:
+      overrides.getShellToolAliases ??
+      vi.fn<() => ShellToolsConfig | undefined>(() => undefined),
   };
 }
 

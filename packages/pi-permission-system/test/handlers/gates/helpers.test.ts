@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 
+import { AccessPath } from "#src/access-intent/access-path";
 import {
+  accessFactsFromPath,
+  accessFactsFromValue,
   buildDecisionEvent,
   deriveDecisionValue,
-  deriveResolution,
+  resolveYoloGrant,
 } from "#src/handlers/gates/helpers";
+import { posixPathFlavor } from "#src/path/path-flavor";
 import type { PermissionCheckResult } from "#src/types";
+import { makeCheckResult } from "#test/helpers/handler-fixtures";
 
 describe("deriveDecisionValue", () => {
   it("returns command for bash", () => {
@@ -44,56 +49,6 @@ describe("deriveDecisionValue", () => {
   it("falls back to toolName for path-bearing tools when path is missing", () => {
     expect(deriveDecisionValue("read", {})).toBe("read");
     expect(deriveDecisionValue("write", {}, undefined)).toBe("write");
-  });
-});
-
-describe("deriveResolution", () => {
-  it("returns policy_allow for allow state", () => {
-    expect(deriveResolution("allow", "allow", false, true)).toBe(
-      "policy_allow",
-    );
-  });
-
-  it("returns policy_deny for deny state", () => {
-    expect(deriveResolution("deny", "block", false, true)).toBe("policy_deny");
-  });
-
-  it("returns user_approved for ask + allow without session", () => {
-    expect(deriveResolution("ask", "allow", false, true)).toBe("user_approved");
-  });
-
-  it("returns user_approved_for_session for ask + allow with session", () => {
-    expect(deriveResolution("ask", "allow", true, true)).toBe(
-      "user_approved_for_session",
-    );
-  });
-
-  it("returns auto_approved when autoApproved flag is set", () => {
-    expect(deriveResolution("ask", "allow", false, true, true)).toBe(
-      "auto_approved",
-    );
-  });
-
-  it("returns user_approved_for_project for project persistent approval", () => {
-    expect(deriveResolution("ask", "allow", false, true, false, "project")).toBe(
-      "user_approved_for_project",
-    );
-  });
-
-  it("returns user_approved_globally for global persistent approval", () => {
-    expect(deriveResolution("ask", "allow", false, true, false, "global")).toBe(
-      "user_approved_globally",
-    );
-  });
-
-  it("returns user_denied for ask + block with canConfirm", () => {
-    expect(deriveResolution("ask", "block", false, true)).toBe("user_denied");
-  });
-
-  it("returns confirmation_unavailable for ask + block without canConfirm", () => {
-    expect(deriveResolution("ask", "block", false, false)).toBe(
-      "confirmation_unavailable",
-    );
   });
 });
 
@@ -173,5 +128,89 @@ describe("buildDecisionEvent", () => {
     );
     expect(event.result).toBe("deny");
     expect(event.resolution).toBe("user_denied");
+  });
+});
+
+describe("resolveYoloGrant", () => {
+  it("returns the check unchanged for a ruleset-granted yolo allow", () => {
+    const check = makeCheckResult({ origin: "yolo", matchedPattern: "*" });
+
+    expect(resolveYoloGrant(check, false)).toBe(check);
+  });
+
+  it("grants a residual ask under yolo, preserving the matched pattern", () => {
+    const check = makeCheckResult({
+      state: "ask",
+      source: "bash",
+      toolName: "bash",
+      matchedPattern: "<indirection-bash-wrapper>",
+    });
+
+    expect(resolveYoloGrant(check, true)).toEqual({
+      ...check,
+      state: "allow",
+      origin: "yolo",
+    });
+  });
+
+  it("returns null for a residual ask with yolo disabled", () => {
+    expect(
+      resolveYoloGrant(
+        makeCheckResult({ state: "ask", matchedPattern: "*" }),
+        false,
+      ),
+    ).toBeNull();
+  });
+
+  it("returns null for an allow granted by an ordinary rule", () => {
+    expect(
+      resolveYoloGrant(
+        makeCheckResult({ origin: "global", matchedPattern: "*" }),
+        true,
+      ),
+    ).toBeNull();
+  });
+
+  it("returns null for a deny, so an explicit deny survives yolo", () => {
+    expect(
+      resolveYoloGrant(
+        makeCheckResult({ state: "deny", matchedPattern: "rm *" }),
+        true,
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("accessFactsFromPath", () => {
+  it("projects the AccessPath's match set and boundary as strings", () => {
+    const path = AccessPath.forPath("/outside/x.ts", {
+      cwd: "/repo",
+      flavor: posixPathFlavor,
+    });
+    expect(accessFactsFromPath("external_directory", path)).toEqual({
+      surface: "external_directory",
+      matchValues: path.matchValues(),
+      boundaryValue: path.boundaryValue(),
+    });
+  });
+
+  it("collapses an empty boundary (literal-only path) to null", () => {
+    const path = AccessPath.forLiteral("relative-token");
+    expect(path.boundaryValue()).toBe("");
+    expect(accessFactsFromPath("path", path)).toEqual({
+      surface: "path",
+      matchValues: ["relative-token"],
+      boundaryValue: null,
+    });
+  });
+});
+
+describe("accessFactsFromValue", () => {
+  it("wraps a single portable value with a null boundary", () => {
+    expect(accessFactsFromValue("skill", "deep-research")).toEqual({
+      surface: "skill",
+      matchValues: ["deep-research"],
+      boundaryValue: null,
+    });
   });
 });

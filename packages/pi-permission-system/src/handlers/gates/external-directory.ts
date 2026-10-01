@@ -1,17 +1,17 @@
-import {
-  canonicalNormalizePathForComparison,
-  getExternalDirectoryPolicyValues,
-  getToolInputPath,
-  isPathOutsideWorkingDirectory,
-  isPiInfrastructureRead,
-  normalizePathForComparison,
-} from "#src/path-utils";
-import type { ScopedPermissionResolver } from "#src/permission-resolver";
-import { SessionApproval } from "#src/session-approval";
-import { deriveApprovalPattern } from "#src/session-rules";
-import type { ToolAccessExtractorLookup } from "#src/tool-access-extractor-registry";
+import { capabilitySurfaceForTool } from "#src/access-intent/path-surfaces";
+import { getToolInputPath } from "#src/access-intent/tool-input-path";
+import type { PathNormalizer } from "#src/path/path-normalizer";
+import type { ScopedPermissionResolver } from "#src/policy/permission-resolver";
+import { buildExternalDirectoryAskPayload } from "#src/presentation/path-ask-payload";
+import { SessionApproval } from "#src/session/session-approval";
+import type { ToolAccessExtractorLookup } from "#src/tool-input/tool-access-extractor-registry";
 import type { GateResult } from "./descriptor";
-import { formatExternalDirectoryAskPrompt } from "./external-directory-messages";
+import { resolveExternalDirectoryPolicy } from "./external-directory-policy";
+import {
+  accessFactsFromPath,
+  buildPathGateLogContext,
+  buildPathGatePromptDetails,
+} from "./helpers";
 import type { ToolCallContext } from "./types";
 
 /**
@@ -26,44 +26,38 @@ export function describeExternalDirectoryGate(
   tcc: ToolCallContext,
   infraDirs: string[],
   resolver: ScopedPermissionResolver,
+  normalizer: PathNormalizer,
   extractors?: ToolAccessExtractorLookup,
 ): GateResult {
-  if (!tcc.cwd) return null;
-
-  const externalDirectoryPath = getToolInputPath(
+  const { path: externalDirectoryPath, source: pathSource } = getToolInputPath(
     tcc.toolName,
     tcc.input,
     extractors,
   );
   if (!externalDirectoryPath) return null;
 
-  if (!isPathOutsideWorkingDirectory(externalDirectoryPath, tcc.cwd)) {
+  if (!normalizer.isOutsideWorkingDirectory(externalDirectoryPath)) {
     return null;
   }
 
   // The boundary decision (above) and the infrastructure-read containment
   // check (below) use the canonical, symlink-resolved path; pattern matching
   // uses the typed and resolved aliases (#418).
-  const canonicalExtPath = canonicalNormalizePathForComparison(
-    externalDirectoryPath,
-    tcc.cwd,
-  );
+  const accessPath = normalizer.forPath(externalDirectoryPath);
 
   // ── Pi infrastructure read bypass ──────────────────────────────────────
-  if (
-    isPiInfrastructureRead(tcc.toolName, canonicalExtPath, infraDirs, tcc.cwd)
-  ) {
+  if (normalizer.isInfrastructureRead(tcc.toolName, accessPath, infraDirs)) {
     return {
       action: "allow",
+      // Containment allowed this, not a rule the operator wrote.
+      decidedBy: { kind: "infrastructure_read" },
       log: {
         event: "permission_request.infrastructure_auto_allowed",
-        details: {
-          source: "tool_call",
-          toolCallId: tcc.toolCallId,
-          toolName: tcc.toolName,
-          agentName: tcc.agentName,
-          path: externalDirectoryPath,
-        },
+        details: buildPathGateLogContext(
+          tcc,
+          externalDirectoryPath,
+          pathSource,
+        ),
       },
       decision: {
         surface: tcc.toolName,
@@ -78,55 +72,45 @@ export function describeExternalDirectoryGate(
   }
 
   // ── Build descriptor for permission check ───────────────────────────────
-  const extDirMessage = formatExternalDirectoryAskPrompt(
-    tcc.toolName,
-    externalDirectoryPath,
-    tcc.cwd,
-    tcc.agentName ?? undefined,
-  );
+  const resolvedAlias = accessPath.resolvedAlias();
 
-  // Match against both the typed and symlink-resolved aliases on the
-  // external_directory surface, so a config pattern on either form applies
-  // (#418). The runner consumes this preCheck and skips its own resolve.
-  const preCheck = resolver.resolvePathPolicy(
-    getExternalDirectoryPolicyValues(externalDirectoryPath, tcc.cwd),
+  // The narrowest `external_directory`-family surface this tool's identity
+  // proves; the bare family name folds both directions (ADR 0013 §10).
+  const surface = capabilitySurfaceForTool("external_directory", tcc.toolName);
+
+  // The runner consumes this preCheck and skips its own resolve.
+  const preCheck = resolveExternalDirectoryPolicy(
+    accessPath,
+    resolver,
+    surface,
     tcc.agentName ?? undefined,
-    "external_directory",
   );
-  const pattern = deriveApprovalPattern(
-    normalizePathForComparison(externalDirectoryPath, tcc.cwd),
-  );
+  const pattern = normalizer.approvalPatternFor(accessPath);
+
+  const payload = buildExternalDirectoryAskPayload({
+    toolName: tcc.toolName,
+    pathValue: externalDirectoryPath,
+    resolvedPath: resolvedAlias,
+    cwd: tcc.cwd,
+    agentName: tcc.agentName,
+    matchedPattern: preCheck.matchedPattern,
+    surface,
+  });
 
   return {
-    surface: "external_directory",
+    surface,
     input: {},
     preCheck,
-    denialContext: {
-      kind: "external_directory",
-      toolName: tcc.toolName,
-      pathValue: externalDirectoryPath,
-      cwd: tcc.cwd,
-      agentName: tcc.agentName ?? undefined,
-    },
-    sessionApproval: SessionApproval.single("external_directory", pattern),
-    promptDetails: {
-      source: "tool_call",
-      agentName: tcc.agentName,
-      message: extDirMessage,
-      toolCallId: tcc.toolCallId,
-      toolName: tcc.toolName,
-      path: externalDirectoryPath,
-    },
-    logContext: {
-      source: "tool_call",
-      toolCallId: tcc.toolCallId,
-      toolName: tcc.toolName,
-      agentName: tcc.agentName,
-      path: externalDirectoryPath,
-      message: extDirMessage,
-    },
+    payload,
+    sessionApproval: SessionApproval.single(surface, pattern),
+    promptDetails: buildPathGatePromptDetails(
+      tcc,
+      externalDirectoryPath,
+      accessFactsFromPath(surface, accessPath),
+    ),
+    logContext: buildPathGateLogContext(tcc, externalDirectoryPath, pathSource),
     decision: {
-      surface: "external_directory",
+      surface,
       value: externalDirectoryPath,
     },
   };

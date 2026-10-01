@@ -1,8 +1,8 @@
 ---
 name: testing
 description: |
-  Vitest mock patterns (vi.mock, vi.hoisted, vi.fn reset), TDD planning rules,
-  and general test strategy. Load when writing or debugging tests.
+  Load before writing or debugging a Vitest test, or sequencing TDD steps in a plan:
+  mock patterns (`vi.mock`, `vi.hoisted`, `vi.fn` reset) and test strategy.
 ---
 
 # Testing
@@ -20,6 +20,10 @@ Load this skill when writing, debugging, or planning tests.
 - When mocking a class constructor with `vi.mock()`, use `vi.fn()` with no implementation — not `vi.fn(() => ({}))`.
   Arrow-function implementations are not constructable; `new MockClass()` throws `"is not a constructor"`.
 - When mocking `node:*` built-in modules with `vi.mock()`, include a `default` key mirroring the named exports — omitting it causes "No default export defined on the mock" errors.
+- A `vi.mock("node:*")` factory that returns an object literal *replaces* the module: every export it omits becomes `undefined`, so a later call to a sibling export (`lstatSync`, `tmpdir`) throws `TypeError` in unrelated tests in that file.
+  To stub one export and keep the rest, spread `await vi.importActual<typeof import("node:fs")>("node:fs")` in the factory and override only the target.
+- Import the module-under-test with a static top-level `import`, not a per-test `await import(...)` — Vitest hoists `vi.mock()`/`vi.hoisted()` above static imports, so the mock still applies.
+  A per-test dynamic import of a module that transitively pulls heavy deps pays the transform/resolve cost inside each test's `testTimeout` window and can flake CI.
 
 ### Typing mock functions
 
@@ -34,18 +38,21 @@ Load this skill when writing, debugging, or planning tests.
 - When a test factory returns an object satisfying a production interface (e.g., `RunnerIO`, `AssemblerIO`), do not annotate the return type with that interface — the annotation erases `Mock<...>` methods (`mockResolvedValue`, `mock.calls`, etc.) from the inferred type.
   Leave the return type unannotated so callers retain full mock access.
 - When a shared test factory's return value must structurally satisfy a production interface (e.g., passed to `createSubagentSession(params, deps)`), add typed implementations to every `vi.fn()` stub — `vi.fn((_param: Type): ReturnType => default)`, not `vi.fn().mockReturnValue(default)`.
-  Bare `vi.fn()` and chained `.mockReturnValue()` produce `Mock<Procedure>` which is not assignable to specific function signatures.
+  Bare `vi.fn()` and chained `.mockReturnValue()`/`.mockResolvedValue()` produce `Mock<Procedure>`, which is not assignable to specific function signatures.
+  Where it *is* assignable, the literal is checked against `any` instead — a required field then goes missing silently until a test reads it.
 - When a test factory accepts overrides via `Partial<ProductionInterface>`, the spread `{ ...defaults, ...overrides }` creates a union type that also erases mock methods.
   Either remove the `Partial<ProductionInterface>` annotation (let TypeScript infer from the spread) or drop the overrides parameter and configure mocks on the returned object directly.
 - When a test factory uses `??` to supply defaults from an overrides object, explicit `undefined` values are swallowed.
   Use `"key" in overrides` presence checks or `Object.hasOwn(overrides, "key")` for fields where `undefined` is a meaningful test value.
 - When dropping an `as unknown as X` cast from a mock, the type checker starts verifying `mockReturnValue` payloads too, not just method presence.
   Incomplete return-value literals the cast used to mask (e.g. `{ state: "allow" }` for a full `PermissionCheckResult`) fail `pnpm run check`; build them with the shared `make*` fixture builder instead.
+- A disposable spike that constructs a domain object uses the same `test/helpers/` builder the real tests use — locate it with `grep -rn "make<Thing>" test/helpers/` rather than hand-building the literal or guessing the module name.
 
 ### Timers and environment
 
 - When testing code that uses `setInterval`, never use `vi.runAllTimersAsync()` — it loops infinitely.
   Use `vi.advanceTimersByTimeAsync(ms)` with a specific duration instead.
+- To observe not-yet-settled state, assert promise identity or gate with `Promise.withResolvers` — a `setTimeout(…, 0)` tick-count sleep silently false-greens when the code under test settles in the same tick.
 - Prefer reading `process.env` inside functions rather than capturing it as a module-level constant — `vi.stubEnv()` alone cannot change a constant already evaluated at import time.
   If a module-level constant is unavoidable, test it with `vi.resetModules()` + `await import(...)` inside the test body, and call `vi.unstubAllEnvs()` + `vi.resetModules()` in `afterEach`.
 
@@ -54,6 +61,32 @@ Load this skill when writing, debugging, or planning tests.
 - Prefer strong assertions that match the **entire** expected value (`toBe`, `toEqual`) over subset matchers (`toContain`, `toMatchObject`, `expect.objectContaining`).
   Weak assertions hide unexpected values and make tests less useful as documentation.
   When a weak assertion is necessary (third-party output, non-deterministic ordering), add a comment explaining why.
+- When a test drives the code through a validation/parse step and the invalid-input fallback returns the same value a negative-path test asserts (e.g. a forwarded-response fixture missing a required field and a `denied` expectation both yield `{ approved: false, state: "denied" }`), a broken fixture false-greens the negative test.
+  Assert the positive (non-fallback) path against the same fixture builder first — a malformed fixture then fails loudly there — or assert a discriminating field the fallback cannot produce.
+- `toMatchObject` does not assert a key's **absence**: an expected `undefined` value requires the key to be present on the received object, so `toMatchObject({ flag: undefined })` fails when `flag` is missing.
+  Use `toEqual` for a full-shape assertion, or assert a discriminating field the negative case cannot produce.
+- When proving a guard test is not vacuous, build the probe to match the guard's exact predicate.
+  A near-miss probe (`void runRpcSession;` against a guard matching `runRpcSession(`) leaves the guard silent and looks like proof it is broken.
+- Before asserting, name both outcomes and confirm your assertion's value differs between them **under the fixture's defaults**.
+  A signal can be legitimate and still fail to discriminate: asserting `status === "running"` to prove foreground resolution passes for a background agent too, because the default concurrency limit admits it immediately.
+  Pick a signal only one branch can produce — there, the observer callback that fires for background agents alone.
+- A new test that passes during the Red step is either an invariant pin or a broken probe — decide which before moving to Green.
+  The broken case is a probe string that also appears elsewhere in the output.
+  Decide by mutation: break the code the pin covers and confirm the pin fails — a pin that survives its own mutation is a broken probe.
+- A mutation is scoped to one claim, so it kills one equivalence class and no more — "I mutated and saw reds" is not evidence the whole set is sound.
+- Confirm a mutation applied (`git diff --stat`) before reading its run — a scripted `perl -pi` on a regex literal can match nothing, and the green then reads as a surviving mutation.
+- When the code under test accepts two shapes of the same input (an ordinal or an issue number, a string or an array), check that the fixtures do not all pick one shape.
+  The live input can exercise the other arm exclusively.
+- A bulk red caused by a signature change masks per-test probe quality.
+  Twenty-one tests failing because a required field does not exist yet says nothing about whether any individual assertion discriminates; that is not the per-test red the rule above asks for.
+- A test authored or rewritten **after** Green never had a Red step, so the rule above never triggers for it.
+  Mutate it explicitly before committing.
+- When a fix replaces an ambient global read (`node:path`'s `sep`, `process.platform`, `Date.now`) with an injected value, pick a red-probe input where the ambient and injected values **differ on the CI host**.
+  A `win32PathFlavor` probe on `/tmp/logs/` passes pre-fix on POSIX CI — the host `sep` is `/` too; a native `c:\dir\file.ts` collapses to `./*` and goes red.
+- An equivalence test (incremental vs. freshly built, cached vs. uncached) pins self-consistency, not correctness, when both sides run the code under test.
+  Assert independently — a count, a golden row — anything the equivalence cannot see.
+- When a plan names an external oracle (the parse of an equivalent spelling the change must match), sweep it combinatorially over the input's operators, not by hand-picked rows.
+  #979's sampled rows were all green while a 2180-case sweep found 62 divergences in three shape classes, after two reviewer FAILs.
 - Prefer a concrete test asserting current (even imperfect) behavior over `test.todo`.
   A real assertion documents the limitation and lets a future fix flip the expectation.
 - When a test reveals a pre-existing bug rather than a wrong assumption, use `test.fails` to document the expected behavior and file a GitHub issue.
@@ -65,6 +98,16 @@ Load this skill when writing, debugging, or planning tests.
 ## Test organization
 
 Group tests by the behavior or concern they exercise — open a nested `describe("<concern>", () => { ... })` per concern rather than appending `it` blocks to a flat list.
+Nest by the unit under test and then the scenario; do not repeat a shared prefix across sibling blocks.
+Twenty sibling `describe("SubagentManager — <concern>")` blocks carry the unit's name as a repeated string fragment, where one `describe("SubagentManager")` holding `describe("spawn")` and `describe("spawnAndWait")` carries it in the structure.
+Nesting is for grouping and organization, not only for a shared `beforeEach`.
+
+The tree is a correctness tool, not cosmetics.
+Choosing a parent forces you to name what each test claims, and a test that will not sit cleanly under any parent usually has a fuzzy claim — which is where a broken probe hides.
+Parallel structure also turns coverage into a grid — once `spawn > type resolution` and `spawnAndWait > type resolution` sit side by side, an asymmetry between them is legible in a way a hole in a flat list never is.
+
+Name a `describe` after the behavior or scenario, never after a historical bug or issue number.
+`describe("SubagentManager — Bug 1 race condition")` references a numbering no later reader can resolve, and the file holding it has no `Bug 2`.
 When adding tests for a new concern (e.g. a `details` field alongside existing content assertions), start a new `describe` block instead of extending the existing one.
 When consolidating duplicated test arrangements, group the shared setup in a describe-scoped `beforeEach` and keep the act (the call under test) explicit in each test.
 Do not wrap the system-under-test call in a helper to eliminate a duplication-metric clone — the repeated act is the test subject, not duplication to remove.
@@ -74,18 +117,26 @@ Do not wrap the system-under-test call in a helper to eliminate a duplication-me
 Vitest uses esbuild and does not typecheck.
 Run `pnpm run check` (`tsc --noEmit`) for type-only changes.
 Confirm any claim about what a module exports with `tsc`, not a runtime symptom.
-A missing export throws `is not a function` at runtime but surfaces as `TS2305` under `tsc` (e.g. #446, a runtime error misread as a types/runtime mismatch).
+A missing export throws `is not a function` at runtime but surfaces as `TS2305` under `tsc`.
 
 ## Running tests
 
 - Run a single file: `pnpm --filter @gotgenes/<pkg> exec vitest run <test-path>` — plain `pnpm vitest run` fails at the repo root (`Command "vitest" not found`).
 - Run the full suite: `pnpm --filter @gotgenes/<pkg> exec vitest run`
+- Run Vitest bare — no `| tail`, `| grep`, or `>/tmp/…` redirect.
+  Its non-TTY summary is already short (measured: 9 lines for `pi-permission-system`'s 4824-test suite), and a pipe replaces Vitest's exit status with the filter's, so a failing run reads as a pass.
+  A failing run adds one `×` line per failing test and about 20 lines of assertion detail per failure; that detail is the signal, so narrow the run instead of the output: pass the test path, and `-t "<name>"` for one test.
+- Pair a run with the typecheck using `&&`: `pnpm --filter @gotgenes/<pkg> exec vitest run <test-path> && pnpm --filter @gotgenes/<pkg> run check` keeps both exit statuses and skips `check` when a test fails.
 - When a fix changes shared helper functions, run the full suite before committing — not just the directly affected test file.
+- A disposable spike test's `console.log` is hidden by Vitest's default reporter; run it with `--reporter=verbose` (measured: `--silent=false` alone does **not** surface it, and `--reporter=basic` was removed in Vitest 4).
+  Write findings to a file (`appendFileSync("/tmp/out.txt", …)`) when the output must outlive the run.
+- When a multi-file run reports a failure, re-run the failing file alone, unpiped — a `grep`/`sed` filter over Vitest output often matches nothing and prints empty, which reads as "no failure" rather than "wrong filter".
 
 ## Operator semantics
 
 - When `prefer-nullish-coalescing` flags `||`, check whether the left side could be a falsy non-null value (`""`, `0`, `false`) that the code intentionally converts to the fallback.
   If so, keep `||` and add `// eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- || intentional: converts falsy values to fallback`.
+  The rule also flags the equivalent `x ? x : y` ternary, so do not reach for a ternary to dodge it — use `x || y` with the disable.
   Do not mechanically replace `||` with `??` without verifying test expectations.
 
 ## TDD planning rules
@@ -94,9 +145,17 @@ A missing export throws `is not a function` at runtime but surfaces as `TS2305` 
 
 - When a TDD step changes behavior, account for existing tests that will break.
   Either fold the test updates into the same step or place a dedicated test-update step immediately before it.
+- A killing mutation that deletes a **guard** claims the guard is load-bearing.
+  Name what observably changes without it before writing the mutation — a guard redundant with the runtime (a second `resolve` on a settled promise, a re-entrancy flag nothing re-enters) leaves every test green, and the vacuous mutation then reads as a coverage failure (Refs #965).
+- When a fix changes how a failure is **classified** (user abort vs. real error, retry vs. surface), existing tests asserting the old classification can pass only because of the bug.
+  Rewrite each to exercise the genuine condition, and add a sibling test for the newly distinguished case.
+- When a plan's own measurement shows the target behavior already works, name the one input that actually fails — or reclassify the step as `test:` (characterization) plus `refactor:`.
+  A `feat:` step whose red comes up four-fifths green was mistyped at plan time.
 - When a TDD plan lists separate steps that share a type definition, changing that type in step N breaks steps N+1…N+k.
   Either fold them into one step or introduce the new type alongside the old one and migrate callers incrementally.
 - When a plan adds a parameter that flows through callback chains, the "Module-Level Changes" section must list every file in the chain.
+- When a plan adds a lint guard forbidding a global read (e.g. `process.platform`), it bans the *text* everywhere — including `= process.platform` default parameters.
+  Every such default must be removed in the guard's commit, which makes the param required and cascades to all callers, so enumerate every occurrence and caller at plan time rather than a representative subset.
 - When a TDD step changes a shared interface, run `pnpm run check` immediately after that step's commit.
 - When a TDD step changes an interface that has a single call site (e.g., a deps bag constructed in `index.ts`), the step must include updating that call site — the type checker will not allow the interface change and the call-site update to land in separate commits.
 - When a TDD plan deletes a module across multiple steps (extract → remove consumers → delete), account for the doomed module's own imports at each intermediate step.
@@ -107,10 +166,16 @@ A missing export throws `is not a function` at runtime but surfaces as `TS2305` 
 
 - When a TDD step narrows a union type (removes variants), grep all test files for fixtures or mocks that use the removed variant — those test fixes must land in the same step as the type change, not in later steps.
 - When adding a field to a shared interface, grep for ALL test files that construct a compatible mock — not just factory helpers.
+- When estimating the call-site count for a test migration, grep the bare callee (`checkTool(`), not `callee(arg, "literal"` — a single-line pattern misses multi-line invocations where args span continuation lines, undercounting scope.
+  A literal-argument pattern also cannot see a call site relying on a **default parameter** — `function checkPath(…, surface = "path")` carries no literal at all.
+  Grep the helper's signature too.
 - When a TDD step removes a field from a shared interface, grep all `src/` files that reference the removed field — every file that reads or passes the field must update in the same step.
   This is the inverse of the excess-property rule: TypeScript rejects reading a property that no longer exists on the type.
+- When a TDD step removes a field from an event payload or shared interface, grep `test/` for assertion literals naming it too — `toHaveBeenCalledWith({ … })` against an untyped `vi.fn()` or event bus is invisible to `tsc` and fails only at the full-suite run.
 - When a TDD step removes an interface from an `extends` or intersection chain, grep for types that compose it (`extends <Interface>`, `<Interface> &`) — intersection mock supertypes (e.g. `MockGateHandlerSession`) silently lose the removed members and break at the construction site, not the type definition.
 - When removing fields from a shared init type, grep for all test files and factory helpers that pass the removed field — esbuild won't reject unknown properties at runtime, so tests silently get wrong default values instead of failing.
+- When a TDD step changes a parameter's *type* (not just adds one), the red can be hollow — esbuild does not typecheck, so the new-typed argument may coincidentally satisfy the old code's runtime path (an object passed where a `"win32"` string was expected takes the non-win32 branch).
+  Confirm the red lives in a test that exercises the new *behavior*, not just the new signature.
 - When a change moves *when* a value or service becomes available (e.g. factory-init → `session_start`), grep all test files for consumers that resolve it — not just the tests you already plan to touch.
   A timing change breaks them at runtime (the full suite), not at typecheck, so `pnpm run check` will not flag them.
 - When a step changes the *format* of a value recorded at runtime and replayed by a different consumer (e.g. a session-approval pattern matched against a later request), fold every producer and consumer of that namespace into one commit.

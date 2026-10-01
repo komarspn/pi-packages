@@ -3,41 +3,58 @@
 The extension provides two cross-extension integration surfaces:
 
 1. **Service accessor** (preferred) — a `Symbol.for()`-backed synchronous API on `globalThis` for direct policy queries.
-2. **Event bus** — broadcasts and RPC on `pi.events` for observation and prompt forwarding.
+2. **Event bus** — broadcasts on `pi.events` for observation.
 
 ---
 
 ## Service Accessor
 
 The preferred way for other extensions to query the permission policy is the `Symbol.for()`-backed service accessor.
-It provides direct, synchronous, type-safe function calls — no async RPC envelope needed.
+It provides direct, synchronous, type-safe function calls.
 
 ### Quick Start
 
 ```typescript
-try {
-  const { getPermissionsService } = await import(
-    "@gotgenes/pi-permission-system"
-  );
-  const permissions = getPermissionsService();
-  if (permissions) {
-    const result = permissions.checkPermission("bash", "git push");
-    console.log(result.state); // "allow" | "deny" | "ask"
-  }
-} catch {
-  // Not installed — graceful degradation
-}
+pi.events.on("permissions:ready", (data) => {
+  const { sessionId } = data as PermissionsReadyEvent;
+  if (!sessionId) return;
+  void (async () => {
+    try {
+      const { getPermissionsService } =
+        await import("@gotgenes/pi-permission-system");
+      const permissions = getPermissionsService(sessionId);
+      if (permissions) {
+        const result = permissions.checkPermission("bash", "git push");
+        console.log(result.state); // "allow" | "deny" | "ask"
+      }
+    } catch {
+      // Not installed — graceful degradation
+    }
+  })();
+});
 ```
+
+Inside your own `session_start` handler, `ctx.sessionManager.getSessionId()` is the same key.
 
 ### How It Works
 
 Pi's extension loader creates a fresh [jiti](https://github.com/nicolo-ribaudo/jiti) instance per extension with `moduleCache: false`, which isolates module-level state.
 `Symbol.for()` and `globalThis` are process-global by spec, so they survive this isolation.
 
-The permission-system extension publishes a service object on `globalThis` via `Symbol.for("@gotgenes/pi-permission-system:service")` at `session_start`.
-Consumers call `getPermissionsService()` to retrieve it — even though their `import()` loads a fresh module copy, the accessor reads from the shared `globalThis` slot.
-An in-process subagent child does not publish its own service; inside a child, `getPermissionsService()` resolves the parent's service.
-A consumer reacting to the `permissions:ready` broadcast (also emitted at `session_start`, after the publish) can resolve the service immediately.
+One process can host several **nodes** — one Pi session runtime each, with its own gates and its own registries.
+A root session and each of its in-process subagent children are separate nodes, and each loads its own instance of this extension.
+Registrations never cross a node boundary: a formatter, an access extractor, or an authorizer link is read by the node it was registered in.
+
+Each node therefore publishes its own service at `session_start`, into a `globalThis` map keyed by that node's session id (`Symbol.for("@gotgenes/pi-permission-system:session-services")`).
+Consumers call `getPermissionsService(sessionId)` to retrieve it — even though their `import()` loads a fresh module copy, the accessor reads from the shared `globalThis` slot.
+The session id arrives as a field on the `permissions:ready` broadcast, which each node emits at its own `session_start`, right after publishing — and again at that node's first `before_agent_start`, so a consumer whose own `session_start` ran later still hears it.
+
+That keyed map is the only service slot.
+A separate legacy slot once held the process root's service, read by a deprecated `getRootPermissionsService()`; both were removed, because in any node but the root that accessor answered the wrong question — handing an in-process child the parent's service.
+If you are upgrading from a release that had it, see [migration/0796-remove-process-root-slot.md](migration/0796-remove-process-root-slot.md); if you are upgrading from one whose `getPermissionsService()` took no argument, start with [migration/0794-keyed-service-locator.md](migration/0794-keyed-service-locator.md).
+
+All types below are directly importable and type-check with `tsc` out of the box.
+`@gotgenes/pi-permission-system`'s published `exports` resolve `import type { … }` to a self-contained, bundled declaration file with no internal module references, so a downstream `tsconfig.json` needs no special path configuration.
 
 ### API
 
@@ -52,8 +69,11 @@ interface PermissionsService {
     agentName?: string,
   ): PermissionCheckResult;
 
-  /** Query tool-level permission state for pre-filtering before session creation. */
+  /** Query a surface's catch-all permission state — its blanket policy. */
   getToolPermission(toolName: string, agentName?: string): PermissionState;
+
+  /** Whether every value under a tool's surface resolves to deny; use this to pre-filter a tool list. */
+  isToolFullyDenied(toolName: string, agentName?: string): boolean;
 
   /**
    * Register a custom preview formatter for a specific tool name.
@@ -75,6 +95,22 @@ interface PermissionsService {
     toolName: string,
     extractor: (input: Record<string, unknown>) => string | undefined,
   ): () => void;
+
+  /**
+   * The access extractor registered on this node for `toolName`, or
+   * `undefined` when it has none.
+   */
+  getToolAccessExtractor(
+    toolName: string,
+  ): ((input: Record<string, unknown>) => string | undefined) | undefined;
+
+  /**
+   * The preview formatter registered on this node for `toolName`, or
+   * `undefined` when it has none.
+   */
+  getToolInputFormatter(
+    toolName: string,
+  ): ((input: Record<string, unknown>) => string | undefined) | undefined;
 }
 ```
 
@@ -88,16 +124,35 @@ interface PermissionsService {
 
 Returns `PermissionCheckResult` with fields `state`, `matchedPattern`, `source`, `origin`, etc.
 
+For a path-shaped surface (`path`, `external_directory`, or a path-bearing tool — `read`/`write`/`edit`/`grep`/`find`/`ls`), the supplied `value` is matched against both the path as given and its canonical (symlink-resolved) form, at parity with the gates — so a query for a symlinked path matches a rule on its real target.
+
+For the `bash` surface, a `value` containing a chained or nested command (joined by `&&`, `||`, `;`, `|`, `&`, or newlines, or nested in a command substitution/subshell) is decomposed into its command-pattern units and resolved most-restrictive (`deny` > `ask` > `allow`), at parity with the enforcement gate — so `cd /repo && npm install x` returns the decision of the `npm install x` unit, not the leading `cd`.
+A previously chained command that returned `allow` (riding an allowed leading command) may therefore now return `deny`/`ask`.
+Decomposition needs the tree-sitter parser, which is warmed at `before_agent_start` (before any tool call); a bash query in the brief pre-warm window falls back to a whole-string match, so the answer is never weaker than the gate — only strengthened once warm.
+
 #### `getToolPermission`
 
 Returns `"allow"` | `"deny"` | `"ask"` for a tool name without considering command-level rules.
-Use this to pre-filter a tool list before creating a child session — it avoids calling `checkPermission` per tool and interpreting the full result.
+It reports the surface's own catch-all, so it answers what a surface's blanket policy is.
 
 ```typescript
-const denied = tools.filter(
-  (t) => permissions.getToolPermission(t, agentName) === "deny",
-);
+const blanketPolicy = permissions.getToolPermission("bash", agentName);
 ```
+
+This is not the question to ask when pre-filtering a tool list — use `isToolFullyDenied` for that.
+A surface written as `bash: {"*": "deny", "git *": "ask"}` reports `"deny"` here while `git status` would still be asked about.
+
+#### `isToolFullyDenied`
+
+Returns `true` when every value under the tool's surface resolves to `deny`, and `false` when anything at all could get through.
+Use this to pre-filter a tool list before creating a child session — it avoids calling `checkPermission` per tool and interpreting the full result, and unlike `getToolPermission` it does not withhold a tool that is only partially restricted.
+
+```typescript
+const usable = tools.filter((t) => !permissions.isToolFullyDenied(t, agentName));
+```
+
+Rule ordering is honored (last-match-wins), so an exception written after a `deny` catch-all keeps the tool reachable while one written before it does not.
+It considers config-layer rules only; a runtime session approval does not change the answer.
 
 #### `registerToolInputFormatter`
 
@@ -175,30 +230,33 @@ Register during your extension's initialization and store the disposer for teard
 export default function myExtension(pi: ExtensionAPI): void {
   let disposeFormatter: (() => void) | undefined;
 
-  void (async () => {
-    try {
-      const { getPermissionsService } = await import(
-        "@gotgenes/pi-permission-system"
-      );
-      const permissions = getPermissionsService();
-      disposeFormatter = permissions?.registerToolInputFormatter(
-        "deploy", // a tool THIS extension registers with Pi
-        (input) => {
-          const target =
-            typeof input.target === "string" ? input.target : undefined;
-          const services = Array.isArray(input.services)
-            ? input.services.length
-            : undefined;
-          if (!target) return undefined; // decline → default preview
-          return services !== undefined
-            ? `with target ${target} (${services} services)`
-            : `with target ${target}`;
-        },
-      );
-    } catch {
-      // permission-system not installed — nothing to register
-    }
-  })();
+  pi.events.on("permissions:ready", (data) => {
+    const { sessionId } = data as PermissionsReadyEvent;
+    if (disposeFormatter || !sessionId) return;
+    void (async () => {
+      try {
+        const { getPermissionsService } =
+          await import("@gotgenes/pi-permission-system");
+        const permissions = getPermissionsService(sessionId);
+        disposeFormatter = permissions?.registerToolInputFormatter(
+          "deploy", // a tool THIS extension registers with Pi
+          (input) => {
+            const target =
+              typeof input.target === "string" ? input.target : undefined;
+            const services = Array.isArray(input.services)
+              ? input.services.length
+              : undefined;
+            if (!target) return undefined; // decline → default preview
+            return services !== undefined
+              ? `with target ${target} (${services} services)`
+              : `with target ${target}`;
+          },
+        );
+      } catch {
+        // permission-system not installed — nothing to register
+      }
+    })();
+  });
 
   pi.on("session_shutdown", () => {
     disposeFormatter?.();
@@ -222,7 +280,7 @@ Re-register on every initialization (as above) rather than once globally; the di
 
 A built-in formatter is registered for the `"mcp"` tool at startup (through this same public API).
 It renders a compact `with key: value, …` summary of the call's `arguments` and returns `undefined` when there are no arguments, leaving the MCP target prompt unchanged.
-This is the reference implementation for the seam — see `src/builtin-tool-input-formatters.ts`.
+This is the reference implementation for the seam — see `src/tool-input/builtin-tool-input-formatters.ts`.
 
 #### `registerToolAccessExtractor`
 
@@ -254,25 +312,44 @@ const dispose = permissions.registerToolAccessExtractor("ffgrep", (input) =>
 Registration rules mirror `registerToolInputFormatter`: one extractor per tool name (a second `register` for the same name throws), and the returned disposer is identity-guarded.
 The extractor must not throw — guard your parsing and return `undefined` on anything unexpected.
 
+#### `getToolAccessExtractor` and `getToolInputFormatter`
+
+Read back what a node has registered for a tool.
+
+```typescript
+getToolAccessExtractor(toolName: string): ToolAccessExtractor | undefined;
+getToolInputFormatter(toolName: string): ToolInputFormatter | undefined;
+```
+
+These are the read face of the two **fact-shaping** registries, and unlike every other surface here they are meant to be read across a node boundary.
+An extractor produces a fact about a call (the path it touches) and a formatter produces display text; neither decides anything, so a node whose own registry has no entry may resolve an ancestor's service and use its answer.
+The permission system does exactly that internally: a subagent child that is missing an extractor for a tool falls back to its ancestors in the same process, so excluding an extractor's provider from child sessions cannot leave that tool's path invisible to the child's gates ([ADR 0012] decision 1, the fact-shaping clause).
+
+There is deliberately **no** equivalent reader for `registerAuthorizer`.
+A chain link returns a verdict, and live authority converges at the adjudicating node ([ADR 0007] §7) — inheriting one would run authority an operator's own extension exclusion removed.
+
 #### Subagent session registration
 
-In-process subagent registration is event-driven.
-`@gotgenes/pi-subagents` emits `subagents:child:session-created` before `bindExtensions()` and `subagents:child:disposed` in the run's `finally`; the permission system subscribes automatically — no service call from the spawner is required.
-See [Subagent Integration](subagent-integration.md) for details.
+Subagent registration is announcement-driven, and the spawner makes no service call.
+The channel names, payload shapes, pre-bind ordering, and the out-of-process environment variable are specified by the subagent adapter convention in [Subagent Integration](subagent-integration.md#the-subagent-adapter-convention).
 
 ### Reload Safety
 
 During `/reload`, all extensions re-initialize.
-The permission-system re-publishes a fresh service at `session_start`; teardown is identity-scoped, so a superseded generation's shutdown only clears the slot when it still owns it and cannot wipe the new service.
+The permission-system re-publishes a fresh service at `session_start`; teardown is identity-scoped for both slots, so a superseded generation's shutdown only removes an entry it still owns and cannot wipe the new service.
 Consumers that re-initialize during reload naturally get the new instance.
 
-Best practice: call `getPermissionsService()` per use rather than caching the reference.
+Best practice: resolve the service per use rather than caching the reference.
 
 ### Graceful Degradation
 
-`getPermissionsService()` returns `undefined` when the permission-system extension has not loaded (or has been unloaded).
+`getPermissionsService(sessionId)` returns `undefined` when the permission-system extension has not loaded into that node (or has been unloaded).
 The `import()` throws if the package is not installed.
 Wrap both in `try/catch` + `if` guard as shown in the Quick Start example.
+
+It also returns `undefined` when called with no session id at all — a shape TypeScript rejects but JavaScript reaches — rather than guessing a node, since answering with another node's service is the defect the keyed locator exists to prevent.
+That call emits a once-guarded Node warning (code `PI_PERMISSION_SYSTEM_WARN0001`), because the guard above turns the missing service into a registration that silently never happens.
+It is deliberately not a `DeprecationWarning`: `--no-deprecation` does not silence it.
 
 ---
 
@@ -284,22 +361,17 @@ The extension also emits events on Pi's `pi.events` bus so other extensions can 
 
 Fields may be added to any payload, but existing fields will not be removed or renamed without a semver-major version bump.
 The broadcast contract is defined by the published TypeScript types plus package semver — broadcast payloads (`permissions:ready`, `permissions:ui_prompt`, `permissions:decision`) carry no `protocolVersion`.
-The `PERMISSIONS_PROTOCOL_VERSION` constant is exported from `src/permission-events.ts` and embedded only in the RPC reply envelope, where per-call request/reply negotiation is load-bearing.
 Consumers should read broadcast payloads defensively (field-presence checks) rather than version-gating — that is robust to any shape skew between independently-versioned sibling extensions.
 
 All three broadcasts are best-effort: a throwing listener cannot block permission handling, session startup, or gate resolution.
 
 ## Channel Reference
 
-| Channel                                    | Direction | When                              | Payload type                                      |
-| ------------------------------------------ | --------- | --------------------------------- | ------------------------------------------------- |
-| `permissions:ready`                        | Broadcast | At `session_start`, after publish | `PermissionsReadyEvent`                           |
-| `permissions:ui_prompt`                    | Broadcast | Before active UI prompt           | `PermissionUiPromptEvent`                         |
-| `permissions:decision`                     | Broadcast | After every gate resolution       | `PermissionDecisionEvent`                         |
-| `permissions:rpc:check`                    | Request   | On-demand                         | `PermissionsCheckRequest`                         |
-| `permissions:rpc:check:reply:<requestId>`  | Reply     | After each check request          | `PermissionsRpcReply<PermissionsCheckReplyData>`  |
-| `permissions:rpc:prompt`                   | Request   | On-demand                         | `PermissionsPromptRequest`                        |
-| `permissions:rpc:prompt:reply:<requestId>` | Reply     | After prompt is resolved          | `PermissionsRpcReply<PermissionsPromptReplyData>` |
+| Channel                 | Direction | When                                                                                                  | Payload type              |
+| ----------------------- | --------- | ----------------------------------------------------------------------------------------------------- | ------------------------- |
+| `permissions:ready`     | Broadcast | At each node's `session_start` after that node publishes, and again at its first `before_agent_start` | `PermissionsReadyEvent`   |
+| `permissions:ui_prompt` | Broadcast | Before active UI prompt                                                                               | `PermissionUiPromptEvent` |
+| `permissions:decision`  | Broadcast | After every gate resolution                                                                           | `PermissionDecisionEvent` |
 
 ---
 
@@ -310,10 +382,18 @@ This event is for integrations such as notification extensions that should alert
 It is not a generic "permission request entered waiting state" event, and it does not imply the prompt will be approved.
 Policy decisions that resolve without an active UI prompt, such as `policy_allow`, `policy_deny`, `session_approved`, `infrastructure_auto_allowed`, or `auto_approved`, do not emit this event.
 Non-UI child sessions also do not emit this event when they create a forwarded permission request; the parent UI session emits it immediately before showing the forwarded permission dialog.
-Forwarded prompts are not degraded: the parent emits the child's original `source` and the same `surface`/`value` display projection, plus a populated `forwarding` context identifying the requesting subagent.
+A forwarded request the parent's own recorded policy decides (a matching `allow` or `deny`) is answered without a prompt and emits no event; the event fires only when the parent is actually about to ask the human.
+The matching terminal `permissions:decision` is emitted in the parent session too, so a consumer that reacts to this event has a signal on the same bus telling it the prompt is over.
+Asks are presented one at a time: the host holds a single inline dialog slot, so a session that raises a second ask while one is still open queues it rather than mounting over the first.
+The event marks the moment the queued ask is presented, not the moment it was raised, which is what keeps "the user needs to respond now" true for a consumer that alerts on it.
+Forwarded prompts that do reach the human are not degraded: the parent emits the child's original `source` and the same `surface`/`value` display projection, plus a populated `forwarding` context identifying the requesting subagent.
 
 The payload is lean by design — `surface`/`value` are the normalized display projection a notification consumer reads, not a mirror of the internal review log.
 Read defensively rather than version-gating: broadcast payloads carry no `protocolVersion`.
+
+The event carries no assembled sentence.
+It carries `request`, the permission ask's invariant core, verbatim from the prompt payload — no evidence and no annotations.
+The bus is the narrowest renderer: any loaded extension can observe it without the operator having named that extension, whereas every other route to an ask's evidence requires that consent (a registered tool-input formatter, or an `Authorizer` link the operator lists in `authorizerChain`).
 
 ```typescript
 import type { PermissionUiPromptEvent } from "@gotgenes/pi-permission-system";
@@ -321,27 +401,49 @@ import type { PermissionUiPromptEvent } from "@gotgenes/pi-permission-system";
 pi.events.on("permissions:ui_prompt", (raw) => {
   const event = raw as PermissionUiPromptEvent;
   // Defensive read: tolerate any shape skew between sibling extensions.
-  if (typeof event.value !== "string" && typeof event.message !== "string") {
+  if (typeof event.value !== "string") {
     return;
   }
-  notify(event.surface, event.value, event.message);
-  // e.g. "bash" "git push" "Allow git push?"
+  notify(event.surface, event.value, event.request.matchedPattern);
+  // e.g. "bash" "git push" "git *"
 });
 ```
 
 ### Payload Fields
 
-| Field        | Type                             | Description                                                                      |
-| ------------ | -------------------------------- | -------------------------------------------------------------------------------- |
-| `requestId`  | `string`                         | Unique ID for the permission request being prompted                              |
-| `source`     | `PermissionUiPromptSource`       | Prompt origin: `"tool_call"`, `"skill_input"`, `"skill_read"`, or `"rpc_prompt"` |
-| `surface`    | `string \| null`                 | Normalized display surface (e.g. `"bash"`, `"skill"`), when known                |
-| `value`      | `string \| null`                 | Normalized display value (command, path, skill name, etc.), when known           |
-| `agentName`  | `string \| null`                 | Active/requesting agent name, when known                                         |
-| `message`    | `string`                         | Message displayed in the permission prompt                                       |
-| `forwarding` | `ForwardedPromptContext \| null` | Forwarding context, or `null` for a direct prompt                                |
+| Field        | Type                             | Description                                                             |
+| ------------ | -------------------------------- | ----------------------------------------------------------------------- |
+| `requestId`  | `string`                         | Id of the permission request being prompted, minted when it was created |
+| `source`     | `PermissionUiPromptSource`       | Prompt origin: `"tool_call"`, `"skill_input"`, or `"skill_read"`        |
+| `surface`    | `string \| null`                 | Normalized display surface (e.g. `"bash"`, `"skill"`), when known       |
+| `value`      | `string \| null`                 | Normalized display value (command, path, skill name, etc.), when known  |
+| `agentName`  | `string \| null`                 | Active/requesting agent name, when known                                |
+| `request`    | `PromptRequestFacts`             | The ask's invariant core — no evidence, no annotations                  |
+| `forwarding` | `ForwardedPromptContext \| null` | Forwarding context, or `null` for a direct prompt                       |
 
 Forwarding is orthogonal to origin: a forwarded subagent prompt keeps its original `source` and is identified by a non-null `forwarding` field, not by a dedicated source value.
+
+#### `PromptRequestFacts`
+
+The facts every render of the ask shows, that no renderer's budget may elide.
+Nested rather than flattened so the event and the prompt payload share one shape: a fact added here reaches the bus without a second hand-maintained declaration.
+
+| Field             | Type                         | Description                                                                                      |
+| ----------------- | ---------------------------- | ------------------------------------------------------------------------------------------------ |
+| `requester`       | `PromptRequester`            | Who is asking, and whether the ask arrived from a subagent                                       |
+| `surface`         | `string`                     | The **gate** surface the rule fired on — `"external_directory"`, `"path"`, `"bash"`, a tool name |
+| `toolName`        | `string \| null`             | The gated tool name; `null` when the ask is not tool-shaped                                      |
+| `invokedToolName` | `string \| null`             | The invoked name when a shell alias re-exposes bash under another name                           |
+| `value`           | `string`                     | The decision-relevant value: the command, path, MCP target, or skill name                        |
+| `matchedPattern`  | `string \| null`             | The matched rule, including a sentinel such as `<indirection-bash-wrapper>`                      |
+| `commandContext`  | `BashCommandContext \| null` | Where the offending bash unit runs, when it came from a substitution or subshell                 |
+| `executedUnit`    | `string \| null`             | For bash, the unit that will actually run, including inside an unstrippable wrapper              |
+
+`PromptRequester` carries `agentName` (`string | null`), `forwarded` (`boolean`), and `sessionId` (`string | null`, the requesting session for a forwarded ask).
+
+The top-level `surface` and `request.surface` are two different facts and both belong on the event.
+The top-level one is the **display** projection — the child's tool name, what a notification shows.
+`request.surface` is the **gate** surface the rule fired on: a `read` of a path outside the working directory displays as `"read"` and gates on `"external_directory"`.
 
 #### `ForwardedPromptContext`
 
@@ -362,9 +464,22 @@ The stability guarantee is additive, so any can be reintroduced in a later minor
 Every permission gate resolution emits a `permissions:decision` event, regardless of outcome.
 This is useful for dashboards, telemetry, or audit overlays.
 
+A session serving another session's forwarded request emits one too, on its own bus, for every forwarded ask it escalates.
+That is what makes a forwarded prompt clearable: the ask is gated in the requesting session — a different process for an out-of-process subagent — so without it the serving session broadcasts a `permissions:ui_prompt` whose outcome never appears.
+A forwarded request the serving session's own policy allows or denies is answered without a prompt and broadcasts nothing, matching the UI-prompt channel.
+A served decision carries a non-null `forwarding` context; the requesting session still emits its own decision when the answer comes back.
+That requesting-side decision is attributed to whatever decided **inside** the responding session: a rule there reports `policy_allow` / `policy_deny`, a chain link reports `authorizer_allowed` / `authorizer_denied`, and a human there reports `user_approved` / `user_denied`.
+The `resolution` names what decided, never where.
+
+The `requestId` is the same id the request's review-log entries carry, and the same one `permissions:ui_prompt` carried if the request reached a prompt — so a prompt and its outcome are joinable, as are two concurrent prompts for the same command.
+A request that reaches a prompt is answered by exactly one terminal event on that prompt's own bus, including when the dialog itself fails.
+It identifies a permission _request_, not a tool call: one tool call runs several gates and so raises several requests, each with its own id.
+Use the review log's `toolCallId` to join back to the Pi transcript.
+
 ```typescript
 pi.events.on("permissions:decision", (raw) => {
-  const event = raw as import("@gotgenes/pi-permission-system").PermissionDecisionEvent;
+  const event =
+    raw as import("@gotgenes/pi-permission-system").PermissionDecisionEvent;
   console.log(event.surface, event.result, event.resolution);
   // e.g. "bash" "allow" "user_approved_for_session"
 });
@@ -372,15 +487,17 @@ pi.events.on("permissions:decision", (raw) => {
 
 ### Payload Fields
 
-| Field            | Type                | Description                                                                               |
-| ---------------- | ------------------- | ----------------------------------------------------------------------------------------- |
-| `surface`        | `string`            | Permission surface (`"bash"`, `"read"`, `"mcp"`, `"skill"`, `"external_directory"`, etc.) |
-| `value`          | `string`            | Value evaluated (command, tool name, skill name, path)                                    |
-| `result`         | `"allow" \| "deny"` | Final outcome                                                                             |
-| `resolution`     | `string`            | How the outcome was reached (see table below)                                             |
-| `origin`         | `string \| null`    | Config scope that contributed the winning rule                                            |
-| `agentName`      | `string \| null`    | Active agent name when known                                                              |
-| `matchedPattern` | `string \| null`    | Pattern from the winning rule                                                             |
+| Field            | Type                                        | Description                                                                                           |
+| ---------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `requestId`      | `string`                                    | Id of the permission request this decision resolves                                                   |
+| `surface`        | `string`                                    | Permission surface (`"bash"`, `"read"`, `"mcp"`, `"skill"`, `"external_directory"`, etc.)             |
+| `value`          | `string`                                    | Value evaluated (command, tool name, skill name, path)                                                |
+| `result`         | `"allow" \| "deny"`                         | Final outcome                                                                                         |
+| `resolution`     | `string`                                    | How the outcome was reached (see table below)                                                         |
+| `origin`         | `string \| null`                            | Config scope that contributed the winning rule                                                        |
+| `agentName`      | `string \| null`                            | Active agent name when known                                                                          |
+| `matchedPattern` | `string \| null`                            | Pattern from the winning rule                                                                         |
+| `forwarding`     | `ForwardedPromptContext \| null` (optional) | Requesting subagent, on a decision made while serving a forwarded request; absent on a local decision |
 
 ### Resolution Values
 
@@ -393,129 +510,94 @@ pi.events.on("permissions:decision", (raw) => {
 | `user_approved`               | User approved once via dialog                                        |
 | `user_approved_for_session`   | User approved for the rest of the session                            |
 | `user_denied`                 | User denied via dialog                                               |
+| `authorizer_allowed`          | A registered `authorizerChain` link granted the ask — no human asked |
+| `authorizer_denied`           | A registered `authorizerChain` link refused the ask — no human asked |
 | `auto_approved`               | Yolo mode — approved automatically without dialog                    |
 | `confirmation_unavailable`    | State was `ask` but no UI was available — blocked                    |
+| `gate_error`                  | The gate threw, or an escalation failed — blocked, fail-closed       |
 
----
+### Recipe: bridging a prompt to an external notifier
 
-## Policy Query RPC (deprecated)
+This extension can ring the terminal itself (`promptNotifications` in [configuration.md](configuration.md#terminal-notifications)).
+Anything beyond that (running a program, reporting to a session manager such as Herdr, calling `cmux notify`, pushing to a phone) belongs in a small extension of your own that listens to the two broadcasts.
+This package does not emit another tool's events itself: an outbound bridge would tie it to that tool's contract, where a listener leaves both sides free to change.
 
-> **Deprecated**: prefer the [Service Accessor](#service-accessor) above.
-> The event-bus RPC remains available as a zero-dependency fallback.
-
-Other extensions can evaluate the current permission policy without importing this package.
-The call is synchronous-style: emit a request, listen on a scoped reply channel.
+The two channels pair up by `requestId`.
+`permissions:ui_prompt` means the human is being asked right now, and the `permissions:decision` carrying the same `requestId` means that prompt is over, however it ended.
+Track the open ids rather than a counter or a boolean: several prompts can be pending at once (queued in one session, or forwarded from subagents), and a decision for a request that never prompted must not clear anything.
 
 ```typescript
-const requestId = crypto.randomUUID();
+import type {
+  PermissionDecisionEvent,
+  PermissionUiPromptEvent,
+} from "@gotgenes/pi-permission-system";
 
-// Listen for the reply first
-const unsub = pi.events.on(
-  `permissions:rpc:check:reply:${requestId}`,
-  (raw) => {
-    unsub();
-    const reply = raw as import("@gotgenes/pi-permission-system").PermissionsRpcReply<
-      import("@gotgenes/pi-permission-system").PermissionsCheckReplyData
-    >;
-    if (reply.success) {
-      console.log(reply.data?.result); // "allow" | "deny" | "ask"
-    }
-  },
-);
+const open = new Set<string>();
 
-// Then emit the request
-pi.events.emit("permissions:rpc:check", {
-  requestId,
-  surface: "bash",
-  value: "git push",
-  agentName: "Worker", // optional
+pi.events.on("permissions:ui_prompt", (raw) => {
+  const { requestId } = raw as PermissionUiPromptEvent;
+  if (open.size === 0) markBlocked(); // e.g. herdr:blocked { active: true }
+  open.add(requestId);
+});
+
+pi.events.on("permissions:decision", (raw) => {
+  const { requestId } = raw as PermissionDecisionEvent;
+  if (!open.delete(requestId)) return; // decided without a prompt
+  if (open.size === 0) clearBlocked(); // e.g. herdr:blocked { active: false }
 });
 ```
 
-If the extension is not loaded, no reply arrives.
-Callers should implement a timeout and treat no-reply as `deny` (graceful degradation).
-
-### Request Fields
-
-| Field       | Required | Description                                                |
-| ----------- | -------- | ---------------------------------------------------------- |
-| `requestId` | Yes      | Unique string; scopes the reply channel                    |
-| `surface`   | Yes      | Permission surface to evaluate                             |
-| `value`     | No       | Value to evaluate (command, name, path); defaults to `"*"` |
-| `agentName` | No       | Agent name for per-agent policy resolution                 |
-
-### Reply Data Fields (`PermissionsCheckReplyData`)
-
-| Field            | Type                         | Description                                      |
-| ---------------- | ---------------------------- | ------------------------------------------------ |
-| `result`         | `"allow" \| "deny" \| "ask"` | Policy decision (including active session rules) |
-| `matchedPattern` | `string \| null`             | Matched rule pattern                             |
-| `origin`         | `string \| null`             | Config scope of the winning rule                 |
-
----
-
-## Prompt Forwarding RPC
-
-In-process child sessions (e.g. tintinweb/pi-subagents running via `createAgentSession()`) cannot use file-based permission forwarding because no child process is spawned.
-They can instead forward permission prompts to the parent session's UI via this RPC.
-
-```typescript
-const requestId = crypto.randomUUID();
-
-const unsub = pi.events.on(
-  `permissions:rpc:prompt:reply:${requestId}`,
-  (raw) => {
-    unsub();
-    const reply = raw as import("@gotgenes/pi-permission-system").PermissionsRpcReply<
-      import("@gotgenes/pi-permission-system").PermissionsPromptReplyData
-    >;
-    if (reply.success && reply.data?.approved) {
-      // proceed
-    } else {
-      // deny — either user denied or no UI was available (error: "no_ui")
-    }
-  },
-);
-
-pi.events.emit("permissions:rpc:prompt", {
-  requestId,
-  surface: "bash",
-  value: "rm -rf /tmp/build",
-  message: "Allow rm -rf /tmp/build?",
-  agentName: "Explore",      // optional
-  sessionLabel: "Allow rm *", // optional — label for the "for this session" option
-});
-```
-
-The handler replies with `{ success: false, error: "no_ui" }` when no interactive session is available.
-
-### Successful Reply Fields
-
-| Field          | Type                | Description                                                                   |
-| -------------- | ------------------- | ----------------------------------------------------------------------------- |
-| `approved`     | `boolean`           | Whether the user approved                                                     |
-| `state`        | `string`            | `"approved"`, `"approved_for_session"`, `"denied"`, or `"denied_with_reason"` |
-| `denialReason` | `string` (optional) | User-provided denial reason                                                   |
+Both events fire on the bus of the session that shows the prompt, including the parent session that shows a forwarded subagent ask, so the listener belongs in whichever session holds the UI.
 
 ---
 
 ## Ready Event
 
-The extension emits `permissions:ready` at `session_start`, right after the service is published — so a consumer reacting to it can immediately resolve `getPermissionsService()`.
-It fires once per `session_start` (including `/reload`).
-Consumers that start after the extension can check via a ping-style RPC check — the `permissions:rpc:check` handler is active as long as the extension is loaded.
+Each node emits `permissions:ready` at its own `session_start`, right after publishing its service — so a consumer reacting to it can immediately resolve that node's service.
+It emits again at that node's first `before_agent_start`, which runs after every extension's `session_start` and before any tool call, hence before any permission prompt.
 
-The payload is intentionally empty (`Record<string, never>`): the channel is a pure readiness signal.
-It carries no `protocolVersion` — version negotiation lives in the RPC reply envelope, and the broadcast contract is defined by the published types plus package semver.
+So the channel's contract is: **fires at least once per session, and may repeat.**
+A handler must be idempotent.
+That guarantee is what makes the ready event alone a sufficient registration site: a consumer that needs its own config before it can register no longer has to attempt registration from `session_start` as well, hoping one of the two orderings completes the pair.
+A new session generation (`/reload`, `/new`, `/resume`) starts the cycle over: one emission at `session_start`, one at the first turn that follows.
+
+Guard your registration on the disposer you stored, as the example below does.
+An unguarded handler that calls `registerAuthorizer`, `registerToolInputFormatter`, or `registerToolAccessExtractor` on every emission hits the duplicate-registration throw on the second one.
+That throw is caught by Pi's event bus and reported on stderr — your first registration stays live — but the noise is avoidable, and it was already reachable before the latch existed, since `/reload` re-runs `session_start`.
+
+The payload carries plain facts about the node that emitted it, never a live capability: the bus announces, the locator provides.
+It carries no `protocolVersion` — the broadcast contract is defined by the published types plus package semver.
+
+| Field                | Type             | Meaning                                                                                                                                                               |
+| -------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sessionId`          | `string \| null` | The emitting node's session id — the key for `getPermissionsService`. `null` when the host exposed no session id, in which case that node published no keyed service. |
+| `adjudicatesLocally` | `boolean`        | Whether this node's authorizer chain runs, or the node relays its asks to a serving node that runs _its_ chain over the same facts.                                   |
 
 ```typescript
-pi.events.on("permissions:ready", () => {
+let dispose: (() => void) | undefined;
+
+pi.events.on("permissions:ready", (data) => {
+  const { sessionId } = data as PermissionsReadyEvent;
+  // Idempotent: ready may repeat, so a second emission must be a no-op.
+  if (dispose || !sessionId) return;
   void (async () => {
-    const { getPermissionsService } = await import(
-      "@gotgenes/pi-permission-system"
-    );
-    const permissions = getPermissionsService();
-    // The service is published just before this fires — resolve it now.
+    const { getPermissionsService } =
+      await import("@gotgenes/pi-permission-system");
+    const permissions = getPermissionsService(sessionId);
+    // This node published before the event fired — resolve and register now.
+    dispose = permissions?.registerAuthorizer("my-link", authorize);
   })();
 });
+
+pi.on("session_shutdown", () => {
+  dispose?.();
+  dispose = undefined;
+});
 ```
+
+A registration needs no branch on `adjudicatesLocally`.
+Formatters and access extractors are read by every node's own gates, and a chain link registered on a relaying node is accepted (its disposer works) and recorded in the review log as `authorizer_link_vacant` rather than refused — so registering everywhere is the correct default.
+Registering on _every_ node also stays the best practice for a formatter or extractor provider: the ancestor fallback is a repair for a node that could not register, not a reason to register in one place on purpose.
+
+[ADR 0007]: https://github.com/gotgenes/pi-packages/blob/main/packages/pi-permission-system/docs/decisions/0007-model-judge-authorizer-chain-adr.md
+[ADR 0012]: https://github.com/gotgenes/pi-packages/blob/main/packages/pi-permission-system/docs/decisions/0012-cross-node-extension-contract.md

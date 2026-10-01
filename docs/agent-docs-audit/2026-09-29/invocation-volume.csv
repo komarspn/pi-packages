@@ -1,0 +1,17 @@
+kind,file,words,invocations,volume
+template,plan-issue.md,6272,84,526848
+agent,pre-completion-reviewer.md,2816,116,326656
+template,retro.md,2607,86,224202
+template,ship.md,3715,60,222900
+template,tdd-plan.md,2542,75,190650
+agent,tidy-first-assessor.md,1551,76,117876
+template,sync-worktree.md,1069,65,69485
+template,triage-backlog.md,3208,5,16040
+template,pr-review.md,2119,6,12714
+template,build-plan.md,1469,7,10283
+template,plan-improvements.md,4384,2,8768
+template,finish-phase.md,3051,2,6102
+template,audit-agent-docs.md,2730,1,2730
+template,retro-note.md,334,4,1336
+agent,craftsmanship-scout.md,1193,1,1193
+template,ship-no-issue.md,544,0,0

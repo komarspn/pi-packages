@@ -6,9 +6,13 @@
  */
 
 import type { TranscriptEntry } from "./format-transcript.js";
+import { BRANCH_MARKER_TYPE } from "./session-tree.js";
 
 export interface SessionSummary {
-  /** Total number of entries in the (already filtered/limited) array. */
+  /**
+   * Total number of session entries in the (already filtered/limited) array.
+   * Synthetic branch markers are not session entries and are not counted.
+   */
   totalEntries: number;
   /** user + assistant conversation turns. */
   messages: number;
@@ -26,12 +30,15 @@ export interface SessionSummary {
  * apply `types`/`limit` itself.
  */
 export function summarizeEntries(entries: TranscriptEntry[]): SessionSummary {
+  let totalEntries = 0;
   let messages = 0;
   let toolCalls = 0;
   let compactions = 0;
   let modelChanges = 0;
 
   for (const entry of entries) {
+    if (entry.type === BRANCH_MARKER_TYPE) continue;
+    totalEntries++;
     if (entry.type === "compaction") {
       compactions++;
       continue;
@@ -68,7 +75,7 @@ export function summarizeEntries(entries: TranscriptEntry[]): SessionSummary {
   }
 
   return {
-    totalEntries: entries.length,
+    totalEntries,
     messages,
     toolCalls,
     compactions,

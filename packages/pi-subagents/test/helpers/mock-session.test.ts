@@ -51,6 +51,19 @@ describe("createMockSession", () => {
 		expect(session.steer).toHaveBeenCalledWith("hello");
 	});
 
+	it("reports that the child has extension handlers by default", () => {
+		const session = createMockSession();
+		expect(session.hasExtensionHandlers("session_shutdown")).toBe(true);
+	});
+
+	it("extensionRunner.emit is a vi.fn stub that resolves to undefined", async () => {
+		const session = createMockSession();
+		const event = { type: "session_shutdown", reason: "quit" };
+		const result = await session.extensionRunner.emit(event);
+		expect(result).toBeUndefined();
+		expect(session.extensionRunner.emit).toHaveBeenCalledWith(event);
+	});
+
 	it("sessionManager.getSessionFile is a vi.fn stub", () => {
 		const session = createMockSession();
 		session.sessionManager.getSessionFile();

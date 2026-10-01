@@ -18,10 +18,11 @@ describe("createSubagentSessionIO", () => {
 		expect(typeof io.createSession).toBe("function");
 	});
 
-	it("assemblerIO has buildAgentPrompt only", () => {
+	it("assemblerIO has the production interface's methods only", () => {
 		const io = createSubagentSessionIO();
 		expect(typeof io.assemblerIO.buildAgentPrompt).toBe("function");
-		expect(Object.keys(io.assemblerIO)).toEqual(["buildAgentPrompt"]);
+		expect(typeof io.assemblerIO.loadProjectContext).toBe("function");
+		expect(Object.keys(io.assemblerIO)).toEqual(["buildAgentPrompt", "loadProjectContext"]);
 	});
 
 	it("assemblerIO defaults return sensible stub values", () => {
@@ -50,7 +51,11 @@ describe("createSubagentSessionIO", () => {
 	it("assemblerIO methods can be configured after creation", () => {
 		const io = createSubagentSessionIO();
 		io.assemblerIO.buildAgentPrompt.mockReturnValue("custom prompt");
-		const result = io.assemblerIO.buildAgentPrompt({}, "/cwd", {});
+		const result = io.assemblerIO.buildAgentPrompt(
+			{ name: "Explore", systemPrompt: "", promptMode: "replace" },
+			"/cwd",
+			{ isGitRepo: false, branch: "", platform: "linux" },
+		);
 		expect(result).toBe("custom prompt");
 	});
 
@@ -69,10 +74,10 @@ describe("createAgentLookup", () => {
 		expect(config.promptMode).toBe("replace");
 	});
 
-	it("default config builtinToolNames includes 'read'", () => {
+	it("default config toolNames includes 'read'", () => {
 		const lookup = createAgentLookup();
 		const config = lookup.resolveAgentConfig("Explore");
-		expect(config.builtinToolNames).toContain("read");
+		expect(config.toolNames).toContain("read");
 	});
 
 	it("getToolNamesForType returns ['read'] by default", () => {
@@ -111,27 +116,11 @@ describe("createFactorySession", () => {
 		expect(typeof session.bindExtensions).toBe("function");
 	});
 
-	it("getActiveToolNames defaults to ['read'] before and after bind", async () => {
+	it("getActiveToolNames returns ['read'] before and after bind", async () => {
 		const session = createFactorySession();
 		expect(session.getActiveToolNames()).toEqual(["read"]);
 		await session.bindExtensions();
 		expect(session.getActiveToolNames()).toEqual(["read"]);
-	});
-
-	it("flips getActiveToolNames from before-bind to after-bind set", async () => {
-		const session = createFactorySession({
-			toolsBeforeBind: ["read"],
-			toolsAfterBind: ["read", "extension_tool"],
-		});
-		expect(session.getActiveToolNames()).toEqual(["read"]);
-		await session.bindExtensions();
-		expect(session.getActiveToolNames()).toEqual(["read", "extension_tool"]);
-	});
-
-	it("defaults toolsAfterBind to toolsBeforeBind when omitted", async () => {
-		const session = createFactorySession({ toolsBeforeBind: ["read", "grep"] });
-		await session.bindExtensions();
-		expect(session.getActiveToolNames()).toEqual(["read", "grep"]);
 	});
 
 	it("stubs retain Mock methods (vi.fn())", () => {

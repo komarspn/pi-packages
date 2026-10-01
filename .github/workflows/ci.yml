@@ -9,13 +9,13 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -28,11 +28,21 @@ jobs:
       - name: Verify public types are consumable from the package
         run: pnpm --filter @gotgenes/pi-subagents run verify:public-types
 
+      - name: Check permission-system public types
+        run: >-
+          pnpm --filter @komarspn/pi-permission-system run verify:public-types
+
       - name: Lint
         run: pnpm run lint
 
       - name: Test
-        run: pnpm -r run test
+        run: pnpm run test
+
+      # Runs on its own, after the concurrent workspace suite. These tests spawn
+      # the real `pi` CLI, and doing so alongside eight other packages' vitest
+      # processes is what made them flake (#678).
+      - name: Real-CLI acceptance tests (pi-autoformat)
+        run: pnpm --filter @gotgenes/pi-autoformat run test:acceptance
 
       - name: Fallow audit
         if: github.event_name == 'pull_request'
@@ -46,46 +56,3 @@ jobs:
         if: github.ref == 'refs/heads/main'
         continue-on-error: true
         run: pnpm fallow
-
-  release-please:
-    needs: [check]
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-    outputs:
-      releases_created: ${{ steps.release.outputs.releases_created }}
-      releases: ${{ toJSON(steps.release.outputs) }}
-    steps:
-      - uses: googleapis/release-please-action@v5
-        id: release
-        with:
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-
-  publish:
-    needs: release-please
-    if: needs.release-please.outputs.releases_created == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          registry-url: "https://registry.npmjs.org"
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: Publish released packages
-        env:
-          RELEASES: ${{ needs.release-please.outputs.releases }}
-        run: ./scripts/publish-released.sh

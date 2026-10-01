@@ -2,13 +2,35 @@
  * types.ts — Type definitions for the subagent system.
  */
 
-import type { ThinkingLevel } from "@earendil-works/pi-ai";
+import type { Model } from "@earendil-works/pi-ai";
 import type { AgentSessionEvent, SessionContext as SdkSessionContext } from "@earendil-works/pi-coding-agent";
+import type { LockDeclaration } from "#src/config/invocation-config";
+import type { SubagentThinkingLevel } from "#src/config/thinking-level";
 import type { ModelRegistry } from "#src/session/model-resolver";
 
 
+export type { SteerOutcome } from "#src/lifecycle/subagent";
 export { Subagent } from "#src/lifecycle/subagent";
-export type { AgentSessionEvent, ThinkingLevel };
+export type { AgentSessionEvent };
+
+/**
+ * The thinking levels this package accepts.
+ *
+ * Wider than pi-ai's `ThinkingLevel`, which omits `off` — Pi honors it, and agent
+ * frontmatter has always documented it.
+ */
+export type ThinkingLevel = SubagentThinkingLevel;
+
+/**
+ * How a child adopts its parent's prompt as its own identity.
+ *
+ * `full` embeds the parent's assembled prompt minus Pi's per-session layers —
+ * a leading prefix the child shares with its parent (ADR 0006, ADR 0008).
+ * `portable` embeds only the parent's operator-authored parts, for a child
+ * whose provider re-homes the prompt into another harness that supplies its
+ * own base (ADR 0009).
+ */
+export type PromptInheritance = "full" | "portable";
 
 /**
  * One message in a child session's history, typed from Pi's `SessionContext`.
@@ -47,7 +69,8 @@ export interface AgentPromptConfig {
 
 /** Unified agent configuration — used for both default and user-defined agents. */
 export interface AgentConfig extends AgentIdentity, AgentPromptConfig {
-  builtinToolNames?: string[];
+  /** The agent's tool allowlist. Entries name built-in or extension-registered tools; omitted means every built-in. */
+  toolNames?: string[];
   model?: string;
   thinking?: ThinkingLevel;
   maxTurns?: number;
@@ -55,6 +78,10 @@ export interface AgentConfig extends AgentIdentity, AgentPromptConfig {
   inheritContext?: boolean;
   /** Default for spawn: run in background. undefined = caller decides. */
   runInBackground?: boolean;
+  /** Fields a `subagent` tool caller may not override. Omitted — every field is overridable. */
+  locked?: LockDeclaration;
+  /** One-line usage guideline for the subagent tool's Guidelines: block. Omitted — no guideline line. */
+  toolGuideline?: string;
   /** true = this is an embedded default agent (informational) */
   isDefault?: boolean;
   /** false = agent is hidden from the registry */
@@ -82,8 +109,8 @@ export interface AgentInvocation {
  */
 export interface SessionContext {
   readonly cwd: string;
-  readonly model: unknown;
-  readonly modelRegistry: ModelRegistry | undefined;
+  readonly model: Model<any> | undefined;
+  readonly modelRegistry: ModelRegistry;
   getSystemPrompt(): string;
   readonly sessionManager: {
     getSessionFile(): string | undefined;
@@ -108,7 +135,7 @@ export interface ParentSessionInfo {
 	parentSessionFile?: string;
 	/** Session ID of the parent agent (stored in the child session's parentSession header). */
 	parentSessionId?: string;
-	/** Tool call ID for background notification wiring. When set, spawn attaches NotificationState. */
+	/** Tool call ID for background notification wiring. Exposed on the record via Subagent.toolCallId. */
 	toolCallId?: string;
 }
 

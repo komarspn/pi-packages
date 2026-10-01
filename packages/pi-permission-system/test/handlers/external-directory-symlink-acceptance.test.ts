@@ -13,9 +13,8 @@ import { mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-
+import { BashProgram } from "#src/access-intent/bash/program";
 import { describeBashExternalDirectoryGate } from "#src/handlers/gates/bash-external-directory";
-import { BashProgram } from "#src/handlers/gates/bash-program";
 import {
   type GateDescriptor,
   isGateBypass,
@@ -23,8 +22,10 @@ import {
 } from "#src/handlers/gates/descriptor";
 import { describeExternalDirectoryGate } from "#src/handlers/gates/external-directory";
 import type { ToolCallContext } from "#src/handlers/gates/types";
-import { PermissionResolver } from "#src/permission-resolver";
-import { SessionRules } from "#src/session-rules";
+import { pathFlavorForPlatform } from "#src/path/path-flavor";
+import { PathNormalizer } from "#src/path/path-normalizer";
+import { PermissionResolver } from "#src/policy/permission-resolver";
+import { SessionRules } from "#src/session/session-rules";
 import type { ScopeConfig } from "#src/types";
 
 import { createManager } from "#test/helpers/manager-harness";
@@ -84,7 +85,12 @@ describe("external_directory symlink acceptance (#418)", () => {
       },
     });
     try {
-      const result = describeExternalDirectoryGate(readTcc(), [], resolver);
+      const result = describeExternalDirectoryGate(
+        readTcc(),
+        [],
+        resolver,
+        new PathNormalizer(pathFlavorForPlatform(process.platform), cwd),
+      );
       expect(isGateDescriptor(result)).toBe(true);
       expect((result as GateDescriptor).preCheck?.state).toBe("allow");
     } finally {
@@ -102,7 +108,12 @@ describe("external_directory symlink acceptance (#418)", () => {
       },
     });
     try {
-      const result = describeExternalDirectoryGate(readTcc(), [], resolver);
+      const result = describeExternalDirectoryGate(
+        readTcc(),
+        [],
+        resolver,
+        new PathNormalizer(pathFlavorForPlatform(process.platform), cwd),
+      );
       expect(isGateDescriptor(result)).toBe(true);
       expect((result as GateDescriptor).preCheck?.state).toBe("allow");
     } finally {
@@ -115,7 +126,12 @@ describe("external_directory symlink acceptance (#418)", () => {
       permission: { external_directory: { "*": "ask" } },
     });
     try {
-      const result = describeExternalDirectoryGate(readTcc(), [], resolver);
+      const result = describeExternalDirectoryGate(
+        readTcc(),
+        [],
+        resolver,
+        new PathNormalizer(pathFlavorForPlatform(process.platform), cwd),
+      );
       expect(isGateDescriptor(result)).toBe(true);
       expect((result as GateDescriptor).preCheck?.state).toBe("ask");
     } finally {
@@ -138,8 +154,17 @@ describe("external_directory symlink acceptance (#418)", () => {
         toolCallId: "tc-2",
         cwd,
       };
-      const program = await BashProgram.parse(command);
-      const result = describeBashExternalDirectoryGate(tcc, program, resolver);
+      const normalizer = new PathNormalizer(
+        pathFlavorForPlatform(process.platform),
+        cwd,
+      );
+      const program = await BashProgram.parse(command, normalizer);
+      const result = describeBashExternalDirectoryGate(
+        tcc,
+        program,
+        resolver,
+        normalizer,
+      );
       // All external paths are covered by the allow → bypass, no prompt.
       expect(isGateBypass(result)).toBe(true);
     } finally {

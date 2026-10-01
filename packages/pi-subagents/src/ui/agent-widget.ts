@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-redundant-type-constituents -- Pi SDK types are not fully exported; see upstream Pi SDK for type improvements */
 /**
  * agent-widget.ts — Persistent widget showing running/completed agents above the editor.
  *
@@ -51,14 +50,30 @@ export function assembleWidgetState(
   return { runningCount, queuedCount, hasFinished, hasActive };
 }
 
+/** The slice of the TUI the widget factory callback touches. */
+export interface TuiSurface {
+  readonly terminal: { readonly columns: number; readonly rows: number };
+  requestRender(): void;
+}
+
 export type UICtx = {
   setStatus(key: string, text: string | undefined): void;
   setWidget(
     key: string,
-    content: undefined | ((tui: any, theme: Theme) => { render(): string[]; invalidate(): void }),
+    content: undefined | ((tui: TuiSurface, theme: Theme) => { render(): string[]; invalidate(): void }),
     options?: { placement?: "aboveEditor" | "belowEditor" },
   ): void;
 };
+
+/**
+ * How often the widget re-renders while a subagent animates.
+ *
+ * Pi renders the entire regular-mode component tree per request, and the widget
+ * is the only thing requesting one while the parent idles, so this is the
+ * cadence of that whole-tree walk. Deliberately slower than Pi's own `Loader`
+ * default, which pays 80 ms only during a turn the user is already watching.
+ */
+const WIDGET_UPDATE_INTERVAL_MS = 250;
 
 // ---- Widget manager ----
 
@@ -74,7 +89,7 @@ export class AgentWidget implements SubagentManagerObserver {
   /** Whether the widget callback is currently registered with the TUI. */
   private widgetRegistered = false;
   /** Cached TUI reference from widget factory callback, used for requestRender(). */
-  private tui: any | undefined;
+  private tui: TuiSurface | undefined;
   /** Last status bar text, used to avoid redundant setStatus calls. */
   private lastStatusText: string | undefined;
 
@@ -83,7 +98,7 @@ export class AgentWidget implements SubagentManagerObserver {
     private registry: AgentTypeRegistry,
   ) {}
 
-  /** Set the UI context (grabbed from first tool execution). */
+  /** Set the UI context (captured at session_start). */
   setUICtx(ctx: UICtx) {
     if (ctx !== this.uiCtx) {
       // UICtx changed — the widget registered on the old context is gone.
@@ -96,7 +111,7 @@ export class AgentWidget implements SubagentManagerObserver {
   }
 
   /**
-   * Called on each new turn (tool_execution_start).
+   * Called on each new turn (turn_start).
    * Ages finished agents and clears those that have lingered long enough.
    */
   onTurnStart() {
@@ -110,18 +125,28 @@ export class AgentWidget implements SubagentManagerObserver {
 
   // ---- SubagentManagerObserver: react to lifecycle, self-drive the timer ----
 
-  /** A subagent started running — ensure the update loop is live and render. */
+  /** A subagent started running — render, which arms the animation loop. */
   onSubagentStarted(_record: Subagent) {
-    this.startLoop();
+    this.update();
   }
 
-  /** A background subagent was created (queued) — ensure the loop is live and render. */
+  /** A background subagent was created (queued) — render so the count shows. */
   onSubagentCreated(_record: Subagent) {
-    this.startLoop();
+    this.update();
   }
 
   /** A subagent completed — render so the finished state is seeded and shown. */
   onSubagentCompleted(_record: Subagent) {
+    this.update();
+  }
+
+  /** A subagent went back to running — render, which re-arms the animation loop. */
+  onSubagentResuming(_record: Subagent) {
+    this.update();
+  }
+
+  /** A subagent finished a resume — render so the refreshed result is shown. */
+  onSubagentResumed(_record: Subagent) {
     this.update();
   }
 
@@ -130,15 +155,19 @@ export class AgentWidget implements SubagentManagerObserver {
     this.update();
   }
 
-  /** Start the update timer (if not already running) and render immediately. */
-  private startLoop() {
-    this.ensureTimer();
-    this.update();
-  }
-
-  /** Ensure the widget update timer is running. */
-  private ensureTimer() {
-    this.widgetInterval ??= setInterval(() => this.update(), 80);
+  /**
+   * Single owner of the animation timer's existence. Idempotent in both
+   * directions, so a caller states the wanted state rather than checking first.
+   */
+  private setTimerRunning(shouldRun: boolean): void {
+    if (shouldRun) {
+      this.widgetInterval ??= setInterval(() => this.update(), WIDGET_UPDATE_INTERVAL_MS);
+      return;
+    }
+    if (this.widgetInterval) {
+      clearInterval(this.widgetInterval);
+      this.widgetInterval = undefined;
+    }
   }
 
   /** Check if a finished agent should still be shown in the widget. */
@@ -153,9 +182,13 @@ export class AgentWidget implements SubagentManagerObserver {
    * Foreground runs are rendered by the `subagent` tool's inline `onUpdate` stream,
    * so funneling both `listAgents()` call sites through this accessor applies the
    * background predicate exactly once at the source.
+   *
+   * The predicate reads the record's own resolved mode. It formerly re-derived
+   * it from a per-call display snapshot only the tool door ever built — so every
+   * SDK-spawned agent was filtered out permanently (#724).
    */
   private listBackgroundAgents(): Subagent[] {
-    return this.manager.listAgents().filter(record => record.invocation?.runInBackground === true);
+    return this.manager.listAgents().filter(record => record.isBackground);
   }
 
   /** Project a live Subagent record onto a pure-data WidgetAgent snapshot. */
@@ -176,16 +209,18 @@ export class AgentWidget implements SubagentManagerObserver {
       activeTools: record.activeTools,
       responseText: record.responseText,
       contextPercent: record.getContextPercent(),
+      model: record.model,
     };
   }
 
   /** Delegate rendering to the pure widget-renderer module. */
-  private renderWidget(tui: any, theme: Theme): string[] {
+  private renderWidget(tui: TuiSurface, theme: Theme): string[] {
     return renderWidgetLines({
       agents: this.listBackgroundAgents().map(r => this.toWidgetAgent(r)),
       registry: this.registry,
       spinnerFrame: this.widgetFrame,
       terminalWidth: tui.terminal.columns,
+      terminalHeight: tui.terminal.rows,
       theme,
       shouldShowFinished: (id, status) => this.shouldShowFinished(id, status),
     });
@@ -206,7 +241,7 @@ export class AgentWidget implements SubagentManagerObserver {
       this.uiCtx!.setStatus("subagents", undefined);
       this.lastStatusText = undefined;
     }
-    if (this.widgetInterval) { clearInterval(this.widgetInterval); this.widgetInterval = undefined; }
+    this.setTimerRunning(false);
     for (const [id] of this.finishedTurnAge) {
       if (!backgroundAgents.some(a => a.id === id)) this.finishedTurnAge.delete(id);
     }
@@ -259,6 +294,11 @@ export class AgentWidget implements SubagentManagerObserver {
       return;
     }
 
+    // Only a running agent has content that changes between ticks: a finished
+    // line's duration is fixed and the queued line is a count, so animating
+    // either would ask Pi to re-render its whole component tree for a
+    // byte-identical result.
+    this.setTimerRunning(state.runningCount > 0);
     this.updateStatusBar(state);
     this.widgetFrame++;
 
@@ -283,16 +323,22 @@ export class AgentWidget implements SubagentManagerObserver {
     }
   }
 
-  // fallow-ignore-next-line unused-class-member
+  /**
+   * Release everything the widget acquired: the update interval and both
+   * registrations on the session's `UICtx`.
+   *
+   * Disposal is final. Dropping the `UICtx` makes `update()` return at its
+   * first line, so a notification arriving afterwards — the terminal transition
+   * an abort drives synchronously — cannot re-register what this released.
+   * `setUICtx()` re-arms the widget if a context ever arrives again.
+   */
   dispose() {
-    if (this.widgetInterval) {
-      clearInterval(this.widgetInterval);
-      this.widgetInterval = undefined;
-    }
+    this.setTimerRunning(false);
     if (this.uiCtx) {
       this.uiCtx.setWidget("agents", undefined);
       this.uiCtx.setStatus("subagents", undefined);
     }
+    this.uiCtx = undefined;
     this.widgetRegistered = false;
     this.tui = undefined;
     this.lastStatusText = undefined;

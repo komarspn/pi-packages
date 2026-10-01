@@ -20,7 +20,7 @@ The following concepts are shared between OpenCode and this extension:
 | Last-match-wins               | When multiple patterns match, the last one in config order wins                                                 |
 | `*` wildcard                  | Matches zero or more of any character (including path separators)                                               |
 | `?` wildcard                  | Matches exactly one character                                                                                   |
-| Home directory expansion      | `~/` and `$HOME/` expand to the OS home directory in patterns                                                   |
+| Home directory expansion      | `~/`, `$HOME/`, and `${HOME}/` expand to the OS home directory in patterns                                      |
 | `external_directory` surface  | Gates access to paths outside the working directory                                                             |
 | `bash` surface                | Command patterns matched against shell commands                                                                 |
 | `skill` surface               | Skill name patterns matched against skill invocations                                                           |
@@ -118,6 +118,7 @@ For allowlisted commands, all non-flag positional arguments are assumed to be pa
 **This extension** extracts path candidates from all commands generically, then applies additional intelligence:
 
 - A `PATTERN_FIRST_COMMANDS` map understands flag arity for `sed`, `awk`, `grep`, `rg`, and similar tools, distinguishing inline patterns/scripts from file arguments to avoid false positives.
+  The same table reads an interpreter's inline script (`node -e`, `bun --eval`, `python3 -c`, `perl -e`, `ruby -e`) as a script rather than an operand, while leaving a script *file* (`node build.js`) an operand.
 - Redirect destinations (`> /path/to/file`) are extracted.
 - Heredoc bodies, comments, and variable assignments are skipped.
 
@@ -153,7 +154,7 @@ The result is broader coverage (paths detected in any command, not just a curate
 
 ```jsonc
 {
-  "$schema": "https://raw.githubusercontent.com/gotgenes/pi-permission-system/main/schemas/permissions.schema.json",
+  "$schema": "https://raw.githubusercontent.com/gotgenes/pi-packages/main/packages/pi-permission-system/schemas/permissions.schema.json",
   "permission": {
     "*": "allow",
     "bash": {

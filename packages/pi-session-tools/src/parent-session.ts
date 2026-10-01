@@ -1,12 +1,13 @@
 /**
- * parent-session.ts — Utilities for discovering and reading parent session files.
+ * parent-session.ts — Navigates the subagent session layout in both directions.
  *
  * Subagent sessions are stored at `<parent-dir>/<parent-basename>/tasks/<child>.jsonl`.
- * This module derives the parent session file from that convention.
+ * This module derives a child's parent session file from that convention, and a
+ * session's subagent-transcripts directory from the same convention inverted.
+ * Reading the files' entries is a generic concern owned by `session-file.ts`.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { basename, dirname } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 /**
  * Derive the parent session file path from a subagent's session file.
@@ -26,37 +27,12 @@ export function deriveParentSessionFile(
   return `${parentBase}.jsonl`;
 }
 
-/** Parsed JSONL entry with at least a `type` discriminant. */
-export interface ParsedEntry {
-  type: string;
-  [key: string]: unknown;
-}
-
 /**
- * Read and parse session entries from a JSONL file.
+ * Derive the directory holding a session's subagent transcripts.
  *
- * Filters out the session header (type: "session") and returns only
- * session entries (messages, compaction, model changes, etc.).
- * Returns undefined if the file does not exist.
+ * The inverse of `deriveParentSessionFile`: the directory nests under the
+ * session file's own basename, so the same derivation applies at any depth.
  */
-export function readParentSessionEntries(
-  parentFile: string,
-): ParsedEntry[] | undefined {
-  if (!existsSync(parentFile)) return undefined;
-
-  const content = readFileSync(parentFile, "utf-8");
-  const entries: ParsedEntry[] = [];
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      const parsed = JSON.parse(trimmed) as ParsedEntry;
-      // Skip the session header
-      if (parsed.type === "session") continue;
-      entries.push(parsed);
-    } catch {
-      // Skip malformed lines
-    }
-  }
-  return entries;
+export function deriveSubagentSessionsDir(sessionFile: string): string {
+  return join(dirname(sessionFile), basename(sessionFile, ".jsonl"), "tasks");
 }

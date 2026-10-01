@@ -1,26 +1,36 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-base-to-string, @typescript-eslint/restrict-template-expressions -- Pi SDK types are not fully exported; see upstream Pi SDK for type improvements */
-import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ExtensionContext, ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { AgentTypeRegistry } from "#src/config/agent-types";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
-import type { AgentSpawnConfig } from "#src/lifecycle/subagent-manager";
+import type {
+	AgentSpawnConfig,
+	ResumeCallOptions,
+	ResumeOutcome,
+	ResumeRefusalReason,
+} from "#src/lifecycle/subagent-manager";
+import {
+	renderOutcomeAddenda,
+	renderOutcomeBody,
+	renderStatusNote,
+} from "#src/observation/outcome-delivery";
 import { spawnBackground } from "#src/tools/background-spawner";
 import { runForeground } from "#src/tools/foreground-runner";
-import { buildDetails, buildTypeListText, textResult } from "#src/tools/helpers";
+import { buildAgentGuidelines, buildDetails, buildTypeListText, textResult } from "#src/tools/helpers";
 import { renderAgentResult } from "#src/tools/result-renderer";
-import { type ModelInfo, resolveSpawnConfig } from "#src/tools/spawn-config";
+import { type ModelInfo, resolveSpawnConfig, type SpawnPresentation } from "#src/tools/spawn-config";
 import type { ParentSessionInfo, Subagent } from "#src/types";
-import { type AgentDetails, getDisplayName } from "#src/ui/display";
+import { type AgentDetails, getDisplayName, type Theme } from "#src/ui/display";
+import { GLYPHS } from "#src/ui/glyphs";
 
 // ---- Deps interfaces ----
 
 /** Narrow manager interface — only the methods the Agent tool calls. */
 export interface AgentToolManager {
 	spawn: (snapshot: ParentSnapshot, type: string, prompt: string, opts: AgentSpawnConfig) => string;
-	spawnAndWait: (snapshot: ParentSnapshot, type: string, prompt: string, opts: Omit<AgentSpawnConfig, "isBackground">) => Promise<Subagent>;
-	resume: (id: string, prompt: string, signal: AbortSignal) => Promise<Subagent | undefined>;
+	spawnAndWait: (snapshot: ParentSnapshot, type: string, prompt: string, opts: Omit<AgentSpawnConfig, "background">) => Promise<Subagent>;
+	resume: (id: string, prompt: string, options: ResumeCallOptions) => Promise<ResumeOutcome>;
 	getRecord: (id: string) => Subagent | undefined;
 }
 
@@ -42,6 +52,7 @@ export type AgentToolSettings = {
 export class AgentTool {
 	private readonly typeListText: string;
 	private readonly availableTypesText: string;
+	private readonly agentGuidelines: string[];
 
 	constructor(
 		private readonly manager: AgentToolManager,
@@ -52,14 +63,15 @@ export class AgentTool {
 	) {
 		this.typeListText = buildTypeListText(registry, agentDir);
 		this.availableTypesText = registry.getAvailableTypes().join(", ");
+		this.agentGuidelines = buildAgentGuidelines(registry);
 	}
 
 	async execute(
 		toolCallId: string,
 		params: Record<string, unknown>,
 		signal: AbortSignal | undefined,
-		onUpdate: ((update: AgentToolResult<any>) => void) | undefined,
-		_ctx: any,
+		onUpdate: ((update: AgentToolResult<AgentDetails>) => void) | undefined,
+		_ctx: ExtensionContext,
 	) {
 		// Reload custom agents so new .pi/agents/*.md files are picked up without restart
 		this.registry.reload();
@@ -80,28 +92,11 @@ export class AgentTool {
 
 		// ---- Resume existing agent ----
 		if (params.resume) {
-			const existing = this.manager.getRecord(params.resume as string);
-			if (!existing) {
-				return textResult(
-					`Agent not found: "${params.resume}". It may have been cleaned up.`,
-				);
-			}
-			if (!existing.isSessionReady()) {
-				return textResult(
-					`Agent "${params.resume}" has no active session to resume.`,
-				);
-			}
-			const record = await this.manager.resume(
+			return this.resumeExisting(
 				params.resume as string,
 				params.prompt as string,
-				signal ?? new AbortController().signal,
-			);
-			if (!record) {
-				return textResult(`Failed to resume agent "${params.resume}".`);
-			}
-			return textResult(
-				record.result?.trim() ?? record.error?.trim() ?? "No output.",
-				buildDetails(config.presentation.detailBase, record),
+				signal,
+				config.presentation.detailBase,
 			);
 		}
 
@@ -122,16 +117,60 @@ export class AgentTool {
 		);
 	}
 
+	/**
+	 * Continue an existing agent's session with a new prompt, returning its
+	 * resumed outcome directly to the parent.
+	 */
+	private async resumeExisting(
+		id: string,
+		prompt: string,
+		signal: AbortSignal | undefined,
+		detailBase: SpawnPresentation["detailBase"],
+	) {
+		// The manager owns whether a resume happens; this door owns only how the
+		// answer is worded. Resuming commits this call to delivering the outcome,
+		// so it claims it — nothing else announces what is already being returned.
+		const outcome = await this.manager.resume(id, prompt, {
+			signal: signal ?? new AbortController().signal,
+			claimOutcome: true,
+		});
+		if (outcome.kind === "refused") {
+			return textResult(resumeRefusalMessage(outcome.reason, id));
+		}
+		const record = outcome.record;
+		// Resume-return delivery edge: the resumed outcome is returned directly.
+		record.markConsumed();
+		return textResult(
+			`Agent ID: ${record.id}${renderStatusNote(record.status)}\n\n` +
+				renderOutcomeBody(record) +
+				renderOutcomeAddenda(record),
+			buildDetails(detailBase, record),
+		);
+	}
+
 	toToolDefinition() {
 		const typeListText = this.typeListText;
 		const availableTypesText = this.availableTypesText;
 		const agentDir = this.agentDir;
 		const registry = this.registry;
 
+		const guidelines = [
+			"- For parallel work, use run_in_background: true on each agent. Foreground calls run sequentially — only one executes at a time.",
+			...this.agentGuidelines,
+			"- Provide clear, detailed prompts so the agent can work autonomously.",
+			"- Subagent results are returned as text — summarize them for the user.",
+			"- Use run_in_background for work you don't need immediately. You will be notified when it completes.",
+			"- Use resume with an agent ID to continue a previous agent's work, or to answer an agent that ended its turn with a question.",
+			"- Use steer_subagent to send mid-run messages to a running background agent.",
+			'- Use model to specify a different model (as "provider/modelId", or fuzzy e.g. "haiku", "sonnet").',
+			"- Use thinking to control extended thinking level.",
+			"- Use inherit_context if the agent needs the parent conversation history.",
+		].join("\n");
+
 		return defineTool({
 			name: "subagent" as const,
 			label: "Subagent",
-			promptSnippet: "subagent: Launch a specialized agent for complex, multi-step tasks.",
+			promptSnippet: "Launch a specialized agent for complex, multi-step tasks.",
 			description: `Launch a new agent to handle complex, multi-step tasks autonomously.
 
 The subagent tool launches specialized agents that autonomously handle complex tasks. Each agent type has specific capabilities and tools available to it.
@@ -140,18 +179,7 @@ Available agent types:
 ${typeListText}
 
 Guidelines:
-- For parallel work, use run_in_background: true on each agent. Foreground calls run sequentially — only one executes at a time.
-- Use Explore for codebase searches and code understanding.
-- Use Plan for architecture and implementation planning.
-- Use general-purpose for complex tasks that need file editing.
-- Provide clear, detailed prompts so the agent can work autonomously.
-- Subagent results are returned as text — summarize them for the user.
-- Use run_in_background for work you don't need immediately. You will be notified when it completes.
-- Use resume with an agent ID to continue a previous agent's work.
-- Use steer_subagent to send mid-run messages to a running background agent.
-- Use model to specify a different model (as "provider/modelId", or fuzzy e.g. "haiku", "sonnet").
-- Use thinking to control extended thinking level.
-- Use inherit_context if the agent needs the parent conversation history.
+${guidelines}
 `,
 			parameters: Type.Object({
 				prompt: Type.String({
@@ -166,26 +194,26 @@ Guidelines:
 				model: Type.Optional(
 					Type.String({
 						description:
-							'Optional model override. Accepts "provider/modelId" or fuzzy name (e.g. "haiku", "sonnet"). Omit to use the agent type\'s default.',
+							'Optional model override. Accepts "provider/modelId" or fuzzy name (e.g. "haiku", "sonnet"). Omit to use the agent type\'s default. An agent that locks this field keeps its own model and says so in the result.',
 					}),
 				),
 				thinking: Type.Optional(
 					Type.String({
 						description:
-							"Thinking level: off, minimal, low, medium, high, xhigh. Overrides agent default.",
+							"Thinking level: off, minimal, low, medium, high, xhigh, max. Overrides the agent's default unless the agent locks this field.",
 					}),
 				),
 				max_turns: Type.Optional(
 					Type.Number({
 						description:
-							"Maximum number of agentic turns before stopping. Omit for unlimited (default).",
+							"Maximum number of agentic turns before stopping. Omit to use the agent's own limit, or unlimited when it declares none.",
 						minimum: 1,
 					}),
 				),
 				run_in_background: Type.Optional(
 					Type.Boolean({
 						description:
-							"Set to true to run in background. Returns agent ID immediately. You will be notified when it completes.",
+							"Set to true to run in background. Returns agent ID immediately. You will be notified when it completes. Omit to use the agent's own default.",
 					}),
 				),
 				resume: Type.Optional(
@@ -196,20 +224,20 @@ Guidelines:
 				inherit_context: Type.Optional(
 					Type.Boolean({
 						description:
-							"If true, fork parent conversation into the agent. Default: false (fresh context).",
+							"If true, fork parent conversation into the agent. Omit to use the agent's own default, which is fresh context unless it declares otherwise.",
 					}),
 				),
 			}),
 
 			// ---- Custom rendering: inline subagent results ----
 
-			renderCall(args: Record<string, unknown>, theme: any) {
+			renderCall(args: Record<string, unknown>, theme: Theme) {
 				const displayName = args.subagent_type
 					? getDisplayName(args.subagent_type as string, registry)
 					: "Subagent";
 				const desc = (args.description as string | undefined) ?? "";
 				return new Text(
-					"▸ " +
+					`${GLYPHS.toolCall} ` +
 						theme.fg("toolTitle", theme.bold(displayName)) +
 						(desc ? "  " + theme.fg("muted", desc) : ""),
 					0,
@@ -217,8 +245,12 @@ Guidelines:
 				);
 			},
 
-			renderResult(result: any, { expanded, isPartial }: any, theme: any) {
-				const details = result.details as AgentDetails | undefined;
+			renderResult(
+				result: AgentToolResult<AgentDetails | undefined>,
+				{ expanded, isPartial }: ToolRenderResultOptions,
+				theme: Theme,
+			) {
+				const details = result.details;
 				if (!details) {
 					const text = result.content[0]?.type === "text" ? result.content[0].text : "";
 					return new Text(text, 0, 0);
@@ -235,9 +267,38 @@ Guidelines:
 				toolCallId: string,
 				params: Record<string, unknown>,
 				signal: AbortSignal | undefined,
-				onUpdate: ((update: AgentToolResult<any>) => void) | undefined,
-				ctx: any,
+				onUpdate: ((update: AgentToolResult<AgentDetails>) => void) | undefined,
+				ctx: ExtensionContext,
 			) => this.execute(toolCallId, params, signal, onUpdate, ctx),
 		});
+	}
+}
+
+/**
+ * The operator-facing sentence for each reason a resume is refused.
+ *
+ * Exhaustive over `ResumeRefusalReason`, so a reason added later fails to
+ * compile here rather than falling through to an attempted resume.
+ */
+function resumeRefusalMessage(refusal: ResumeRefusalReason, id: string): string {
+	switch (refusal) {
+		case "unknown-agent":
+			return `Agent not found: "${id}". Records are cleared at session start/switch, so it may be from a previous session.`;
+		case "still-running":
+			return (
+				`Agent "${id}" is still running; wait for it to finish before resuming. ` +
+				"Use steer_subagent to send it a message while it runs."
+			);
+		case "session-released":
+			return `Agent "${id}" had its session released after its retention window; resume is unavailable, but its result is still retrievable via get_subagent_result.`;
+		case "no-session":
+			return `Agent "${id}" has no active session to resume.`;
+		case "workspace-disposed":
+			return (
+				`Agent "${id}" ran in an isolated workspace that no longer ` +
+				"exists; resume is unavailable because the agent would re-enter a directory that " +
+				"has been removed. Spawn a new agent instead — the agent's result records where " +
+				"any work was saved."
+			);
 	}
 }

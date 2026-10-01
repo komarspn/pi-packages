@@ -7,8 +7,15 @@
 
 import type { AgentConfigLookup } from "#src/config/agent-types";
 import type { AgentInvocation, SubagentType } from "#src/types";
+import { GLYPHS } from "#src/ui/glyphs";
 
 // ---- Types ----
+
+/** A model as the UI names it. The SDK's `Model` satisfies it structurally. */
+export interface ModelIdentity {
+  readonly provider: string;
+  readonly id: string;
+}
 
 export type Theme = {
   fg(color: string, text: string): string;
@@ -42,9 +49,6 @@ export interface AgentDetails {
 
 // ---- Constants ----
 
-/** Braille spinner frames for animated running indicator. */
-export const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-
 /** Statuses that indicate an error/non-success outcome (used for linger behavior and icon rendering). */
 export const ERROR_STATUSES = new Set(["error", "aborted", "steered", "stopped"]);
 
@@ -71,12 +75,12 @@ export function formatTokens(count: number): string {
 /**
  * Token count with optional context-fill % and compaction-count annotations.
  * Thresholds for percent: <70% dim, 70–85% warning, ≥85% error.
- * Compaction count rendered as `↻N` in dim.
+ * Compaction count rendered as `⇊N` in dim (see `glyphs.ts`).
  *
  *   "12.3k token"               — no annotations
  *   "12.3k token (45%)"         — percent only
- *   "12.3k token (↻2)"          — compactions only (e.g. right after compact)
- *   "12.3k token (45% · ↻2)"    — both
+ *   "12.3k token (⇊2)"          — compactions only (e.g. right after compact)
+ *   "12.3k token (45% · ⇊2)"    — both
  */
 export function formatSessionTokens(
   tokens: number,
@@ -91,21 +95,28 @@ export function formatSessionTokens(
     annot.push(theme.fg(color, `${Math.round(percent)}%`));
   }
   if (compactions > 0) {
-    annot.push(theme.fg("dim", `↻${compactions}`));
+    annot.push(theme.fg("dim", `${GLYPHS.compactions}${compactions}`));
   }
   if (annot.length === 0) return tokenStr;
   const sep = theme.fg("dim", " · ");
   return `${tokenStr} ${theme.fg("dim", "(")}${annot.join(sep)}${theme.fg("dim", ")")}`;
 }
 
-/** Format turn count with optional max limit: "⟳5≤30" or "⟳5". */
+/** Format turn count with optional max limit: "↻5≤30" or "↻5". */
 export function formatTurns(turnCount: number, maxTurns?: number | null): string {
-  return maxTurns != null ? `⟳${turnCount}≤${maxTurns}` : `⟳${turnCount}`;
+  return maxTurns != null
+    ? `${GLYPHS.turns}${turnCount}≤${maxTurns}`
+    : `${GLYPHS.turns}${turnCount}`;
 }
 
 /** Format milliseconds as human-readable duration. */
 export function formatMs(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
+}
+
+/** A model as `provider/id`, the syntax the Agent tool's `model` argument accepts. */
+export function formatModel(model: ModelIdentity): string {
+  return `${model.provider}/${model.id}`;
 }
 
 /** Format duration from start/completed timestamps. */

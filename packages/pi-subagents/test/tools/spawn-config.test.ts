@@ -1,27 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AgentTypeRegistry } from "#src/config/agent-types";
 import { resolveSpawnConfig } from "#src/tools/spawn-config";
-import type { AgentConfig } from "#src/types";
-
-function makeAgentConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
-  return {
-    name: "test-agent",
-    description: "Test agent",
-    builtinToolNames: ["read", "grep"],
-    systemPrompt: "You are a test agent.",
-    promptMode: "replace",
-    inheritContext: false,
-    runInBackground: false,
-    ...overrides,
-  };
-}
-
-/** Registry with a single disabled Plan override. */
-function makeDisabledPlanRegistry(): AgentTypeRegistry {
-  return new AgentTypeRegistry(
-    () => new Map([["Plan", makeAgentConfig({ name: "Plan", description: "Disabled", enabled: false })]]),
-  );
-}
+import { makeModel } from "#test/helpers/make-model";
 
 /** Minimal registry with default agents only. */
 const testRegistry = new AgentTypeRegistry(() => new Map());
@@ -29,8 +9,8 @@ const testRegistry = new AgentTypeRegistry(() => new Map());
 /** Shorthand for building ModelInfo. */
 function makeModelInfo(overrides: Partial<Parameters<typeof resolveSpawnConfig>[2]> = {}) {
   return {
-    parentModel: { id: "claude-sonnet", name: "Claude Sonnet" } as { id: string; name?: string } | undefined,
-    modelRegistry: { getAll: () => [], getAvailable: () => [] } as unknown,
+    parentModel: makeModel({ id: "claude-sonnet", name: "Claude Sonnet" }),
+    modelRegistry: { find: () => undefined, getAll: () => [], getAvailable: () => [] },
     ...overrides,
   };
 }
@@ -75,34 +55,6 @@ describe("resolveSpawnConfig — type resolution", () => {
     expect(result.identity.displayName).toBe("Explore");
   });
 
-  it("returns an error for a disabled agent type (exact match)", () => {
-    const registry = makeDisabledPlanRegistry();
-    const result = resolveSpawnConfig(
-      { subagent_type: "Plan", prompt: "test", description: "d" },
-      registry,
-      makeModelInfo(),
-      defaultSettings,
-    );
-    expect("error" in result).toBe(true);
-    if ("error" in result) {
-      expect(result.error).toBe('Agent type "Plan" is disabled');
-    }
-  });
-
-  it("reports the canonical casing in the disabled-agent error (case-insensitive input)", () => {
-    const registry = makeDisabledPlanRegistry();
-    const result = resolveSpawnConfig(
-      { subagent_type: "plan", prompt: "test", description: "d" },
-      registry,
-      makeModelInfo(),
-      defaultSettings,
-    );
-    expect("error" in result).toBe(true);
-    if ("error" in result) {
-      expect(result.error).toBe('Agent type "Plan" is disabled');
-    }
-  });
-
   it("uses displayName from agent config when available", () => {
     const result = resolveSpawnConfig(
       { subagent_type: "general-purpose", prompt: "test", description: "d" },
@@ -118,7 +70,7 @@ describe("resolveSpawnConfig — type resolution", () => {
 
 describe("resolveSpawnConfig — model resolution", () => {
   it("inherits parent model when no model specified", () => {
-    const parentModel = { id: "claude-sonnet", name: "Claude Sonnet" };
+    const parentModel = makeModel({ id: "claude-sonnet", name: "Claude Sonnet" });
     const result = resolveSpawnConfig(
       { subagent_type: "general-purpose", prompt: "test", description: "d" },
       testRegistry,
@@ -135,7 +87,7 @@ describe("resolveSpawnConfig — model resolution", () => {
     const result = resolveSpawnConfig(
       { subagent_type: "general-purpose", prompt: "test", description: "d", model: "nonexistent-xyz" },
       testRegistry,
-      makeModelInfo({ modelRegistry: { getAll: () => [], getAvailable: () => [] } }),
+      makeModelInfo({ modelRegistry: { find: () => undefined, getAll: () => [], getAvailable: () => [] } }),
       defaultSettings,
     );
     expect("error" in result && result.error).toBeTruthy();
@@ -266,6 +218,153 @@ describe("resolveSpawnConfig — detailBase and tags", () => {
     if ("error" in result) return;
     // Explore has promptMode: "replace" and no invocation overrides → no tags
     expect(result.presentation.detailBase.tags).toBeUndefined();
+  });
+});
+
+describe("resolveSpawnConfig — thinking level", () => {
+  it("returns an error naming the valid levels for an unrecognized thinking param", () => {
+    const result = resolveSpawnConfig(
+      { subagent_type: "Explore", prompt: "test", description: "d", thinking: "turbo" },
+      testRegistry,
+      makeModelInfo(),
+      defaultSettings,
+    );
+    expect(result).toEqual({
+      error:
+        'Invalid thinking level "turbo". Valid levels: off, minimal, low, medium, high, xhigh, max.',
+    });
+  });
+
+  it("resolves a recognized thinking param", () => {
+    const result = resolveSpawnConfig(
+      { subagent_type: "Explore", prompt: "test", description: "d", thinking: "xhigh" },
+      testRegistry,
+      makeModelInfo(),
+      defaultSettings,
+    );
+    if ("error" in result) throw new Error(result.error);
+    expect(result.execution.thinking).toBe("xhigh");
+  });
+});
+
+describe("resolveSpawnConfig — notes", () => {
+  it("carries no note for a known agent type", () => {
+    const result = resolveSpawnConfig(
+      { subagent_type: "Explore", prompt: "test", description: "d" },
+      testRegistry,
+      makeModelInfo(),
+      defaultSettings,
+    );
+    if ("error" in result) return;
+    expect(result.notes).toEqual([]);
+  });
+
+  it("carries a lock note naming the discarded parameters", () => {
+    const lockedRegistry = new AgentTypeRegistry(
+      () =>
+        new Map([
+          [
+            "pinned",
+            {
+              name: "pinned",
+              description: "Pinned",
+              systemPrompt: "",
+              promptMode: "append" as const,
+              model: "provider/pinned",
+              maxTurns: 7,
+              locked: true as const,
+            },
+          ],
+        ]),
+    );
+    const result = resolveSpawnConfig(
+      {
+        subagent_type: "pinned",
+        prompt: "test",
+        description: "d",
+        model: "other",
+        max_turns: 3,
+      },
+      lockedRegistry,
+      makeModelInfo(),
+      defaultSettings,
+    );
+    if ("error" in result) throw new Error(result.error);
+    expect(result.notes).toEqual([
+      'Note: agent "pinned" locks model, max_turns, so those parameters were ignored.',
+    ]);
+  });
+
+  it("names a single discarded parameter in the singular", () => {
+    const lockedRegistry = new AgentTypeRegistry(
+      () =>
+        new Map([
+          [
+            "pinned",
+            {
+              name: "pinned",
+              description: "Pinned",
+              systemPrompt: "",
+              promptMode: "append" as const,
+              model: "provider/pinned",
+              locked: ["model"] as const,
+            },
+          ],
+        ]),
+    );
+    const result = resolveSpawnConfig(
+      { subagent_type: "pinned", prompt: "test", description: "d", model: "other" },
+      lockedRegistry,
+      makeModelInfo(),
+      defaultSettings,
+    );
+    if ("error" in result) throw new Error(result.error);
+    expect(result.notes).toEqual([
+      'Note: agent "pinned" locks model, so the model parameter was ignored.',
+    ]);
+  });
+
+  it("carries the unknown-type note when the type fell back", () => {
+    const result = resolveSpawnConfig(
+      { subagent_type: "unknown-type", prompt: "test", description: "d" },
+      testRegistry,
+      makeModelInfo(),
+      defaultSettings,
+    );
+    if ("error" in result) return;
+    expect(result.notes).toEqual([
+      'Note: Unknown agent type "unknown-type" — using general-purpose.',
+    ]);
+  });
+
+  it("reports the fallback before the lock when a project pins the fallback agent", () => {
+    const pinnedFallback = new AgentTypeRegistry(
+      () =>
+        new Map([
+          [
+            "general-purpose",
+            {
+              name: "general-purpose",
+              description: "Pinned general-purpose",
+              systemPrompt: "",
+              promptMode: "append" as const,
+              maxTurns: 7,
+              locked: true as const,
+            },
+          ],
+        ]),
+    );
+    const result = resolveSpawnConfig(
+      { subagent_type: "unknown-type", prompt: "test", description: "d", max_turns: 3 },
+      pinnedFallback,
+      makeModelInfo(),
+      defaultSettings,
+    );
+    if ("error" in result) throw new Error(result.error);
+    expect(result.notes).toEqual([
+      'Note: Unknown agent type "unknown-type" — using general-purpose.',
+      'Note: agent "general-purpose" locks max_turns, so the max_turns parameter was ignored.',
+    ]);
   });
 });
 

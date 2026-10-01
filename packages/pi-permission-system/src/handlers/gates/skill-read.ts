@@ -1,10 +1,11 @@
-import { toRecord } from "#src/common";
-import { normalizePathForComparison } from "#src/path-utils";
-import { formatSkillPathAskPrompt } from "#src/permission-prompts";
-import { SessionApproval } from "#src/session-approval";
-import type { SkillPromptEntry } from "#src/skill-prompt-sanitizer";
-import { findSkillPathMatch } from "#src/skill-prompt-sanitizer";
+import type { SkillPromptEntry } from "#src/exposure/skill-prompt-sanitizer";
+import { findSkillPathMatch } from "#src/exposure/skill-prompt-sanitizer";
+import type { PathNormalizer } from "#src/path/path-normalizer";
+import { buildSkillPathAskPayload } from "#src/presentation/skill-ask-payload";
+import { SessionApproval } from "#src/session/session-approval";
+import { toRecord } from "#src/value-guards";
 import type { GateDescriptor } from "./descriptor";
+import { accessFactsFromValue } from "./helpers";
 import type { ToolCallContext } from "./types";
 
 /**
@@ -16,6 +17,7 @@ import type { ToolCallContext } from "./types";
  */
 export function describeSkillReadGate(
   tcc: ToolCallContext,
+  normalizer: PathNormalizer,
   getActiveSkillEntries: () => SkillPromptEntry[],
 ): GateDescriptor | null {
   const activeSkillEntries = getActiveSkillEntries();
@@ -30,58 +32,46 @@ export function describeSkillReadGate(
     return null;
   }
 
-  if (tcc.cwd === undefined) {
-    return null;
-  }
-
-  const normalizedReadPath = normalizePathForComparison(path, tcc.cwd);
+  const normalizedReadPath = normalizer.comparableValue(path);
   const matchedSkill = findSkillPathMatch(
     normalizedReadPath,
     activeSkillEntries,
+    normalizer,
   );
 
   if (!matchedSkill) {
     return null;
   }
 
-  const skillReadMessage = formatSkillPathAskPrompt(
-    matchedSkill,
-    path,
-    tcc.agentName ?? undefined,
-  );
+  const payload = buildSkillPathAskPayload(matchedSkill, path, tcc.agentName);
 
   return {
     surface: "skill",
     input: { name: matchedSkill.name },
-    denialContext: {
-      kind: "skill_read",
-      skillName: matchedSkill.name,
-      readPath: path,
-      agentName: tcc.agentName ?? undefined,
-    },
+    payload,
     promptDetails: {
       source: "skill_read",
       agentName: tcc.agentName,
-      message: skillReadMessage,
       toolCallId: tcc.toolCallId,
       toolName: tcc.toolName,
       skillName: matchedSkill.name,
       path,
+      accessIntent: accessFactsFromValue("skill", matchedSkill.name),
     },
     logContext: {
       source: "skill_read",
+      toolCallId: tcc.toolCallId,
       skillName: matchedSkill.name,
       agentName: tcc.agentName,
       path,
-      message: skillReadMessage,
     },
     decision: {
       surface: "skill",
       value: matchedSkill.name,
     },
+    sessionApproval: SessionApproval.single("skill", matchedSkill.name),
     preResolved: {
       state: matchedSkill.state,
     },
-    sessionApproval: SessionApproval.single("skill", matchedSkill.name),
   };
 }

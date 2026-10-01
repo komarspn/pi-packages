@@ -4,7 +4,8 @@ import type { Subagent } from "#src/lifecycle/subagent";
 import type { SubagentManager } from "#src/lifecycle/subagent-manager";
 import type { CompactionInfo } from "#src/types";
 import { AgentWidget, assembleWidgetState, type UICtx } from "#src/ui/agent-widget";
-import { createTestSubagent } from "#test/helpers/make-subagent";
+import { makeModel } from "#test/helpers/make-model";
+import { createTestSubagent, makeStubExecution } from "#test/helpers/make-subagent";
 
 // Minimal agent fixture — only the three fields AgentSummary requires.
 function makeAgent(overrides: { id?: string; status?: string; completedAt?: number } = {}) {
@@ -20,30 +21,40 @@ function makeAgent(overrides: { id?: string; status?: string; completedAt?: numb
 const alwaysShow = () => true;
 const neverShow = () => false;
 
+/** The slice of the TUI the widget factory callback reads. */
+function stubTui(overrides: { columns?: number; rows?: number } = {}) {
+	return {
+		terminal: { columns: overrides.columns ?? 200, rows: overrides.rows ?? 40 },
+		requestRender: () => {},
+	};
+}
+
+/** Identity theme — every helper returns its text unchanged, so assertions read plainly. */
+function stubTheme() {
+	return { fg: (_: string, t: string) => t, bold: (t: string) => t };
+}
+
 // Build a widget over a manager stub whose listAgents() returns a fixed list,
-// plus a recording UICtx. setWidgetCalls captures the `content` arg of each
-// setWidget call: a function means the widget is registered/visible; undefined
-// means it was cleared (the finished agent has aged out).
-// Fixtures default to a background invocation so they survive the widget's
-// background-only filter; per-agent `invocation` overrides the default.
+// plus a recording UICtx. Both `setWidget` and `setStatus` are spies, so a test
+// can assert the key as well as the value; `lastContent()` reads the `content`
+// arg of the most recent setWidget call, where a function means the widget is
+// registered/visible and undefined means it was cleared (the finished agent has
+// aged out).
+// Fixtures default to background so they survive the widget's background-only
+// filter; per-agent `isBackground` overrides the default.
 function makeWidget(
-	agents: Array<{ id: string; status: string; completedAt?: number; invocation?: { runInBackground: boolean } }>,
+	agents: Array<{ id: string; status: string; completedAt?: number; isBackground?: boolean }>,
 ) {
 	const manager = {
-		listAgents: () => agents.map(a => ({ invocation: { runInBackground: true }, ...a })),
+		listAgents: () => agents.map(a => ({ isBackground: true, ...a })),
 	} as unknown as SubagentManager;
 	const registry = new AgentTypeRegistry(() => new Map());
 	const widget = new AgentWidget(manager, registry);
-	const setWidgetCalls: unknown[] = [];
-	const ui: UICtx = {
-		setStatus: () => {},
-		setWidget: (_key, content) => {
-			setWidgetCalls.push(content);
-		},
-	};
-	widget.setUICtx(ui);
-	const lastContent = () => setWidgetCalls.at(-1);
-	return { widget, lastContent };
+	const setWidget = vi.fn<UICtx["setWidget"]>();
+	const setStatus = vi.fn<UICtx["setStatus"]>();
+	widget.setUICtx({ setStatus, setWidget });
+	const lastContent = () => setWidget.mock.lastCall?.[1];
+	return { widget, lastContent, setWidget, setStatus };
 }
 
 describe("assembleWidgetState", () => {
@@ -217,7 +228,7 @@ describe("AgentWidget — projection reads activity off Subagent records", () =>
 			startedAt: Date.now() - 100,
 			turnCount: 3,
 			activeTools: ["read"],
-			invocation: { runInBackground: true },
+			isBackground: true,
 		});
 		const manager = { listAgents: () => [record] } as unknown as SubagentManager;
 		const registry = new AgentTypeRegistry(() => new Map());
@@ -234,14 +245,36 @@ describe("AgentWidget — projection reads activity off Subagent records", () =>
 		widget.update();
 
 		expect(renderFn).toBeDefined();
-		const stubTui = { terminal: { columns: 200 }, requestRender: () => {} };
-		const stubTheme = { fg: (_: string, t: string) => t, bold: (t: string) => t };
-		const lines = renderFn!(stubTui, stubTheme).render();
+		const lines = renderFn!(stubTui(), stubTheme()).render();
 		const allText = lines.join("\n");
 		// Turn 3 from the record should appear
-		expect(allText).toContain("⟳3");
+		expect(allText).toContain("↻3");
 		// Active tool "read" → "reading…"
 		expect(allText).toContain("reading");
+	});
+
+	it("surfaces the record's model via renderWidget", () => {
+		const record = createTestSubagent({
+			status: "running",
+			completedAt: undefined,
+			startedAt: Date.now() - 100,
+			isBackground: true,
+			execution: makeStubExecution({ model: makeModel({ provider: "anthropic", id: "claude-sonnet-5" }) }),
+		});
+		const manager = { listAgents: () => [record] } as unknown as SubagentManager;
+		const widget = new AgentWidget(manager, new AgentTypeRegistry(() => new Map()));
+
+		let renderFn: ((tui: unknown, theme: unknown) => { render(): string[] }) | undefined;
+		widget.setUICtx({
+			setStatus: () => {},
+			setWidget: (_key, content) => {
+				if (typeof content === "function") renderFn = content as typeof renderFn;
+			},
+		});
+		widget.update();
+
+		expect(renderFn).toBeDefined();
+		expect(renderFn!(stubTui(), stubTheme()).render().join("\n")).toContain("anthropic/claude-sonnet-5");
 	});
 });
 
@@ -301,13 +334,12 @@ describe("AgentWidget — self-drives from lifecycle notifications", () => {
 		expect(typeof lastContent()).toBe("function");
 	});
 
-	it("starts the update timer and renders on onSubagentCreated", () => {
+	it("renders a queued agent without starting the timer, since nothing animates", () => {
 		const { widget, lastContent } = makeWidget([{ id: "a1", status: "queued" }]);
-		expect(vi.getTimerCount()).toBe(0);
 
 		widget.onSubagentCreated(createTestSubagent({ id: "a1", status: "queued" }));
 
-		expect(vi.getTimerCount()).toBe(1);
+		expect(vi.getTimerCount()).toBe(0);
 		expect(typeof lastContent()).toBe("function");
 	});
 
@@ -316,6 +348,16 @@ describe("AgentWidget — self-drives from lifecycle notifications", () => {
 
 		widget.onSubagentCompleted(createTestSubagent({ id: "a1", status: "completed" }));
 
+		expect(typeof lastContent()).toBe("function");
+	});
+
+	it("restarts the update timer on onSubagentResuming, since the agent is live again", () => {
+		const { widget, lastContent } = makeWidget([{ id: "a1", status: "running" }]);
+		expect(vi.getTimerCount()).toBe(0);
+
+		widget.onSubagentResuming(createTestSubagent({ id: "a1", status: "running" }));
+
+		expect(vi.getTimerCount()).toBe(1);
 		expect(typeof lastContent()).toBe("function");
 	});
 
@@ -344,11 +386,7 @@ describe("AgentWidget — background-only filtering", () => {
 		};
 		widget.setUICtx(ui);
 		const lastContent = () => setWidgetCalls.at(-1);
-		const renderLines = () => {
-			const stubTui = { terminal: { columns: 200 }, requestRender: () => {} };
-			const stubTheme = { fg: (_: string, t: string) => t, bold: (t: string) => t };
-			return renderFn!(stubTui, stubTheme).render();
-		};
+		const renderLines = () => renderFn!(stubTui(), stubTheme()).render();
 		return { widget, lastContent, renderLines };
 	}
 
@@ -358,7 +396,7 @@ describe("AgentWidget — background-only filtering", () => {
 				id: "fg1",
 				status: "running",
 				completedAt: undefined,
-				invocation: { runInBackground: false },
+				isBackground: false,
 			}),
 		]);
 		widget.update();
@@ -372,19 +410,163 @@ describe("AgentWidget — background-only filtering", () => {
 				status: "running",
 				completedAt: undefined,
 				description: "background task",
-				invocation: { runInBackground: true },
+				isBackground: true,
 			}),
 			createTestSubagent({
 				id: "fg1",
 				status: "running",
 				completedAt: undefined,
 				description: "foreground task",
-				invocation: { runInBackground: false },
+				isBackground: false,
 			}),
 		]);
 		widget.update();
 		const text = renderLines().join("\n");
 		expect(text).toContain("background task");
 		expect(text).not.toContain("foreground task");
+	});
+});
+
+describe("AgentWidget — the animation timer tracks running agents", () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("stops the timer when the last running agent finishes, leaving the widget registered", () => {
+		const agents = [{ id: "a1", status: "running", completedAt: undefined as number | undefined }];
+		const { widget, lastContent } = makeWidget(agents);
+		widget.onSubagentStarted(createTestSubagent({ id: "a1", status: "running" }));
+		expect(vi.getTimerCount()).toBe(1);
+
+		agents[0].status = "completed";
+		agents[0].completedAt = 5000;
+		widget.onSubagentCompleted(createTestSubagent({ id: "a1", status: "completed" }));
+
+		expect(vi.getTimerCount()).toBe(0);
+		expect(typeof lastContent()).toBe("function");
+	});
+
+	it("stops the timer when a run finishes while another agent is still queued", () => {
+		const agents = [
+			{ id: "a1", status: "running", completedAt: undefined as number | undefined },
+			{ id: "a2", status: "queued", completedAt: undefined as number | undefined },
+		];
+		const { widget, lastContent } = makeWidget(agents);
+		widget.onSubagentStarted(createTestSubagent({ id: "a1", status: "running" }));
+		expect(vi.getTimerCount()).toBe(1);
+
+		agents[0].status = "completed";
+		agents[0].completedAt = 5000;
+		widget.onSubagentCompleted(createTestSubagent({ id: "a1", status: "completed" }));
+
+		expect(vi.getTimerCount()).toBe(0);
+		expect(typeof lastContent()).toBe("function");
+	});
+
+	it("starts the timer when a queued agent begins running", () => {
+		const agents = [{ id: "a1", status: "queued", completedAt: undefined as number | undefined }];
+		const { widget } = makeWidget(agents);
+		widget.onSubagentCreated(createTestSubagent({ id: "a1", status: "queued" }));
+		expect(vi.getTimerCount()).toBe(0);
+
+		agents[0].status = "running";
+		widget.onSubagentStarted(createTestSubagent({ id: "a1", status: "running" }));
+
+		expect(vi.getTimerCount()).toBe(1);
+	});
+});
+
+describe("AgentWidget — animation cadence", () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	// The widget is the only thing driving Pi's renderer while the parent idles,
+	// and each render walks the whole component tree, so the cadence is a cost
+	// paid per running agent for as long as it runs.
+	it("asks Pi for one render per 250 ms while an agent runs", () => {
+		const record = createTestSubagent({
+			id: "a1",
+			status: "running",
+			completedAt: undefined,
+			isBackground: true,
+		});
+		const manager = { listAgents: () => [record] } as unknown as SubagentManager;
+		const widget = new AgentWidget(manager, new AgentTypeRegistry(() => new Map()));
+		const requestRender = vi.fn();
+		widget.setUICtx({
+			setStatus: () => {},
+			setWidget: (_key, content) => {
+				content?.({ terminal: { columns: 200, rows: 40 }, requestRender }, stubTheme());
+			},
+		});
+
+		widget.onSubagentStarted(record);
+		expect(requestRender).not.toHaveBeenCalled();
+
+		vi.advanceTimersByTime(249);
+		expect(requestRender).not.toHaveBeenCalled();
+
+		vi.advanceTimersByTime(1);
+		expect(requestRender).toHaveBeenCalledTimes(1);
+
+		widget.dispose();
+	});
+});
+
+describe("AgentWidget.dispose", () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("clears the update interval", () => {
+		const { widget } = makeWidget([{ id: "a1", status: "running" }]);
+		widget.onSubagentStarted(createTestSubagent({ id: "a1", status: "running" }));
+		expect(vi.getTimerCount()).toBe(1);
+
+		widget.dispose();
+
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("unregisters the widget and clears the status bar", () => {
+		const { widget, setWidget, setStatus } = makeWidget([{ id: "a1", status: "running" }]);
+		widget.onSubagentStarted(createTestSubagent({ id: "a1", status: "running" }));
+		expect(setStatus).toHaveBeenLastCalledWith("subagents", "1 running agent");
+
+		widget.dispose();
+
+		expect(setWidget).toHaveBeenLastCalledWith("agents", undefined);
+		expect(setStatus).toHaveBeenLastCalledWith("subagents", undefined);
+	});
+
+	// The abort that follows a session shutdown drives a terminal transition, and
+	// the resulting observer notification reaches update() synchronously. Disposal
+	// drops the UICtx so that update() can no longer re-register what it released.
+	it("leaves a later update() inert, so a terminal transition cannot re-register it", () => {
+		const agents = [{ id: "a1", status: "running", completedAt: undefined as number | undefined }];
+		const { widget, setWidget } = makeWidget(agents);
+		widget.onSubagentStarted(createTestSubagent({ id: "a1", status: "running" }));
+
+		widget.dispose();
+		const callsAfterDispose = setWidget.mock.calls.length;
+
+		agents[0].status = "stopped";
+		agents[0].completedAt = 5000;
+		widget.update();
+
+		expect(setWidget.mock.calls.length).toBe(callsAfterDispose);
 	});
 });
