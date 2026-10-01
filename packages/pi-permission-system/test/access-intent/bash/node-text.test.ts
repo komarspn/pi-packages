@@ -1,13 +1,15 @@
 import { homedir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  hasComputedPart,
-  readArgWord,
-  resolveNodeText,
   SKIP_SUBTREE_TYPES,
+  WordReader,
 } from "#src/access-intent/bash/node-text";
 import { getParser } from "#src/access-intent/bash/parser";
+import { ShellVariables } from "#src/access-intent/bash/shell-variable-expansion";
 import { makeTSNode } from "#test/helpers/fake-ts-node";
+
+/** A reader for a program that rebinds neither `HOME` nor `PWD`. */
+const words = new WordReader(ShellVariables.UNREBOUND);
 
 describe("SKIP_SUBTREE_TYPES", () => {
   it("contains the three node types that must not be descended", () => {
@@ -23,31 +25,27 @@ describe("SKIP_SUBTREE_TYPES", () => {
   });
 });
 
-describe("resolveNodeText", () => {
+describe("WordReader.text", () => {
   describe("word nodes", () => {
     it("returns the node text unchanged", () => {
-      expect(resolveNodeText(makeTSNode("word", "hello"))).toBe("hello");
+      expect(words.text(makeTSNode("word", "hello"))).toBe("hello");
     });
   });
 
   describe("raw_string nodes (single-quoted)", () => {
     it("strips surrounding single quotes", () => {
-      expect(resolveNodeText(makeTSNode("raw_string", "'content'"))).toBe(
-        "content",
-      );
+      expect(words.text(makeTSNode("raw_string", "'content'"))).toBe("content");
     });
 
     it("strips single quotes around a path", () => {
-      expect(resolveNodeText(makeTSNode("raw_string", "'/etc/hosts'"))).toBe(
+      expect(words.text(makeTSNode("raw_string", "'/etc/hosts'"))).toBe(
         "/etc/hosts",
       );
     });
 
     it("returns text as-is when not fully single-quoted", () => {
       // A raw_string node without enclosing quotes (defensive fallback)
-      expect(resolveNodeText(makeTSNode("raw_string", "noquotes"))).toBe(
-        "noquotes",
-      );
+      expect(words.text(makeTSNode("raw_string", "noquotes"))).toBe("noquotes");
     });
   });
 
@@ -61,7 +59,7 @@ describe("resolveNodeText", () => {
         content,
         quoteClose,
       ]);
-      expect(resolveNodeText(node)).toBe("hello world");
+      expect(words.text(node)).toBe("hello world");
     });
 
     it("concatenates multiple inner children", () => {
@@ -75,20 +73,20 @@ describe("resolveNodeText", () => {
         part2,
         quoteClose,
       ]);
-      expect(resolveNodeText(node)).toBe("foo$BAR");
+      expect(words.text(node)).toBe("foo$BAR");
     });
 
     it("returns empty string for an empty double-quoted string", () => {
       const quoteOpen = makeTSNode('"', '"');
       const quoteClose = makeTSNode('"', '"');
       const node = makeTSNode("string", '""', [quoteOpen, quoteClose]);
-      expect(resolveNodeText(node)).toBe("");
+      expect(words.text(node)).toBe("");
     });
   });
 
   describe("string_content, simple_expansion, and expansion nodes", () => {
     it("returns text as-is for string_content", () => {
-      expect(resolveNodeText(makeTSNode("string_content", "plain text"))).toBe(
+      expect(words.text(makeTSNode("string_content", "plain text"))).toBe(
         "plain text",
       );
     });
@@ -100,7 +98,7 @@ describe("resolveNodeText", () => {
         makeTSNode("$", "$"),
         makeTSNode("variable_name", "HOME"),
       ]);
-      expect(resolveNodeText(node)).toBe(homedir());
+      expect(words.text(node)).toBe(homedir());
     });
 
     it("resolves a plain ${HOME} reference to the home directory", () => {
@@ -109,7 +107,7 @@ describe("resolveNodeText", () => {
         makeTSNode("variable_name", "HOME"),
         makeTSNode("}", "}"),
       ]);
-      expect(resolveNodeText(node)).toBe(homedir());
+      expect(words.text(node)).toBe(homedir());
     });
 
     it("returns text as-is for a variable outside the resolvable set", () => {
@@ -118,7 +116,7 @@ describe("resolveNodeText", () => {
         makeTSNode("variable_name", "VAR"),
         makeTSNode("}", "}"),
       ]);
-      expect(resolveNodeText(node)).toBe("${VAR}");
+      expect(words.text(node)).toBe("${VAR}");
     });
 
     it("returns text as-is for an expansion carrying an operator", () => {
@@ -129,7 +127,7 @@ describe("resolveNodeText", () => {
         makeTSNode("word", "/tmp"),
         makeTSNode("}", "}"),
       ]);
-      expect(resolveNodeText(node)).toBe("${HOME:-/tmp}");
+      expect(words.text(node)).toBe("${HOME:-/tmp}");
     });
   });
 
@@ -141,7 +139,7 @@ describe("resolveNodeText", () => {
         makeTSNode("variable_name", "FILE"),
       ]);
       const node = makeTSNode("concatenation", "/etc/$FILE", [word, expansion]);
-      expect(resolveNodeText(node)).toBe("/etc/$FILE");
+      expect(words.text(node)).toBe("/etc/$FILE");
     });
 
     it("concatenates a resolved $HOME reference with its suffix", () => {
@@ -154,7 +152,7 @@ describe("resolveNodeText", () => {
         expansion,
         suffix,
       ]);
-      expect(resolveNodeText(node)).toBe(`${homedir()}/sub`);
+      expect(words.text(node)).toBe(`${homedir()}/sub`);
     });
 
     it("handles nested concatenation-of-string", () => {
@@ -169,20 +167,18 @@ describe("resolveNodeText", () => {
       ]);
       const prefix = makeTSNode("word", "foo");
       const node = makeTSNode("concatenation", 'foo"bar"', [prefix, inner]);
-      expect(resolveNodeText(node)).toBe("foobar");
+      expect(words.text(node)).toBe("foobar");
     });
   });
 
   describe("default fallback", () => {
     it("returns the raw text for unknown node types", () => {
-      expect(resolveNodeText(makeTSNode("unknown_type", "rawtext"))).toBe(
-        "rawtext",
-      );
+      expect(words.text(makeTSNode("unknown_type", "rawtext"))).toBe("rawtext");
     });
   });
 });
 
-describe("hasComputedPart", () => {
+describe("WordReader.isComputed", () => {
   /** Parse `echo <argument>` and ask about the command's first argument. */
   async function argumentIsComputed(argument: string): Promise<boolean> {
     const parser = await getParser();
@@ -192,7 +188,7 @@ describe("hasComputedPart", () => {
       const command = tree.rootNode.child(0);
       const node = command?.child(1);
       if (!node) throw new Error(`no argument node in: echo ${argument}`);
-      return hasComputedPart(node);
+      return words.isComputed(node);
     } finally {
       tree.delete();
     }
@@ -218,7 +214,7 @@ describe("hasComputedPart", () => {
   });
 });
 
-describe("readArgWord", () => {
+describe("WordReader.argWord", () => {
   /** Parse `echo <argument>` and read the command's first argument. */
   async function argWordOf(argument: string) {
     const parser = await getParser();
@@ -227,7 +223,7 @@ describe("readArgWord", () => {
     try {
       const node = tree.rootNode.child(0)?.child(1);
       if (!node) throw new Error(`no argument node in: echo ${argument}`);
-      return readArgWord(node);
+      return words.argWord(node);
     } finally {
       tree.delete();
     }
@@ -274,6 +270,81 @@ describe("readArgWord", () => {
     ])("marks %s computed (%s)", async (_label, argument) => {
       await expect(argWordOf(argument)).resolves.toMatchObject({
         computed: true,
+      });
+    });
+  });
+
+  describe("a leading tilde, read in a program that may reassign HOME", () => {
+    /** Parse `<program>; echo <argument>` and read that last argument. */
+    async function argWordAfter(program: string, argument: string) {
+      const parser = await getParser();
+      const tree = parser.parse(`${program}; echo ${argument}`);
+      if (!tree) throw new Error("parse returned null");
+      try {
+        const root = tree.rootNode;
+        const node = root.child(root.childCount - 1)?.child(1);
+        if (!node) throw new Error(`no argument node in: echo ${argument}`);
+        return new WordReader(ShellVariables.scan([root])).argWord(node);
+      } finally {
+        tree.delete();
+      }
+    }
+
+    it.each([
+      ["a bare tilde", "~"],
+      ["a tilde path", "~/x"],
+      ["a tilde path concatenated with a quoted part", '~/x"y"'],
+    ])(
+      "marks %s computed and maybe an option once HOME is reassigned (%s)",
+      async (_label, argument) => {
+        await expect(argWordAfter("HOME=-x", argument)).resolves.toMatchObject({
+          computed: true,
+          mayLeadWithDash: true,
+        });
+      },
+    );
+
+    it.each([
+      ["a tilde after a literal, which bash leaves alone", "a~/x"],
+      ["a quoted tilde", '"~/x"'],
+      ["a named user's tilde, which reads no HOME", "~root/x"],
+    ])(
+      "leaves %s exact once HOME is reassigned (%s)",
+      async (_label, argument) => {
+        await expect(argWordAfter("HOME=-x", argument)).resolves.toMatchObject({
+          computed: false,
+          mayLeadWithDash: false,
+        });
+      },
+    );
+
+    describe("with an inherited HOME that begins with a dash", () => {
+      beforeEach(() => {
+        vi.stubEnv("HOME", "-h");
+      });
+      afterEach(() => {
+        vi.unstubAllEnvs();
+      });
+
+      it.each([
+        ["a bare tilde", "~"],
+        ["a tilde path", "~/x"],
+        ["a glob under a tilde path", "~/*.ts"],
+      ])(
+        "reads %s as computed and maybe an option (%s)",
+        async (_label, argument) => {
+          await expect(argWordAfter("PWD=/x", argument)).resolves.toMatchObject(
+            { computed: true, mayLeadWithDash: true },
+          );
+        },
+      );
+    });
+
+    it("leaves a tilde path exact when only PWD is reassigned", async () => {
+      await expect(argWordAfter("PWD=-x", "~/x")).resolves.toEqual({
+        value: "~/x",
+        computed: false,
+        mayLeadWithDash: false,
       });
     });
   });

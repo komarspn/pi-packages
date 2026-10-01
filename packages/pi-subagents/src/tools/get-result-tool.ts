@@ -12,7 +12,7 @@ import { type AgentReport, formatAgentReport } from "#src/tools/get-result-repor
 import { formatLifetimeTokens, textResult } from "#src/tools/helpers";
 import type { Subagent } from "#src/types";
 import { BoundedLines } from "#src/ui/bounded-lines";
-import { formatDuration, getDisplayName, type Theme } from "#src/ui/display";
+import { formatDuration, getDisplayName, modelLabel, type Theme } from "#src/ui/display";
 import { GLYPHS } from "#src/ui/glyphs";
 
 // ---- Deps interfaces ----
@@ -93,6 +93,7 @@ export class GetResultTool {
 			pendingQuestion: record.pendingQuestion,
 			resumeRefusal: record.resumeRefusal,
 			workspaceNotice: record.workspaceNotice,
+			model: modelLabel(record.model),
 		};
 	}
 
@@ -117,6 +118,7 @@ export class GetResultTool {
 			error: record.error,
 			verbose,
 			transcriptPath: record.outputFile,
+			modelName: modelLabel(record.model),
 		};
 	}
 

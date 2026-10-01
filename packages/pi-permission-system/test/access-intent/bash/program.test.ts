@@ -37,6 +37,28 @@ describe("BashProgram", () => {
       realpathSync.mockImplementation((p: string) => p);
     });
 
+    describe("a token spelled from a HOME the program reassigns", () => {
+      /** Each rule candidate's token. */
+      async function candidateTokensOf(command: string): Promise<string[]> {
+        const program = await BashProgram.parse(command, normalizer);
+        return program.pathRuleCandidates().map(({ token }) => token);
+      }
+
+      it.each([
+        'HOME=/etc; cat "$HOME/shadow"',
+        "HOME=/etc; cat ${HOME}/shadow",
+        "HOME=/etc; cat ~/shadow",
+      ])("leaves the path surface for %s", async (command) => {
+        expect(await candidateTokensOf(command)).toEqual([]);
+      });
+
+      it("keeps a token spelled from a HOME nothing reassigns", async () => {
+        expect(await candidateTokensOf('cat "$HOME/shadow"')).toEqual([
+          join(homedir(), "shadow"),
+        ]);
+      });
+    });
+
     describe("a redirect's target is projected by its role (#609)", () => {
       /** Each rule candidate's token, effect, and policy match values. */
       async function ruleCandidatesOf(command: string) {
@@ -739,6 +761,21 @@ describe("BashProgram", () => {
           { text: "a" },
           { text: "b" },
           { text: "c" },
+        ]);
+      });
+
+      it("withholds a wrapped reader's exemption once its argument's HOME is reassigned", async () => {
+        const program = await BashProgram.parse(
+          'HOME=-delete; xargs find "$HOME"',
+          normalizer,
+        );
+        expect(program.commands()).toEqual([
+          { text: "HOME=-delete" },
+          {
+            text: 'xargs find "$HOME"',
+            wrapperKind: "indirection",
+            executedUnit: 'find "$HOME"',
+          },
         ]);
       });
 

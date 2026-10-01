@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { WordReader } from "#src/access-intent/bash/node-text";
 import type { TSNode } from "#src/access-intent/bash/parser";
 import { getParser } from "#src/access-intent/bash/parser";
+import { ShellVariables } from "#src/access-intent/bash/shell-variable-expansion";
 import {
   collectCommandTokens,
   collectPathCandidateTokens,
@@ -10,6 +12,9 @@ import {
   type PathToken,
 } from "#src/access-intent/bash/token-collection";
 import { UNPROVEN_EFFECT } from "#src/access-intent/effect";
+
+/** Every command here rebinds nothing, so its words read at their startup values. */
+const words = new WordReader(ShellVariables.UNREBOUND);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -22,15 +27,15 @@ import { UNPROVEN_EFFECT } from "#src/access-intent/effect";
  * collectors directly.
  */
 function commandTokens(node: TSNode): string[] {
-  return tokenTextsOf(collectCommandTokens(node));
+  return tokenTextsOf(collectCommandTokens(node, words));
 }
 
 function redirectTokens(node: TSNode): string[] {
-  return tokenTextsOf(collectRedirectTokens(node));
+  return tokenTextsOf(collectRedirectTokens(node, words));
 }
 
 function pathCandidateTokens(node: TSNode): string[] {
-  return tokenTextsOf(collectPathCandidateTokens(node));
+  return tokenTextsOf(collectPathCandidateTokens(node, words));
 }
 
 function tokenTextsOf(tokens: readonly Pick<PathToken, "token">[]): string[] {
@@ -97,7 +102,7 @@ describe("extractCommandName", () => {
   it("returns the basename for a bare command", async () => {
     const { node, tree } = await parseCommandNode("sed 's/x/y/' file.txt");
     try {
-      expect(extractCommandName(node)).toBe("sed");
+      expect(extractCommandName(node, words)).toBe("sed");
     } finally {
       tree.delete();
     }
@@ -108,7 +113,7 @@ describe("extractCommandName", () => {
       "/usr/bin/sed 's/x/y/' file.txt",
     );
     try {
-      expect(extractCommandName(node)).toBe("sed");
+      expect(extractCommandName(node, words)).toBe("sed");
     } finally {
       tree.delete();
     }
@@ -116,14 +121,14 @@ describe("extractCommandName", () => {
 
   it("returns the substitution text when the command name is a command substitution", async () => {
     // $(which sed) parses with a command_name child whose text is "$(which sed)";
-    // resolveNodeText returns that text, so extractCommandName returns its basename.
+    // WordReader.text returns that text, so extractCommandName returns its basename.
     // PATTERN_FIRST_COMMANDS.get("$(which sed)") returns undefined, so
     // collectCommandTokens falls back to generic collection — correct behaviour.
     const { node, tree } = await parseCommandNode(
       "$(which sed) 's/x/y/' file.txt",
     );
     try {
-      expect(extractCommandName(node)).toBe("$(which sed)");
+      expect(extractCommandName(node, words)).toBe("$(which sed)");
     } finally {
       tree.delete();
     }
@@ -487,7 +492,7 @@ describe("collectCommandTokens — pattern-first commands", () => {
           'node -e "$(cat /etc/shadow)"',
         );
         try {
-          expect(tokenEffectsOf(collectCommandTokens(node))).toEqual([
+          expect(tokenEffectsOf(collectCommandTokens(node, words))).toEqual([
             {
               token: "/etc/shadow",
               effect: { effect: "read", source: "core" },
@@ -953,7 +958,7 @@ describe("statement operands", () => {
     const tree = parser.parse(command);
     if (!tree) throw new Error("parse returned null");
     try {
-      return tokenEffectsOf(collectPathCandidateTokens(tree.rootNode));
+      return tokenEffectsOf(collectPathCandidateTokens(tree.rootNode, words));
     } finally {
       tree.delete();
     }
@@ -1167,7 +1172,7 @@ describe("extractCommandWord", () => {
   it("returns a bare head word unchanged", async () => {
     const { node, tree } = await parseCommandNode("grep pattern file.txt");
     try {
-      expect(extractCommandWord(node)).toBe("grep");
+      expect(extractCommandWord(node, words)).toBe("grep");
     } finally {
       tree.delete();
     }
@@ -1178,8 +1183,8 @@ describe("extractCommandWord", () => {
     async (headWord) => {
       const { node, tree } = await parseCommandNode(`${headWord} p file.txt`);
       try {
-        expect(extractCommandWord(node)).toBe(headWord);
-        expect(extractCommandName(node)).toBe("grep");
+        expect(extractCommandWord(node, words)).toBe(headWord);
+        expect(extractCommandName(node, words)).toBe("grep");
       } finally {
         tree.delete();
       }
@@ -1197,7 +1202,7 @@ describe("effect attribution", () => {
     const tree = parser.parse(command);
     if (!tree) throw new Error("parse returned null");
     try {
-      return tokenEffectsOf(collectPathCandidateTokens(tree.rootNode));
+      return tokenEffectsOf(collectPathCandidateTokens(tree.rootNode, words));
     } finally {
       tree.delete();
     }
@@ -1396,7 +1401,7 @@ describe("token role", () => {
     const tree = parser.parse(command);
     if (!tree) throw new Error("parse returned null");
     try {
-      return collectPathCandidateTokens(tree.rootNode).map(
+      return collectPathCandidateTokens(tree.rootNode, words).map(
         ({ token, role }) => ({ token, role }),
       );
     } finally {

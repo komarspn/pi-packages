@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [36.2.1](https://github.com/gotgenes/pi-packages/compare/pi-permission-system-v36.2.0...pi-permission-system-v36.2.1) (2026-10-01)
+
+
+### Bug Fixes
+
+* **pi-permission-system:** a reassigned $HOME or $PWD is no longer resolved to its startup value ([#995](https://github.com/gotgenes/pi-packages/issues/995)) ([956fa32](https://github.com/gotgenes/pi-packages/commit/956fa32ecbe6ee3b2954cebbfed8d9a44857c617)), closes [#995](https://github.com/gotgenes/pi-packages/issues/995)
+* **pi-permission-system:** a name read, printf -v, nameref, eval, or source counts as reassigning $HOME ([#995](https://github.com/gotgenes/pi-packages/issues/995)) ([a05a6d3](https://github.com/gotgenes/pi-packages/commit/a05a6d391eb0281d5977a2264aa69958ce8d7549))
+* **pi-permission-system:** ~ is no longer read as the home directory after the command reassigns HOME ([#995](https://github.com/gotgenes/pi-packages/issues/995)) ([998d51b](https://github.com/gotgenes/pi-packages/commit/998d51b36989bf0397beb4028d76e75d3e37666d))
+* **pi-permission-system:** ~ may spell an option when the inherited HOME begins with a dash ([#995](https://github.com/gotgenes/pi-packages/issues/995)) ([f1ee69a](https://github.com/gotgenes/pi-packages/commit/f1ee69a19b3f6880228da88ad2683f9b1f79a980))
+* **pi-permission-system:** a quoted export, let, trap, or quoted eval counts as reassigning $HOME ([#995](https://github.com/gotgenes/pi-packages/issues/995)) ([4406ef4](https://github.com/gotgenes/pi-packages/commit/4406ef429706aa0b7cd77ba9608d0bcb1c2982bc))
+
+### Documentation
+
+* **pi-permission-system:** record that a reassigned $HOME or $PWD is not resolved ([#995](https://github.com/gotgenes/pi-packages/issues/995)) ([e7c8b88](https://github.com/gotgenes/pi-packages/commit/e7c8b88167f05531507cdfaf584dd9e4905a0387))
+
 ## [36.2.0](https://github.com/gotgenes/pi-packages/compare/pi-permission-system-v36.1.0...pi-permission-system-v36.2.0) (2026-09-30)
 
 
