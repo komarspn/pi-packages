@@ -93,10 +93,8 @@ class PlatformPathFlavor implements PathFlavor {
 
   isWithin(pathValue: string, directory: string): boolean {
     if (!pathValue || !directory) return false;
-    if (pathValue === directory) return true;
     const rel = this.impl.relative(directory, pathValue);
     return (
-      rel !== "" &&
       rel !== ".." &&
       !rel.startsWith(`..${this.impl.sep}`) &&
       !this.impl.isAbsolute(rel)
