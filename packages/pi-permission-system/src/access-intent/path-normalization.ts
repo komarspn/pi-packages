@@ -101,12 +101,10 @@ export function cwdRelativePolicyValues(
 ): string[] {
   const normalizedCwd = normalizePathForComparison(cwd, cwd, flavor);
   if (!normalizedCwd) return [];
-  if (absolute !== normalizedCwd && !flavor.isWithin(absolute, normalizedCwd)) {
-    return [];
-  }
+  if (!flavor.isWithin(absolute, normalizedCwd)) return [];
 
   const relativeValue = flavor.impl.relative(normalizedCwd, absolute);
-  return relativeValue ? [relativeValue] : [];
+  return [relativeValue || "."];
 }
 
 /**
