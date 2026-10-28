@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AskDialogQueue } from "#src/authority/ask-dialog-queue";
 import { LocalUserAuthorizer } from "#src/authority/local-user-authorizer";
 import type { PermissionPromptDecision } from "#src/authority/permission-dialog";
-import type { requestPermissionDecision } from "#src/authority/permission-prompt-component";
+import { requestPermissionDecision } from "#src/authority/permission-prompt-component";
 import type { PromptPermissionDetails } from "#src/authority/permission-prompter";
 import type { NotificationSession } from "#src/presentation/prompt-notification";
 import { DECIDED_BY_HUMAN } from "#test/helpers/decision-fixtures";
@@ -217,6 +217,86 @@ describe("LocalUserAuthorizer", () => {
       expect.anything(),
       { sessionLabel: "Yes, for 'read' tool" },
     );
+  });
+
+  describe("session label for a path ask that proves no direction", () => {
+    it("names a bare external_directory directory approval by its contents glob", async () => {
+      const { deps, decisionFn } = makeDeps();
+      const authorizer = new LocalUserAuthorizer(deps);
+
+      await authorizer.authorize(
+        makeDetails({
+          sessionApproval: {
+            grants: [
+              { surface: "external_directory", pattern: "/r/a" },
+              { surface: "external_directory", pattern: "/r/a/*" },
+            ],
+          },
+        }),
+      );
+
+      expect(decisionFn).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(String),
+        expect.anything(),
+        { sessionLabel: 'Yes, allow access to "/r/a/*" for this session' },
+      );
+    });
+
+    it("names a bare path approval by its pattern", async () => {
+      const { deps, decisionFn } = makeDeps();
+      const authorizer = new LocalUserAuthorizer(deps);
+
+      await authorizer.authorize(
+        makeDetails({
+          sessionApproval: { grants: [{ surface: "path", pattern: "/r/*" }] },
+        }),
+      );
+
+      expect(decisionFn).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(String),
+        expect.anything(),
+        { sessionLabel: 'Yes, allow access to "/r/*" for this session' },
+      );
+    });
+
+    it("keeps a gate-supplied label over the fallback", async () => {
+      const { deps, decisionFn } = makeDeps();
+      const authorizer = new LocalUserAuthorizer(deps);
+
+      await authorizer.authorize(
+        makeDetails({
+          sessionLabel: 'Yes, allow edit "/r/*" for this session',
+          sessionApproval: { grants: [{ surface: "path", pattern: "/r/*" }] },
+        }),
+      );
+
+      expect(decisionFn).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(String),
+        expect.anything(),
+        { sessionLabel: 'Yes, allow edit "/r/*" for this session' },
+      );
+    });
+
+    it("adds no label for a grant on a non-path surface", async () => {
+      const { deps, decisionFn } = makeDeps();
+      const authorizer = new LocalUserAuthorizer(deps);
+
+      await authorizer.authorize(
+        makeDetails({
+          sessionApproval: { grants: [{ surface: "bash", pattern: "git *" }] },
+        }),
+      );
+
+      expect(decisionFn).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(String),
+        expect.anything(),
+        undefined,
+      );
+    });
   });
 
   it("emits the UI event before calling requestPermissionDecision", async () => {
@@ -440,7 +520,7 @@ describe("LocalUserAuthorizer", () => {
           { surface: "external_directory_read", pattern: "/outside/a/*" },
           { surface: "external_directory_write", pattern: "/outside/b/*" },
         ],
-        undefined,
+        { sessionLabel: "Yes, allow access to 2 paths for this session" },
       );
     });
 
@@ -508,6 +588,66 @@ describe("LocalUserAuthorizer", () => {
       };
     }
 
+    describe("with an answer window", () => {
+      beforeEach(() => {
+        vi.useFakeTimers();
+      });
+
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("times each ask from when its own dialog is shown, not from when it queued", async () => {
+        const { deps } = makeDeps({ requestPermissionDecision });
+        // Pi's select resolves undefined when its signal dismisses it.
+        deps.ui.select.mockImplementation(
+          (
+            _title: string,
+            _options: string[],
+            opts?: { signal?: AbortSignal },
+          ) =>
+            new Promise<string | undefined>((resolve) => {
+              opts?.signal?.addEventListener(
+                "abort",
+                () => {
+                  resolve(undefined);
+                },
+                { once: true },
+              );
+            }),
+        );
+        const authorizer = new LocalUserAuthorizer({
+          ...deps,
+          mode: "rpc",
+          getPromptPreferences: () =>
+            makePromptPreferences({ promptTimeoutMs: 60_000 }),
+        });
+        const unanswered = {
+          approved: false,
+          state: "denied",
+          confirmationUnavailable: true,
+          decidedBy: { kind: "unanswered", timeoutMs: 60_000 },
+        };
+        let secondSettled = false;
+
+        const first = authorizer.authorize(makeDetails());
+        const second = authorizer.authorize(makeDetails());
+        void second.then(() => {
+          secondSettled = true;
+        });
+
+        await vi.advanceTimersByTimeAsync(60_000);
+        await expect(first).resolves.toStrictEqual(unanswered);
+        expect(deps.ui.select).toHaveBeenCalledTimes(2);
+
+        await vi.advanceTimersByTimeAsync(59_999);
+        expect(secondSettled).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(second).resolves.toStrictEqual(unanswered);
+      });
+    });
+
     it("does not present a second ask while the first dialog is open", async () => {
       const asks = makeOverlappingAsks();
       await settleMicrotasks();
@@ -534,7 +674,7 @@ describe("LocalUserAuthorizer", () => {
       await asks.second;
     });
 
-    it("answers a released ask as an unanswered denial", async () => {
+    it("answers a released ask as unavailable, never as a user denial", async () => {
       const asks = makeOverlappingAsks();
       await settleMicrotasks();
 

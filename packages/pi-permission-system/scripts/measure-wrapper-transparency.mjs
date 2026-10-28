@@ -25,6 +25,25 @@
  * run drifts by a fraction of a point; re-run rather than trusting the figure
  * to be exact. Clause costs at the same run: 6, 0, 0.
  *
+ * The execution-modifier clause (#963) is scored beside it: a floored unit is
+ * exempt when it proves a read with no write-proving redirect, or when every
+ * wrapper layer is an execution modifier admitting each of its options (every
+ * one literal) and the peel ends at a literal command name. Measured
+ * 2026-10-05 against the same log, 2026-07 onward: 298 of 1027 prompts
+ * floored, 159 relieved (53.4% of floored), 73 of them by the
+ * execution-modifier clause alone. Its guards cost 15 (every layer a
+ * modifier), 0 (the option allowlist and its literal-word rule), and 12 (a literal
+ * inner head, mostly the `time ( … )` subshells #1027 tracks).
+ *
+ * The no-command clause (#1064) is scored beside them: a floored `env` unit is
+ * exempt when every word after `env` is literal and is an option `env` lists,
+ * its value, `--` or a lone `-`, or a `NAME=value` assignment, so it names no
+ * command and runs nothing. Measured 2026-10-16 against the same log,
+ * 2026-07 onward: 363 of 1181 prompts floored, 196 relieved (54.0% of
+ * floored), 37 of them by the no-command clause alone (35 bare `env`, one
+ * `env -i`, one `/usr/bin/env --version`), with the other clauses' figures
+ * unchanged. `--unset` admits its value only attached, as `ENV_GRAMMAR` does.
+ *
  * Only the sentinel era is totalled. The floor sentinels reach the review log
  * from 2026-07 — earlier entries carry no `matchedPattern` field and no
  * rendered floor message — so a total over all time would divide a real
@@ -152,6 +171,82 @@ const VALUE_TAKING = new Map([
 /** Wrappers whose first bare word is an operand, not the inner command. */
 const LEADING_OPERAND = new Set(["timeout", "flock"]);
 
+/** Execution modifiers and the flags each admits (`EXECUTION_MODIFIER_FLAGS`). */
+const MODIFIER_FLAGS = new Map([
+  ["time", ["-p", "-l", "-h"]],
+  [
+    "timeout",
+    ["-f", "--foreground", "-p", "--preserve-status", "-v", "--verbose"],
+  ],
+  ["nice", []],
+  ["stdbuf", []],
+  ["setsid", []],
+]);
+
+/**
+ * `env`'s options (`ENV_GRAMMAR`), the wrapper whose bare form runs nothing:
+ * short letters and full long names, each a flag, a value, or a value taken
+ * only attached (an optional one, or `--unset`, whose detached form BSD reads
+ * as `-u nset` and a command). Anything absent refuses, as an abbreviation
+ * does here.
+ */
+const ENV_SHORT = new Map([
+  ["0", "flag"],
+  ["i", "flag"],
+  ["v", "flag"],
+  ["u", "value"],
+]);
+const ENV_LONG = new Map([
+  ["debug", "flag"],
+  ["help", "flag"],
+  ["ignore-environment", "flag"],
+  ["list-signal-handling", "flag"],
+  ["null", "flag"],
+  ["version", "flag"],
+  ["unset", "attached"],
+  ["block-signal", "optional"],
+  ["default-signal", "optional"],
+  ["ignore-signal", "optional"],
+]);
+
+/** Each modifier's value-taking options that write a file (`WRITING_OPTIONS`). */
+const WRITING = new Map([["time", ["-o", "--output"]]]);
+
+/**
+ * A word the shell may rewrite into others (`CommandWord.computed`), crudely:
+ * any expansion, quoting, glob, brace, or escape character.
+ */
+const COMPUTED = /[$`{}*?[\]'"\\]/;
+
+/** A literal, non-option command name (`LITERAL_COMMAND_NAME`). */
+const LITERAL_NAME = /^[A-Za-z0-9_./+@%,:][A-Za-z0-9_./+@%,:-]*$/;
+
+/** Bash reserved words (`RESERVED_WORDS`). */
+const RESERVED = new Set([
+  "!",
+  "{",
+  "}",
+  "[[",
+  "]]",
+  "case",
+  "coproc",
+  "do",
+  "done",
+  "elif",
+  "else",
+  "esac",
+  "fi",
+  "for",
+  "function",
+  "if",
+  "in",
+  "select",
+  "then",
+  "time",
+  "until",
+  "while",
+]);
+
 const MAX_UNWRAP_DEPTH = 4;
 
 /** The first month whose entries can carry a floor sentinel at all. */
@@ -220,7 +315,7 @@ function innerCommandIndex(words) {
   let index = 1;
   while (index < words.length) {
     const word = words[index];
-    if (word === "--") return index + 1;
+    if (word === "--") return operandPending ? index + 2 : index + 1;
     if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) {
       index++;
       continue;
@@ -310,14 +405,19 @@ function writesViaRedirect(command) {
  * `relaxed` drops one clause so its cost can be priced: `"opaque"` unwraps
  * through an inline-shell payload and judges its first word, `"redirect"`
  * ignores the statement's redirect, and `"sudo"` exempts a privilege-elevating
- * wrapper outright (the rejected carve-out).
+ * wrapper outright (the rejected carve-out); `"layers"`, `"options"`, and
+ * `"head"` each drop one of the execution-modifier guards.
+ *
+ * `clauses` picks which exemptions count: `"core"` alone reproduces the
+ * core-reader figures, `"modifier"` adds the execution-modifier clause, and
+ * `"all"` the no-command clause, so each clause's own share is a difference.
  */
-function everyFlooredUnitIsExempt(command, relaxed = null) {
+function everyFlooredUnitIsExempt(command, relaxed = null, clauses = "all") {
   const wrapped = splitUnits(command)
     .map((unit) => wordsOf(unit))
     .filter((words) => classifyWrapper(words) !== undefined);
   if (wrapped.length === 0) return false;
-  if (relaxed !== "redirect" && writesViaRedirect(command)) return false;
+  const redirects = relaxed !== "redirect" && writesViaRedirect(command);
   return wrapped.every((words) => {
     if (
       relaxed === "sudo" &&
@@ -325,16 +425,126 @@ function everyFlooredUnitIsExempt(command, relaxed = null) {
     ) {
       return true;
     }
+    if (clauses === "all" && namesNoCommand(words)) return true;
     const inner = peelToInner(words, relaxed === "opaque");
-    return inner !== null && provesRead(inner);
+    if (!redirects && inner !== null && provesRead(inner)) return true;
+    return clauses !== "core" && onlyModifiesExecution(words, relaxed);
   });
+}
+
+/**
+ * True when an `env` unit names no command, so it runs nothing
+ * (`namesNoCommand`): every word after `env` is literal and is an option, its
+ * value, `--` or a lone `-`, or a `NAME=value` assignment after the options.
+ * No redirect refusal: it classifies no read.
+ */
+function namesNoCommand(words) {
+  if (basename(words[0] ?? "") !== "env") return false;
+  if (words.slice(1).some((word) => COMPUTED.test(word))) return false;
+  let index = 1;
+  let optionsOpen = true;
+  while (index < words.length) {
+    const word = words[index];
+    if (optionsOpen && (word === "--" || word === "-")) {
+      optionsOpen = false;
+      index++;
+      continue;
+    }
+    if (optionsOpen && word.startsWith("-")) {
+      const consumed = envOptionWords(word);
+      if (consumed === undefined) return false;
+      index += consumed;
+      continue;
+    }
+    if (!/^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) return false;
+    optionsOpen = false;
+    index++;
+  }
+  return index === words.length;
+}
+
+/** How many words one `env` option spans, or `undefined` when it refuses. */
+function envOptionWords(word) {
+  if (word.startsWith("--")) {
+    const [name, value] = word.slice(2).split("=", 2);
+    const arity = ENV_LONG.get(name);
+    if (arity === undefined) return undefined;
+    if (arity === "attached" && value === undefined) return undefined;
+    return 1;
+  }
+  const letters = word.slice(1);
+  for (let position = 0; position < letters.length; position++) {
+    const arity = ENV_SHORT.get(letters[position]);
+    if (arity === undefined) return undefined;
+    if (arity === "value") return position + 1 < letters.length ? 1 : 2;
+  }
+  return 1;
+}
+
+/**
+ * True when every peeled layer is an execution modifier admitting each of its
+ * option words, and the peel ends at a literal command name
+ * (`onlyModifiesExecution`). No redirect refusal: the destination is gated by
+ * the path surfaces.
+ */
+function onlyModifiesExecution(words, relaxed = null) {
+  let current = words;
+  let layers = 0;
+  for (let depth = 0; depth < MAX_UNWRAP_DEPTH; depth++) {
+    const kind = classifyWrapper(current);
+    if (kind === undefined) break;
+    if (kind === "opaque-payload") return false;
+    const name = basename(current[0] ?? "");
+    if (relaxed !== "layers" && !MODIFIER_FLAGS.has(name)) return false;
+    const start = innerCommandIndex(current);
+    if (start === -1 || start >= current.length) return false;
+    if (relaxed !== "options" && !admitsLayer(name, current.slice(1, start))) {
+      return false;
+    }
+    current = current.slice(start);
+    layers++;
+  }
+  if (layers === 0 || classifyWrapper(current) !== undefined) return false;
+  if (relaxed === "head") return true;
+  const head = current[0] ?? "";
+  return LITERAL_NAME.test(head) && !RESERVED.has(head);
+}
+
+/** True when a modifier admits every option word before its inner command. */
+function admitsLayer(name, prefix) {
+  const flags = MODIFIER_FLAGS.get(name);
+  if (flags === undefined) return true;
+  const writing = WRITING.get(name) ?? [];
+  const valueTaking = (VALUE_TAKING.get(name) ?? []).filter(
+    (flag) => !writing.includes(flag),
+  );
+  for (let index = 0; index < prefix.length; index++) {
+    const word = prefix[index];
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) continue;
+    if (COMPUTED.test(word)) return false;
+    if (word === "--") continue;
+    if (!word.startsWith("-") || flags.includes(word)) continue;
+    if (valueTaking.includes(word)) {
+      index++;
+      if (COMPUTED.test(prefix[index] ?? "")) return false;
+      continue;
+    }
+    const attached = word.startsWith("--")
+      ? word.includes("=") && valueTaking.includes(word.split("=")[0])
+      : word.length > 2 && valueTaking.includes(word.slice(0, 2));
+    if (!attached) return false;
+  }
+  return true;
 }
 
 /** The clauses priced in the run's cost table, in the order they are printed. */
 const RELAXATIONS = [
   ["opaque", "unwrap through an inline-shell payload"],
-  ["redirect", "ignore a write-proving redirect"],
+  ["redirect", "ignore a write-proving redirect (core reader)"],
   ["sudo", "exempt sudo/doas outright (rejected carve-out)"],
+  ["layers", "admit a non-modifier layer behind a modifier"],
+  ["options", "admit any option on a modifier"],
+  ["head", "admit any inner head word after a modifier"],
 ];
 
 // ── The scan ───────────────────────────────────────────────────────────────
@@ -360,7 +570,13 @@ function main() {
     if (blob.includes("/var/folders/")) continue;
 
     const month = String(entry.timestamp ?? "").slice(0, 7);
-    const bucket = months.get(month) ?? { all: 0, floored: 0, exempt: 0 };
+    const bucket = months.get(month) ?? {
+      all: 0,
+      floored: 0,
+      exempt: 0,
+      modifier: 0,
+      noCommand: 0,
+    };
     months.set(month, bucket);
     bucket.all++;
 
@@ -375,6 +591,11 @@ function main() {
 
     if (everyFlooredUnitIsExempt(command)) {
       bucket.exempt++;
+      if (!everyFlooredUnitIsExempt(command, null, "modifier")) {
+        bucket.noCommand++;
+      } else if (!everyFlooredUnitIsExempt(command, null, "core")) {
+        bucket.modifier++;
+      }
     } else {
       for (const [key] of RELAXATIONS) {
         if (everyFlooredUnitIsExempt(command, key)) {
@@ -384,8 +605,10 @@ function main() {
       for (const unit of splitUnits(command)) {
         const words = wordsOf(unit);
         if (classifyWrapper(words) === undefined) continue;
+        if (namesNoCommand(words)) continue;
         const inner = peelToInner(words);
         if (inner !== null && provesRead(inner)) continue;
+        if (onlyModifiesExecution(words)) continue;
         const head = inner === null ? "<opaque payload>" : (inner[0] ?? "");
         remainingHeads.set(head, (remainingHeads.get(head) ?? 0) + 1);
       }
@@ -396,23 +619,29 @@ function main() {
   let all = 0;
   let floored = 0;
   let exempt = 0;
+  let modifier = 0;
+  let noCommand = 0;
 
   console.log(`log: ${logPath}`);
   console.log("");
-  console.log("month    prompts  floored          exempt");
+  console.log(
+    "month    prompts  floored          exempt        modifier  no-command",
+  );
   for (const [month, bucket] of [...months].sort()) {
     if (month >= SENTINEL_ERA_START) {
       all += bucket.all;
       floored += bucket.floored;
       exempt += bucket.exempt;
+      modifier += bucket.modifier;
+      noCommand += bucket.noCommand;
     }
     console.log(
-      `${month}  ${String(bucket.all).padStart(7)}  ${String(bucket.floored).padStart(4)} ${pct(bucket.floored, bucket.all).padStart(6)}  ${String(bucket.exempt).padStart(4)} ${pct(bucket.exempt, bucket.all).padStart(6)}`,
+      `${month}  ${String(bucket.all).padStart(7)}  ${String(bucket.floored).padStart(4)} ${pct(bucket.floored, bucket.all).padStart(6)}  ${String(bucket.exempt).padStart(4)} ${pct(bucket.exempt, bucket.all).padStart(6)}  ${String(bucket.modifier).padStart(8)}  ${String(bucket.noCommand).padStart(10)}`,
     );
   }
   console.log("");
   console.log(
-    `${SENTINEL_ERA_START} onward: ${floored}/${all} floored (${pct(floored, all)}); ${exempt} relieved (${pct(exempt, all)} of all prompts, ${pct(exempt, floored)} of floored)`,
+    `${SENTINEL_ERA_START} onward: ${floored}/${all} floored (${pct(floored, all)}); ${exempt} relieved (${pct(exempt, all)} of all prompts, ${pct(exempt, floored)} of floored), ${modifier} of them by the execution-modifier clause alone, ${noCommand} by the no-command clause alone`,
   );
   console.log("");
   console.log("cost of each conservative clause (asks it forfeits):");

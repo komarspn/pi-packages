@@ -1,6 +1,6 @@
 {
   "name": "@komarspn/pi-permission-system",
-  "version": "36.2.2",
+  "version": "42.0.0",
   "description": "Permission enforcement extension for the Pi coding agent.",
   "type": "module",
   "exports": {
@@ -80,13 +80,13 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.79.0",
-    "@earendil-works/pi-tui": ">=0.79.0"
+    "@earendil-works/pi-coding-agent": ">=1.0.0",
+    "@earendil-works/pi-tui": ">=1.0.0"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
-    "@earendil-works/pi-coding-agent": "0.79.1",
-    "@earendil-works/pi-tui": "0.79.1",
+    "@earendil-works/pi-coding-agent": "1.0.0",
+    "@earendil-works/pi-tui": "1.0.0",
     "@types/node": "catalog:",
     "rollup": "catalog:",
     "rollup-plugin-dts": "catalog:",
@@ -97,6 +97,6 @@
   "dependencies": {
     "tree-sitter-bash": "^0.25.1",
     "web-tree-sitter": "^0.26.9",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   }
 }

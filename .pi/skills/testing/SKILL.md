@@ -65,6 +65,7 @@ Load this skill when writing, debugging, or planning tests.
   Assert the positive (non-fallback) path against the same fixture builder first — a malformed fixture then fails loudly there — or assert a discriminating field the fallback cannot produce.
 - `toMatchObject` does not assert a key's **absence**: an expected `undefined` value requires the key to be present on the received object, so `toMatchObject({ flag: undefined })` fails when `flag` is missing.
   Use `toEqual` for a full-shape assertion, or assert a discriminating field the negative case cannot produce.
+  `toEqual` ignores `undefined`-valued keys too, so it cannot pin a key's absence; use `toStrictEqual` when the key set is the claim.
 - When proving a guard test is not vacuous, build the probe to match the guard's exact predicate.
   A near-miss probe (`void runRpcSession;` against a guard matching `runRpcSession(`) leaves the guard silent and looks like proof it is broken.
 - Before asserting, name both outcomes and confirm your assertion's value differs between them **under the fixture's defaults**.
@@ -85,7 +86,7 @@ Load this skill when writing, debugging, or planning tests.
   A `win32PathFlavor` probe on `/tmp/logs/` passes pre-fix on POSIX CI — the host `sep` is `/` too; a native `c:\dir\file.ts` collapses to `./*` and goes red.
 - An equivalence test (incremental vs. freshly built, cached vs. uncached) pins self-consistency, not correctness, when both sides run the code under test.
   Assert independently — a count, a golden row — anything the equivalence cannot see.
-- When a plan names an external oracle (the parse of an equivalent spelling the change must match), sweep it combinatorially over the input's operators, not by hand-picked rows.
+- When a plan names an external oracle (the parse of an equivalent spelling the change must match, or an installed binary whose behavior a grammar or table transcribes), sweep it combinatorially over the input's operators, not by hand-picked rows.
   #979's sampled rows were all green while a 2180-case sweep found 62 divergences in three shape classes, after two reviewer FAILs.
 - Prefer a concrete test asserting current (even imperfect) behavior over `test.todo`.
   A real assertion documents the limitation and lets a future fix flip the expectation.

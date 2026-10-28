@@ -29,7 +29,9 @@ describe("buildSkillAskPayload", () => {
       value: "librarian",
       matchedPattern: null,
       commandContext: null,
+      matchedSpelling: null,
       executedUnit: null,
+      decidingPath: null,
     });
     expect(payload.evidence).toEqual([]);
   });

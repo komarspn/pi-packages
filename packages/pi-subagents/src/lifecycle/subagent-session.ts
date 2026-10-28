@@ -18,7 +18,13 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { ChildLifecyclePublisher } from "#src/lifecycle/child-lifecycle";
 import { emitChildSessionShutdown } from "#src/lifecycle/child-shutdown";
-import { normalizeMaxTurns } from "#src/lifecycle/turn-limits";
+import {
+  type TurnBudget,
+  type TurnBudgetAction,
+  TurnBudgetTracker,
+  type TurnLimits,
+  type TurnOutcome,
+} from "#src/lifecycle/turn-limits";
 import { getSessionContextPercent, type SessionStatsLike } from "#src/lifecycle/usage";
 import { extractText } from "#src/session/context";
 import { getAgentConversation } from "#src/session/conversation";
@@ -27,21 +33,15 @@ import type { SessionMessage, ThinkingLevel } from "#src/types";
 /** Outcome of one turn loop. */
 export interface TurnLoopResult {
   responseText: string;
-  /** True if the agent was hard-aborted (max turns + grace exceeded). */
-  aborted: boolean;
-  /** True if the agent was steered to wrap up (soft turn limit) but finished in time. */
-  steered: boolean;
+  /** The run's turn budget as the loop ended. */
+  turnBudget: TurnBudget;
 }
 
-/** Per-call options for the initial run's turn loop. */
+/** Per-call options for one run's turn loop. */
 export interface TurnLoopOptions {
-  /** Per-call max-turns override — highest precedence. */
-  maxTurns?: number;
-  /** Runtime-config fallback when neither per-call nor per-agent limit is set. */
-  defaultMaxTurns?: number;
-  /** Grace turns after the soft-limit steer message before a hard abort. */
-  graceTurns?: number;
   signal?: AbortSignal;
+  /** Receives the run's budget at the start and after every turn boundary that changes it. */
+  onTurnBudget?: (budget: TurnBudget) => void;
 }
 
 /** Session-level facts known at creation, supplied by the factory. */
@@ -53,9 +53,9 @@ export interface SubagentSessionMeta {
   /** Child session directory — carried on the completed event as transcript location. */
   sessionDir: string;
   agentName: string;
-  /** Per-agent max-turns from the resolved agent config — middle precedence. */
-  agentMaxTurns: number | undefined;
-  /** Parent context prepended to the run prompt, captured at spawn time. */
+  /** The limits every run of this session is held to, resolved at creation. */
+  turnLimits: TurnLimits;
+  /** Parent context prepended to the first run's prompt, captured at spawn time. */
   parentContext: string | undefined;
   lifecycle: ChildLifecyclePublisher;
 }
@@ -65,6 +65,12 @@ export interface SubagentSessionMeta {
  */
 export class SubagentSession {
   private disposed = false;
+
+  /**
+   * Set as the session's first run starts, settled or not: only that run
+   * carries the parent context and announces the child's completion.
+   */
+  private hasRun = false;
 
   /**
    * How the session's last assistant turn ended, tracked for the session's
@@ -106,77 +112,109 @@ export class SubagentSession {
     return this._session.thinkingLevel;
   }
 
-  /** Drive the initial run's turn loop; emits `completed` on success. */
+  /**
+   * Drive one run's turn loop under a fresh budget at the session's limits:
+   * the initial run, or a resume, whose parent asked for more work and for
+   * which an exhausted run's remainder would be none.
+   *
+   * The session's first run prefixes the parent context captured at spawn and
+   * emits `completed` once its prompt resolves; a later run does neither.
+   */
   async runTurnLoop(prompt: string, opts: TurnLoopOptions): Promise<TurnLoopResult> {
-    const session = this._session;
-
-    // Track turns for graceful max_turns enforcement.
-    let turnCount = 0;
-    const maxTurns = normalizeMaxTurns(
-      opts.maxTurns ?? this.meta.agentMaxTurns ?? opts.defaultMaxTurns,
-    );
-    let softLimitReached = false;
-    let aborted = false;
-
-    const unsubTurns = session.subscribe((event: AgentSessionEvent) => {
-      if (event.type === "turn_end") {
-        turnCount++;
-        if (maxTurns != null) {
-          if (!softLimitReached && turnCount >= maxTurns) {
-            softLimitReached = true;
-            void session.steer(
-              "You have reached your turn limit. Wrap up immediately - provide your final answer now.",
-            );
-          } else if (softLimitReached && turnCount >= maxTurns + (opts.graceTurns ?? 5)) {
-            aborted = true;
-            void session.abort();
-          }
-        }
-      }
-    });
-
-    const collector = collectResponseText(session);
-    const cleanupAbort = forwardAbortSignal(session, opts.signal);
-
-    // Prepend parent context if it was captured at spawn time.
-    const effectivePrompt = this.meta.parentContext
-      ? this.meta.parentContext + prompt
-      : prompt;
-
-    try {
-      await session.prompt(effectivePrompt);
-      failIfProviderErrored(this.turnFailure.getFailure());
+    const firstRun = !this.hasRun;
+    this.hasRun = true;
+    const tracker = new TurnBudgetTracker(this.meta.turnLimits);
+    const responseText = await this.promptForAnswer(firstRun ? this.withParentContext(prompt) : prompt, tracker, opts);
+    if (firstRun) {
       this.meta.lifecycle.completed({
         sessionDir: this.meta.sessionDir,
         agentName: this.meta.agentName,
-        aborted,
-        steered: softLimitReached,
+        turnBudget: tracker.budget,
       });
+    }
+    return { responseText, turnBudget: tracker.budget };
+  }
+
+  private withParentContext(prompt: string): string {
+    return this.meta.parentContext ? this.meta.parentContext + prompt : prompt;
+  }
+
+  /**
+   * Prompt the session for one run's answer, held to the tracker's budget.
+   *
+   * A signal that already fired takes no turn and has no answer. Forwarding it
+   * would not stop the prompt: Pi's `abort()` is a no-op while no run is active,
+   * so it cannot cancel a prompt started after it. Nor does the history answer
+   * for it — on a resume, the last assistant text is the previous run's.
+   */
+  private async promptForAnswer(
+    prompt: string,
+    tracker: TurnBudgetTracker,
+    opts: TurnLoopOptions,
+  ): Promise<string> {
+    if (opts.signal?.aborted) return "";
+    const session = this._session;
+    const unsubTurns = this.enforceTurnBudget(tracker, opts.onTurnBudget);
+    const collector = collectResponseText(session);
+    const cleanupAbort = forwardAbortSignal(session, opts.signal);
+
+    try {
+      await session.prompt(prompt);
+      failIfProviderErrored(this.turnFailure.getFailure());
     } finally {
       unsubTurns();
       collector.unsubscribe();
       cleanupAbort();
     }
 
-    const responseText = collector.getText().trim() || getLastAssistantText(session);
-    return { responseText, aborted, steered: softLimitReached };
+    return collector.getText().trim() || getLastAssistantText(session);
   }
 
-  /** Re-prompt the same session (resume); does not emit `completed`. */
-  async resumeTurnLoop(prompt: string, signal?: AbortSignal): Promise<string> {
-    const session = this._session;
-    const collector = collectResponseText(session);
-    const cleanupAbort = forwardAbortSignal(session, signal);
+  /**
+   * Hold the session to the tracker's budget: state it up front when the whole
+   * budget is wrap-up turns, then act on each turn boundary and report the
+   * budget as it changes. Returns the unsubscribe for the turn listener.
+   */
+  private enforceTurnBudget(
+    tracker: TurnBudgetTracker,
+    report: ((budget: TurnBudget) => void) | undefined,
+  ): () => void {
+    if (tracker.warnBeforeFirstTurn()) this.sendBudgetWarning(tracker);
+    report?.(tracker.budget);
+    return this._session.subscribe((event: AgentSessionEvent) => {
+      if (event.type === "turn_end") {
+        this.actOnTurnBudget(tracker, tracker.onTurnEnd(turnOutcome(event)));
+        report?.(tracker.budget);
+      } else if (event.type === "turn_start") {
+        const action = tracker.onTurnStart();
+        this.actOnTurnBudget(tracker, action);
+        if (action) report?.(tracker.budget);
+      }
+    });
+  }
 
-    try {
-      await session.prompt(prompt);
-      failIfProviderErrored(this.turnFailure.getFailure());
-    } finally {
-      collector.unsubscribe();
-      cleanupAbort();
-    }
+  private actOnTurnBudget(tracker: TurnBudgetTracker, action: TurnBudgetAction): void {
+    if (action === "warn") this.sendBudgetWarning(tracker);
+    else if (action === "stop") void this._session.abort();
+  }
 
-    return collector.getText().trim() || getLastAssistantText(session);
+  /**
+   * Tell the child how many turns it has left, as context for its next turn.
+   *
+   * A context-only custom message rather than a steer: Pi appends it to the
+   * transcript at the turn's end and forces no turn, where a queued steer keeps
+   * the agent loop going even after a turn that made no tool calls, replacing a
+   * final answer with a reply to the warning.
+   */
+  private sendBudgetWarning(tracker: TurnBudgetTracker): void {
+    void this._session.sendCustomMessage(
+      {
+        customType: TURN_BUDGET_WARNING_TYPE,
+        content: budgetWarningText(tracker.remaining ?? 0),
+        display: true,
+      },
+      { triggerTurn: false },
+    );
   }
 
   /** Deliver a steer to the live session. */
@@ -206,7 +244,7 @@ export class SubagentSession {
 
   /** The session's message history. */
   get messages(): readonly unknown[] {
-    return this._session.messages as readonly unknown[];
+    return this._session.messages;
   }
 
   /** The session's message history, typed for Pi's session-rendering machinery. */
@@ -308,6 +346,27 @@ function readLastTurnFailure(session: AgentSession): string | undefined {
     return msg.errorMessage || PROVIDER_ERROR_WITHOUT_MESSAGE;
   }
   return undefined;
+}
+
+/** The custom-message type the turn-budget warning is sent as. */
+const TURN_BUDGET_WARNING_TYPE = "subagents:turn-budget-warning";
+
+/** The warning a child reads with `remaining` turns left, this coming one included. */
+function budgetWarningText(remaining: number): string {
+  const turns = remaining === 1 ? "1 turn" : `${remaining} turns`;
+  return (
+    `Turn budget: you have ${turns} left, including this one. ` +
+    "The harness stops you after that. Finish your work and give your final answer within that budget."
+  );
+}
+
+/** How a `turn_end` bears on the budget: whether it failed, and whether the agent loop continues. */
+function turnOutcome(event: Extract<AgentSessionEvent, { type: "turn_end" }>): TurnOutcome {
+  const stopReason = event.message.role === "assistant" ? event.message.stopReason : undefined;
+  return {
+    failed: stopReason === "error" || stopReason === "aborted",
+    ranTools: event.toolResults.length > 0,
+  };
 }
 
 /**

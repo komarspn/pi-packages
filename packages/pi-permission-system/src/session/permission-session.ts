@@ -1,6 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AuthorizerSelectionLifecycle } from "#src/authority/authorizer-selection";
 import type { ForwardingController } from "#src/authority/forwarding-manager";
+import type { DeclaredCommandEffects } from "#src/config/command-effects-config";
 import type { ShellToolsConfig } from "#src/config/config-schema";
 import type { SessionConfigStore } from "#src/config/config-store";
 import type { PermissionSystemExtensionConfig } from "#src/config/extension-config";
@@ -15,6 +16,7 @@ import {
 import type { ToolCallGateInputs } from "#src/handlers/gates/tool-call-gate-pipeline";
 import type { PathFlavor } from "#src/path/path-flavor";
 import { PathNormalizer } from "#src/path/path-normalizer";
+import type { InfrastructureReadScope } from "#src/path/pi-infrastructure-read";
 import type { ScopedPermissionManager } from "#src/policy/permission-manager";
 import {
   resolveToolPreviewLimits,
@@ -237,14 +239,17 @@ export class PermissionSession implements ToolCallGateInputs {
   // ── Infrastructure paths ───────────────────────────────────────────────
 
   /**
-   * Combined infrastructure read directories: static paths from
-   * `ExtensionPaths` plus config-derived paths.
+   * Where infrastructure reads are auto-allowed: the static roots from
+   * `ExtensionPaths` plus the config-derived `piInfrastructureReadPaths`.
    */
-  getInfrastructureReadDirs(): string[] {
-    return [
-      ...this.paths.piInfrastructureDirs,
-      ...(this.config.piInfrastructureReadPaths ?? []),
-    ];
+  getInfrastructureReadScope(): InfrastructureReadScope {
+    return {
+      dirs: [
+        ...this.paths.piInfrastructureDirs,
+        ...(this.config.piInfrastructureReadPaths ?? []),
+      ],
+      excludedDirs: this.paths.piInfrastructureExcludedDirs,
+    };
   }
 
   /**
@@ -265,6 +270,15 @@ export class PermissionSession implements ToolCallGateInputs {
    */
   getShellToolAliases(): ShellToolsConfig | undefined {
     return this.config.shellTools;
+  }
+
+  /**
+   * The user's `commandEffects` declarations, scope stamped, which the gate
+   * pipeline hands to `BashProgram.parse` so a declared command's operands
+   * route by their declared effect.
+   */
+  getCommandEffects(): DeclaredCommandEffects {
+    return this.configStore.declaredCommandEffects();
   }
 
   // ── Path normalization ────────────────────────────────────────────────

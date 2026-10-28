@@ -1,5 +1,8 @@
 import type { AccessPath } from "#src/access-intent/access-path";
-import type { BashExternalPath } from "#src/access-intent/bash/bash-path-resolver";
+import type {
+  BashExternalPath,
+  Unlocated,
+} from "#src/access-intent/bash/bash-path-resolver";
 import type { TokenEffect } from "#src/access-intent/effect";
 import { capabilitySurfaceForEffect } from "#src/access-intent/path-surfaces";
 import type { ScopedPermissionResolver } from "#src/policy/permission-resolver";
@@ -14,11 +17,22 @@ export interface UncoveredExternalPath {
   /** What the effect was, and what established it — the review log's blame. */
   effect: TokenEffect;
   check: PermissionCheckResult;
+  /** Carried from {@link BashExternalPath.unlocated}: `path` is not where the command reaches. */
+  unlocated?: Unlocated;
 }
 
-/** The uncovered external paths plus the most restrictive check among them. */
-export interface UncoveredExternalPaths {
+/**
+ * How a set of external paths resolved: the uncovered ones, the worst among
+ * them, and which allowed paths a session grant covered.
+ */
+export interface ExternalPathCoverage {
   uncovered: UncoveredExternalPath[];
+  /**
+   * Allowed paths whose winning rule was a session grant. A path allowed by a
+   * config rule or the universal fallback is in neither list, so a caller can
+   * stamp `session_approval` only where a grant actually decided.
+   */
+  sessionCovered: AccessPath[];
   /** Worst check among uncovered paths; `undefined` only when none are uncovered. */
   worstCheck: PermissionCheckResult | undefined;
 }
@@ -60,15 +74,17 @@ export function resolveExternalDirectoryPolicy(
  * not "allow" are collected (filtering on state, not source, so config-level
  * allow rules suppress the prompt just as session-level allow rules do), and
  * the most restrictive uncovered check is returned so a config "deny" is not
- * downgraded to the catch-all "ask".
+ * downgraded to the catch-all "ask". Allowed entries a session rule decided
+ * are reported apart, as the provenance a whole-command bypass records.
  */
 export function selectUncoveredExternalPaths(
   accesses: readonly BashExternalPath[],
   resolver: ScopedPermissionResolver,
   agentName: string | undefined,
-): UncoveredExternalPaths {
+): ExternalPathCoverage {
   const uncovered: UncoveredExternalPath[] = [];
-  for (const { path, effect } of accesses) {
+  const sessionCovered: AccessPath[] = [];
+  for (const { path, effect, unlocated } of accesses) {
     const surface = capabilitySurfaceForEffect(
       "external_directory",
       effect.effect,
@@ -80,11 +96,20 @@ export function selectUncoveredExternalPaths(
       agentName,
     );
     if (check.state !== "allow") {
-      uncovered.push({ path, surface, effect, check });
+      uncovered.push({
+        path,
+        surface,
+        effect,
+        check,
+        ...(unlocated ? { unlocated } : {}),
+      });
+    } else if (check.source === "session") {
+      sessionCovered.push(path);
     }
   }
   return {
     uncovered,
+    sessionCovered,
     worstCheck: pickMostRestrictive(uncovered.map(({ check }) => check)),
   };
 }

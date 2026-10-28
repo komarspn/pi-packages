@@ -2,6 +2,7 @@ import type { CreateSubagentSessionParams } from "#src/lifecycle/create-subagent
 import { Subagent, type SubagentExecution } from "#src/lifecycle/subagent";
 import type { SubagentSession } from "#src/lifecycle/subagent-session";
 import { SubagentState, type SubagentStatus } from "#src/lifecycle/subagent-state";
+import type { TurnBudget } from "#src/lifecycle/turn-limits";
 import type { SubagentType } from "#src/types";
 import { createSubagentSessionStub, toSubagentSession } from "#test/helpers/mock-session";
 import { STUB_SNAPSHOT } from "#test/helpers/stub-ctx";
@@ -37,10 +38,14 @@ export interface TestSubagentOptions {
 	pendingQuestion?: string;
 	/** Seed what a teardown with no result text reported. */
 	workspaceNotice?: string;
+	/** Seed the run's turn limit and its use. */
+	turnBudget?: TurnBudget;
 	error?: string;
 	/** Seed the never-started marker (the agent was stopped before it was admitted). */
 	stoppedWhileQueued?: boolean;
 	startedAt?: number;
+	/** Seed when the run last made progress; defaults to startedAt. */
+	lastProgressAt?: number;
 	completedAt?: number;
 	/** Seed the consumed-outcome timestamp (undefined = obligation open). */
 	consumedAt?: number;
@@ -50,19 +55,12 @@ export interface TestSubagentOptions {
 	lifetimeUsage?: { input: number; output: number; cacheWrite: number };
 	/** Seed compactionCount. */
 	compactionCount?: number;
-	/**
-	 * Set turnCount. Starts at 1; pass a higher value to simulate multiple turns.
-	 * Ignored when `execution` is supplied (maxTurns lives on the execution, not state).
-	 */
-	turnCount?: number;
 	/** Seed active tools by name. */
 	activeTools?: string[];
 	/** Seed the run's updates, in order (each replays recordUpdate). */
 	runUpdates?: string[];
 	/** Seed responseText. */
 	responseText?: string;
-	/** Thread maxTurns into the stub execution. Ignored when `execution` is supplied. */
-	maxTurns?: number;
 	/**
 	 * Attach a session stub after construction, so the record reads as
 	 * session-ready. Defaults to false: a passive fixture has never run, so it has
@@ -77,22 +75,21 @@ export interface TestSubagentOptions {
 }
 
 export function createTestSubagent(overrides: TestSubagentOptions = {}): Subagent {
-	const { id, type, description, isBackground, execution, toolCallId, toolUses, lifetimeUsage, compactionCount, turnCount, activeTools, responseText, runUpdates, maxTurns, sessionReady, outputFile, ...stateOverrides } =
-		overrides;
+	const { id, type, description, isBackground, execution, toolCallId, runUpdates, sessionReady, outputFile } = overrides;
+	// Every seed is named as a literal property, so a key that leaves its owner's
+	// init type fails the type check instead of dropping silently. A seed with a
+	// default honors an explicit `undefined` (e.g. `completedAt: undefined` for a
+	// running fixture), as the spread this replaced did.
+	const startedAt = seeded(overrides, "startedAt", 1000);
 	const state = new SubagentState({
-		status: "completed",
-		result: "All done.",
-		startedAt: 1000,
-		completedAt: 2000,
-		toolUses: toolUses ?? 3,
-		lifetimeUsage: lifetimeUsage ?? { input: 500, output: 500, cacheWrite: 0 },
-		...(compactionCount !== undefined ? { compactionCount } : {}),
-		...(turnCount !== undefined ? { turnCount } : {}),
-		...(activeTools !== undefined ? { activeTools } : {}),
-		...(responseText !== undefined ? { responseText } : {}),
-		...stateOverrides,
+		// What spans runs
+		lastProgressAt: overrides.lastProgressAt ?? startedAt,
+		toolUses: overrides.toolUses ?? 3,
+		lifetimeUsage: overrides.lifetimeUsage ?? { input: 500, output: 500, cacheWrite: 0 },
+		compactionCount: overrides.compactionCount,
+		activeTools: overrides.activeTools,
+		responseText: overrides.responseText,
 	});
-	for (const update of runUpdates ?? []) state.recordUpdate(update);
 	const agent = new Subagent({
 		id: id ?? "agent-1",
 		type: type ?? "general-purpose",
@@ -100,9 +97,22 @@ export function createTestSubagent(overrides: TestSubagentOptions = {}): Subagen
 		isBackground: isBackground ?? true,
 		execution: execution ?? makeStubExecution({
 			...(toolCallId ? { parentSession: { toolCallId } } : {}),
-			...(maxTurns !== undefined ? { maxTurns } : {}),
 		}),
 		state,
+		// The initial run's outcome
+		outcome: {
+			status: seeded(overrides, "status", "completed"),
+			result: seeded(overrides, "result", "All done."),
+			error: overrides.error,
+			stoppedWhileQueued: overrides.stoppedWhileQueued,
+			startedAt,
+			completedAt: seeded(overrides, "completedAt", 2000),
+			pendingQuestion: overrides.pendingQuestion,
+			workspaceNotice: overrides.workspaceNotice,
+			turnBudget: overrides.turnBudget,
+			runUpdates,
+			consumedAt: overrides.consumedAt,
+		},
 	});
 	// Assigned rather than passed to the constructor: run() is what sets this in
 	// production, and a passive fixture never runs.
@@ -110,4 +120,13 @@ export function createTestSubagent(overrides: TestSubagentOptions = {}): Subagen
 		agent.subagentSession = toSubagentSession(createSubagentSessionStub(undefined, outputFile));
 	}
 	return agent;
+}
+
+/** The override for `key` when the caller supplied one (even `undefined`), else the fixture default. */
+function seeded<K extends keyof TestSubagentOptions>(
+	overrides: TestSubagentOptions,
+	key: K,
+	fallback: NonNullable<TestSubagentOptions[K]>,
+): TestSubagentOptions[K] {
+	return Object.hasOwn(overrides, key) ? overrides[key] : fallback;
 }

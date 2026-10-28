@@ -1,11 +1,14 @@
 /**
  * display.ts — Pure formatting helpers and display utilities for agent UI.
  *
- * All functions are stateless and dependency-free (no SDK, no widget lifecycle).
+ * All functions are stateless and dependency-free (no SDK runtime imports, no widget lifecycle).
  * Consumed by the widget, the menu, tool modules, and the notification renderer.
  */
 
+import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { AgentConfigLookup } from "#src/config/agent-types";
+import type { SubagentStatus } from "#src/lifecycle/subagent-state";
+import type { TurnBudget } from "#src/lifecycle/turn-limits";
 import type { AgentInvocation, SubagentType } from "#src/types";
 import { GLYPHS } from "#src/ui/glyphs";
 
@@ -18,7 +21,7 @@ export interface ModelIdentity {
 }
 
 export type Theme = {
-  fg(color: string, text: string): string;
+  fg(color: ThemeColor, text: string): string;
   bold(text: string): string;
 };
 
@@ -30,7 +33,7 @@ export interface AgentDetails {
   toolUses: number;
   tokens: string;
   durationMs: number;
-  status: "queued" | "running" | "completed" | "steered" | "aborted" | "stopped" | "error" | "background";
+  status: "queued" | "running" | "completed" | "aborted" | "stopped" | "error" | "background";
   /** Human-readable description of what the agent is currently doing. */
   activity?: string;
   /** Current spinner frame index (for animated running indicator). */
@@ -39,18 +42,16 @@ export interface AgentDetails {
   modelName?: string;
   /** Notable config tags (e.g. ["thinking: high", "inherit context"]). */
   tags?: string[];
-  /** Current turn count. */
-  turnCount?: number;
-  /** Effective max turns (undefined = unlimited). */
-  maxTurns?: number;
   agentId?: string;
   error?: string;
+  /** The run's turn budget; absent until its turn loop starts. */
+  turnBudget?: TurnBudget;
 }
 
 // ---- Constants ----
 
 /** Statuses that indicate an error/non-success outcome (used for linger behavior and icon rendering). */
-export const ERROR_STATUSES = new Set(["error", "aborted", "steered", "stopped"]);
+export const ERROR_STATUSES = new Set(["error", "aborted", "stopped"]);
 
 /** Tool name → human-readable action for activity descriptions. */
 const TOOL_DISPLAY: Record<string, string> = {
@@ -102,11 +103,11 @@ export function formatSessionTokens(
   return `${tokenStr} ${theme.fg("dim", "(")}${annot.join(sep)}${theme.fg("dim", ")")}`;
 }
 
-/** Format turn count with optional max limit: "↻5≤30" or "↻5". */
-export function formatTurns(turnCount: number, maxTurns?: number | null): string {
-  return maxTurns != null
-    ? `${GLYPHS.turns}${turnCount}≤${maxTurns}`
-    : `${GLYPHS.turns}${turnCount}`;
+/** Format a turn budget as turns used against the ceiling: "↻5≤30", or "↻5" when unlimited. */
+export function formatTurnBudget(budget: TurnBudget): string {
+  return budget.maxTurns != null
+    ? `${GLYPHS.turns}${budget.used}≤${budget.maxTurns}`
+    : `${GLYPHS.turns}${budget.used}`;
 }
 
 /** Format milliseconds as human-readable duration. */
@@ -124,8 +125,28 @@ export function modelLabel(model: ModelIdentity | undefined): string | undefined
   return model ? formatModel(model) : undefined;
 }
 
+/** The run facts a duration reads. A run's outcome and a navigator record both satisfy it. */
+export interface RunTiming {
+  readonly status: SubagentStatus;
+  readonly startedAt: number;
+  readonly completedAt: number | undefined;
+  readonly stoppedWhileQueued: boolean;
+}
+
+/**
+ * A started run's duration; for a run the limiter never admitted, its time in
+ * the queue, so no carrier calls waiting for a slot running time. A run
+ * stopped while queued keeps the time it waited, frozen at the stop.
+ */
+export function formatRunDuration(run: RunTiming): string {
+  if (run.status === "queued" || run.stoppedWhileQueued) {
+    return `queued ${formatMs((run.completedAt ?? Date.now()) - run.startedAt)}`;
+  }
+  return formatDuration(run.startedAt, run.completedAt);
+}
+
 /** Format duration from start/completed timestamps. */
-export function formatDuration(startedAt: number, completedAt?: number): string {
+function formatDuration(startedAt: number, completedAt?: number): string {
   if (completedAt) return formatMs(completedAt - startedAt);
   return `${formatMs(Date.now() - startedAt)} (running)`;
 }

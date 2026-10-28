@@ -43,6 +43,22 @@ describe("renderReviewLogFacts", () => {
     });
   });
 
+  it("records the spelling the rule matched, when not the command as typed", () => {
+    expect(
+      renderReviewLogFacts(
+        payload({
+          surface: "bash",
+          matchedPattern: "rm /tmp/a/*",
+          matchedSpelling: "rm /tmp/a/x",
+        }),
+      ),
+    ).toEqual({
+      surface: "bash",
+      matchedPattern: "rm /tmp/a/*",
+      matchedSpelling: "rm /tmp/a/x",
+    });
+  });
+
   it("records the nested context an offending bash unit ran in", () => {
     expect(
       renderReviewLogFacts(
@@ -93,6 +109,60 @@ describe("renderReviewLogFacts", () => {
       matchedPattern: "*",
       forwarded: true,
       requesterSessionId: "child-7",
+    });
+  });
+
+  describe("deciding path", () => {
+    it("records the deciding path and what established its direction", () => {
+      expect(
+        renderReviewLogFacts(
+          payload({
+            surface: "external_directory",
+            matchedPattern: "*",
+            decidingPath: {
+              path: "/outside/x",
+              effect: "unproven",
+              effectSource: "retracted",
+            },
+          }),
+        ),
+      ).toEqual({
+        surface: "external_directory",
+        matchedPattern: "*",
+        decidingPath: "/outside/x",
+        effect: "unproven",
+        effectSource: "retracted",
+      });
+    });
+
+    it("records the deciding path but never the other escaping paths", () => {
+      expect(
+        renderReviewLogFacts(
+          payload(
+            {
+              surface: "external_directory_write",
+              matchedPattern: "*",
+              decidingPath: {
+                path: "/outside/b",
+                effect: "write",
+                effectSource: "syntax",
+              },
+            },
+            {
+              evidence: [
+                { label: "external path", text: "/outside/a", detail: null },
+                { label: "external path", text: "/outside/b", detail: null },
+              ],
+            },
+          ),
+        ),
+      ).toEqual({
+        surface: "external_directory_write",
+        matchedPattern: "*",
+        decidingPath: "/outside/b",
+        effect: "write",
+        effectSource: "syntax",
+      });
     });
   });
 

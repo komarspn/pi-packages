@@ -4,7 +4,10 @@ import type { ScopedPermissionResolver } from "#src/policy/permission-resolver";
 import { buildBashExternalDirectoryAskPayload } from "#src/presentation/path-ask-payload";
 import { SessionApproval } from "#src/session/session-approval";
 import type { GateResult } from "./descriptor";
-import { selectUncoveredExternalPaths } from "./external-directory-policy";
+import {
+  selectUncoveredExternalPaths,
+  type UncoveredExternalPath,
+} from "./external-directory-policy";
 import { accessFactsFromPath } from "./helpers";
 import type { ToolCallContext } from "./types";
 
@@ -14,7 +17,10 @@ import type { ToolCallContext } from "./types";
  * Reads the external paths from the injected `BashProgram` and checks whether
  * any reference directories outside the working directory. Returns `null` when the gate
  * does not apply (not a shell invocation, no command, or no external paths found).
- * Returns a `GateBypass` when all paths are allowed (by config or session rule).
+ * Returns `null` when every path is allowed by a config rule or the universal
+ * fallback — like any policy allow, it writes no review entry. Returns a
+ * `GateBypass` recording a session approval when every path is allowed and at
+ * least one was covered by a session grant.
  * Returns a `GateDescriptor` with multi-pattern sessionApproval for uncovered paths.
  *
  * Each path is resolved on the narrowest `external_directory`-family surface
@@ -42,23 +48,29 @@ export function describeBashExternalDirectoryGate(
 
   // Resolve every external path on the external_directory surface and keep the
   // ones not already allowed (config-level allows suppress the prompt just as
-  // session-level allows do); the shared helper single-sources the #418 alias
-  // matching and the worst-uncovered selection.
-  const { uncovered: uncoveredEntries, worstCheck } =
-    selectUncoveredExternalPaths(
-      externalAccesses,
-      resolver,
-      tcc.agentName ?? undefined,
-    );
+  // session-level allows do), noting which allowed ones a session grant
+  // covered; the shared helper single-sources the #418 alias matching and the
+  // worst-uncovered selection.
+  const {
+    uncovered: uncoveredEntries,
+    sessionCovered,
+    worstCheck,
+  } = selectUncoveredExternalPaths(
+    externalAccesses,
+    resolver,
+    tcc.agentName ?? undefined,
+  );
   const uncoveredPaths = uncoveredEntries.map(({ path }) => path.value());
 
   if (uncoveredPaths.length === 0) {
+    // No session grant decided any path: policy alone allowed the command.
+    if (sessionCovered.length === 0) return null;
     return {
       action: "allow",
-      // A whole-command bypass covers every external path at once, and each
-      // may have matched a different session pattern -- so the surface is one
-      // value and the pattern is not. The entry's `externalPaths` lists what
-      // was covered.
+      // A whole-command bypass covers every session-granted path at once, and
+      // each may have matched a different session pattern -- so the surface is
+      // one value and the pattern is not. The entry's `externalPaths` lists the
+      // paths a grant covered, never the ones policy allowed.
       decidedBy: {
         kind: "session_approval",
         surface: "external_directory",
@@ -72,7 +84,7 @@ export function describeBashExternalDirectoryGate(
           toolName: tcc.toolName,
           agentName: tcc.agentName,
           command,
-          externalPaths: externalAccesses.map(({ path }) => path.value()),
+          externalPaths: sessionCovered.map((path) => path.value()),
           resolution: "session_approved",
         },
       },
@@ -94,9 +106,16 @@ export function describeBashExternalDirectoryGate(
   }));
 
   const surface = worstEntry.surface;
+  // A token the parse could not read as bash will (`/@(etc)` read as `/@`, a
+  // backslash-newline splitting a word) licenses nothing, since a license
+  // relieves an ask.
+  const licensed =
+    bashProgram.readsVerbatim() &&
+    namesNothingOnDisk(uncoveredEntries, normalizer);
   const payload = buildBashExternalDirectoryAskPayload({
     command,
     externalPaths: disclosures,
+    decidingPath: { path: worstEntry.path.value(), effect: worstEntry.effect },
     cwd: tcc.cwd,
     agentName: tcc.agentName,
     toolName: tcc.toolName,
@@ -109,10 +128,11 @@ export function describeBashExternalDirectoryGate(
     input: {},
     payload,
     sessionApproval: SessionApproval.forGrants(
-      uncoveredEntries.map((entry) => ({
-        surface: entry.surface,
-        pattern: normalizer.approvalPatternFor(entry.path),
-      })),
+      uncoveredEntries.flatMap((entry) =>
+        normalizer
+          .approvalPatternsFor(entry.path)
+          .map((pattern) => ({ surface: entry.surface, pattern })),
+      ),
     ),
     promptDetails: {
       source: "tool_call",
@@ -120,7 +140,10 @@ export function describeBashExternalDirectoryGate(
       toolCallId: tcc.toolCallId,
       toolName: tcc.toolName,
       command,
-      accessIntent: accessFactsFromPath(surface, worstEntry.path),
+      accessIntent: {
+        ...accessFactsFromPath(surface, worstEntry.path),
+        ...(licensed ? { delegationLicense: "nothing-on-disk" as const } : {}),
+      },
     },
     logContext: {
       source: "tool_call",
@@ -129,10 +152,6 @@ export function describeBashExternalDirectoryGate(
       agentName: tcc.agentName,
       command,
       externalPaths: uncoveredPaths,
-      // The blame line ADR 0013 §7 asks for: `request.surface` already records
-      // the direction, and these two record what established it.
-      effect: worstEntry.effect.effect,
-      effectSource: worstEntry.effect.source,
     },
     decision: {
       surface,
@@ -140,4 +159,23 @@ export function describeBashExternalDirectoryGate(
     },
     preCheck,
   };
+}
+
+/**
+ * Whether every uncovered path earns the nothing-on-disk delegation license
+ * (ADR 0007, amendment 8): located (spelled verbatim as the absolute path it
+ * names), not a proven write, and naming nothing on disk below the filesystem
+ * root. One path that fails withholds it from the whole ask, since a link's
+ * verdict covers the whole command.
+ */
+function namesNothingOnDisk(
+  entries: readonly UncoveredExternalPath[],
+  normalizer: PathNormalizer,
+): boolean {
+  return entries.every(
+    ({ path, effect, unlocated }) =>
+      unlocated === undefined &&
+      effect.effect !== "write" &&
+      normalizer.namesNothingBelowRoot(path),
+  );
 }

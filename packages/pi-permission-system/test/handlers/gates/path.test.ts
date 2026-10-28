@@ -5,10 +5,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const realpathSync = vi.hoisted(() =>
   vi.fn<(path: string) => string>((p) => p),
 );
-vi.mock("node:fs", () => ({
-  realpathSync,
-  default: { realpathSync },
-}));
+vi.mock("node:fs", async () => {
+  const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+  return {
+    ...actual,
+    realpathSync,
+    default: { ...actual, realpathSync },
+  };
+});
 
 import { AccessPath } from "#src/access-intent/access-path";
 import type { GateDescriptor } from "#src/handlers/gates/descriptor";
@@ -232,6 +236,8 @@ describe("describePathGate", () => {
     expect(result.payload.kind).toBe("path");
     expect(result.payload.request.value).toBe(".env");
     expect(result.payload.request.matchedPattern).toBe("*.env");
+    // A tool's direction is its identity, which the tool fact already states.
+    expect(result.payload.request.decidingPath).toBeNull();
   });
 
   it("descriptor decision uses surface 'path' and the file path as value", () => {

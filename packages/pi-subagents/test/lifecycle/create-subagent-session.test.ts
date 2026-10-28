@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CreateSessionOptions } from "#src/lifecycle/create-subagent-session";
+import type {
+  CreateSessionOptions,
+  ResourceLoaderOptions,
+} from "#src/lifecycle/create-subagent-session";
 import { createSubagentSession } from "#src/lifecycle/create-subagent-session";
 import { SubagentSession } from "#src/lifecycle/subagent-session";
 import { STUB_CTX, STUB_SNAPSHOT } from "#test/helpers/stub-ctx";
@@ -10,6 +13,12 @@ import {
   createSubagentSessionDeps,
   createSubagentSessionIO,
 } from "#test/helpers/subagent-session-io";
+
+/**
+ * The context a custom tool's `execute` receives, derived from the call it
+ * feeds so the stub fits whichever context type the installed SDK declares.
+ */
+type ExecuteCtx = Parameters<NonNullable<CreateSessionOptions["customTools"]>[number]["execute"]>[4];
 
 /** Mock AgentConfigLookup. */
 const mockAgentLookup = createAgentLookup();
@@ -50,6 +59,17 @@ describe("createSubagentSession — assembly", () => {
 
     expect(sub).toBeInstanceOf(SubagentSession);
     expect(sub.session).toBe(session);
+  });
+
+  it("holds the session to the agent's maxTurns over the run config's default", async () => {
+    const sub = await createSubagentSession(
+      { snapshot: STUB_SNAPSHOT, type: "Explore", turnLimits: { defaultMaxTurns: 9, wrapUpTurns: 3 } },
+      createSubagentSessionDeps({ io, exec, registry: createAgentLookup({ maxTurns: 7 }) }),
+    );
+
+    const result = await sub.runTurnLoop("go", {});
+
+    expect(result.turnBudget).toEqual({ maxTurns: 7, used: 0, phase: "within" });
   });
 
   it("exposes the persisted session file as outputFile", async () => {
@@ -392,7 +412,7 @@ describe("createSubagentSession — the core's own child tools", () => {
         { question: "Which config wins?" },
         new AbortController().signal,
         () => {},
-        STUB_CTX,
+        STUB_CTX as ExecuteCtx,
       );
       expect(askParent).toHaveBeenCalledWith("Which config wins?");
     });
@@ -454,5 +474,77 @@ describe("createSubagentSession — prompt inheritance", () => {
     );
 
     expect(inheritedArgument()?.strategy).toBe("portable");
+  });
+});
+
+/** The names of the built-ins the child's resource loader was handed. */
+function loadedBuiltinNames(): string[] | undefined {
+  const opts = io.createResourceLoader.mock.calls[0]?.[0] as ResourceLoaderOptions | undefined;
+  return opts?.extensionFactories?.map((extension) =>
+    typeof extension === "function" ? "<factory>" : extension.name,
+  );
+}
+
+describe("createSubagentSession — Pi built-in extensions", () => {
+  it("hands the loader the built-ins the agent's tools call for", async () => {
+    arrangeFactory();
+
+    await createSubagentSession(
+      { snapshot: STUB_SNAPSHOT, type: "Explore" },
+      createSubagentSessionDeps({
+        io,
+        exec,
+        registry: createAgentLookup({ toolNames: ["read", "codemode", "mcp__github__get_issue"] }),
+      }),
+    );
+
+    expect(loadedBuiltinNames()).toEqual(["codemode", "mcp"]);
+  });
+
+  it("hands the loader no built-ins when the agent's tools call for none", async () => {
+    arrangeFactory();
+
+    await createSubagentSession({ snapshot: STUB_SNAPSHOT, type: "Explore" }, defaultDeps());
+
+    expect(loadedBuiltinNames()).toEqual([]);
+  });
+});
+
+describe("createSubagentSession — MCP tool patterns", () => {
+  const PARENT_TOOLS = ["read", "mcp__github__a", "mcp__github__b", "mcp__gitlab__c"];
+
+  function depsDeclaring(toolNames: string[], parentTools: string[]) {
+    return createSubagentSessionDeps({
+      io,
+      exec,
+      registry: createAgentLookup({ toolNames }),
+      listParentToolNames: () => parentTools,
+    });
+  }
+
+  it("admits the parent's tools a pattern matches, and loads MCP for them", async () => {
+    arrangeFactory();
+
+    await createSubagentSession(
+      { snapshot: STUB_SNAPSHOT, type: "Explore" },
+      depsDeclaring(["read", "mcp__github__*"], PARENT_TOOLS),
+    );
+
+    expect(io.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({ tools: ["read", "mcp__github__a", "mcp__github__b"] }),
+    );
+    expect(loadedBuiltinNames()).toEqual(["mcp"]);
+  });
+
+  it("admits nothing and loads no MCP for a pattern the parent's tools do not match", async () => {
+    arrangeFactory();
+
+    await createSubagentSession(
+      { snapshot: STUB_SNAPSHOT, type: "Explore" },
+      depsDeclaring(["read", "mcp__github__*"], ["read", "mcp__gitlab__c"]),
+    );
+
+    expect(io.createSession).toHaveBeenCalledWith(expect.objectContaining({ tools: ["read"] }));
+    expect(loadedBuiltinNames()).toEqual([]);
   });
 });

@@ -4,9 +4,11 @@ import {
   resolveShellInvocation,
   type ShellInvocation,
 } from "#src/access-intent/tool-kind";
+import type { DeclaredCommandEffects } from "#src/config/command-effects-config";
 import type { ShellToolsConfig } from "#src/config/config-schema";
 import type { SkillPromptEntry } from "#src/exposure/skill-prompt-sanitizer";
 import type { PathNormalizer } from "#src/path/path-normalizer";
+import type { InfrastructureReadScope } from "#src/path/pi-infrastructure-read";
 import type { ScopedPermissionResolver } from "#src/policy/permission-resolver";
 import type { ToolAccessExtractorLookup } from "#src/tool-input/tool-access-extractor-registry";
 import type { ToolInputFormatterLookup } from "#src/tool-input/tool-input-formatter-registry";
@@ -39,8 +41,8 @@ import type { GateOutcome, ToolCallContext } from "./types";
 export interface ToolCallGateInputs {
   /** Active skill prompt entries for the skill-read gate. */
   getActiveSkillEntries(): SkillPromptEntry[];
-  /** Combined infrastructure read directories (static + config-derived). */
-  getInfrastructureReadDirs(): string[];
+  /** Where infrastructure reads are auto-allowed (static + config-derived). */
+  getInfrastructureReadScope(): InfrastructureReadScope;
   /** Resolved tool-preview formatter options from the current config. */
   getToolPreviewLimits(): ToolPreviewFormatterOptions;
   /** The session's path normalizer (platform + cwd baked in). */
@@ -51,6 +53,11 @@ export interface ToolCallGateInputs {
    * tool is gated through the bash stack at parity with native `bash` (#574).
    */
   getShellToolAliases(): ShellToolsConfig | undefined;
+  /**
+   * The user's `commandEffects` declarations, scope stamped, so a declared
+   * command's path operands route by their declared effect.
+   */
+  getCommandEffects(): DeclaredCommandEffects;
 }
 
 /**
@@ -60,7 +67,7 @@ export interface ToolCallGateInputs {
  * `PermissionGateHandler`. `evaluate(tcc, runner)` encapsulates:
  * - bash-command extraction and single `BashProgram.parse` (#308)
  * - `ToolPreviewFormatter` construction from `getToolPreviewLimits()`
- * - infrastructure-dir list from `getInfrastructureReadDirs()`
+ * - infrastructure-read scope from `getInfrastructureReadScope()`
  * - all six gate producers in their prescribed order
  * - the run loop, which runs an unconditionally denying gate ahead of the
  *   rest and returns the first block outcome, or allow
@@ -90,6 +97,7 @@ export class ToolCallGatePipeline {
     const bashProgram = shell?.command
       ? await BashProgram.parse(shell.command, normalizer, {
           workdir: shell.workdir,
+          commandEffects: this.inputs.getCommandEffects(),
         })
       : null;
 
@@ -98,7 +106,7 @@ export class ToolCallGatePipeline {
       this.customFormatters,
     );
 
-    const infraDirs = this.inputs.getInfrastructureReadDirs();
+    const infraScope = this.inputs.getInfrastructureReadScope();
 
     const gateProducers: Array<() => GateResult | Promise<GateResult>> = [
       () =>
@@ -110,7 +118,7 @@ export class ToolCallGatePipeline {
       () =>
         describeExternalDirectoryGate(
           tcc,
-          infraDirs,
+          infraScope,
           this.resolver,
           normalizer,
           this.customExtractors,
@@ -205,11 +213,11 @@ export class ToolCallGatePipeline {
 
     const filePath = getPathBearingToolPath(tcc.toolName, tcc.input);
     if (filePath !== null) {
-      const accessPath = normalizer.forPath(filePath);
+      const accessPath = normalizer.forToolPath(tcc.toolName, filePath);
       return {
         pathAccess: {
           path: accessPath,
-          approvalPattern: normalizer.approvalPatternFor(accessPath),
+          approvalPatterns: normalizer.approvalPatternsFor(accessPath),
         },
         toolCheck: this.resolver.resolve({
           kind: "access-path",

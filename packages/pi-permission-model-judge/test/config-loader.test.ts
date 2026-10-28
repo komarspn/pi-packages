@@ -111,6 +111,23 @@ describe("loadModelJudgeConfig", () => {
     );
   });
 
+  it("rejects a project file whose typoPatterns exceed 1,000 entries, with one issue", () => {
+    writeProject({
+      ...VALID,
+      typoPatterns: Array.from({ length: 1001 }, () => ""),
+    });
+    const result = loadModelJudgeConfig({ cwd, agentDir });
+    expect(result).toEqual({
+      config: undefined,
+      issues: [
+        {
+          path: "typoPatterns",
+          message: "Too big: expected array to have <=1000 items",
+        },
+      ],
+    });
+  });
+
   it("rejects an empty typoPatterns entry", () => {
     writeGlobal({ ...VALID, typoPatterns: [""] });
     const result = loadModelJudgeConfig({ cwd, agentDir });

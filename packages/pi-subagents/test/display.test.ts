@@ -1,10 +1,24 @@
-import { describe, expect, it } from "vitest";
+import type { ThemeColor } from "@earendil-works/pi-coding-agent";
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { AgentTypeRegistry } from "#src/config/agent-types";
 import type { AgentConfig } from "#src/types";
-import { formatSessionTokens, getDisplayName, getPromptModeLabel, modelLabel } from "#src/ui/display";
+import {
+  formatRunDuration,
+  formatSessionTokens,
+  getDisplayName,
+  getPromptModeLabel,
+  modelLabel,
+  type Theme,
+} from "#src/ui/display";
 import { makeModel } from "#test/helpers/make-model";
 
 const testRegistry = new AgentTypeRegistry(() => new Map());
+
+describe("Theme", () => {
+  it("accepts only Pi theme color names", () => {
+    expectTypeOf<Parameters<Theme["fg"]>[0]>().toEqualTypeOf<ThemeColor>();
+  });
+});
 
 describe("getDisplayName", () => {
   it("returns displayName when set", () => {
@@ -96,5 +110,33 @@ describe("modelLabel", () => {
 
   it("is undefined while the model is unknown", () => {
     expect(modelLabel(undefined)).toBeUndefined();
+  });
+});
+
+describe("formatRunDuration", () => {
+  // Each run starts at 1000, so 6_000 is 5 s later.
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(6_000);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("renders a still-queued run's time in the queue", () => {
+    expect(formatRunDuration({ status: "queued", startedAt: 1000, completedAt: undefined, stoppedWhileQueued: false })).toBe("queued 5.0s");
+  });
+
+  it("freezes a run stopped while queued at the time it waited", () => {
+    expect(formatRunDuration({ status: "stopped", startedAt: 1000, completedAt: 4000, stoppedWhileQueued: true })).toBe("queued 3.0s");
+  });
+
+  it("renders a completed run's running time", () => {
+    expect(formatRunDuration({ status: "completed", startedAt: 1000, completedAt: 4000, stoppedWhileQueued: false })).toBe("3.0s");
+  });
+
+  it("marks a still-running run's elapsed time as running", () => {
+    expect(formatRunDuration({ status: "running", startedAt: 1000, completedAt: undefined, stoppedWhileQueued: false })).toBe("5.0s (running)");
   });
 });

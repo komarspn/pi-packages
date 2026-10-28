@@ -2,6 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   buildDirectionalSessionLabels,
   buildForwardedScopeLabels,
+  buildPathAccessSessionLabel,
   describeGrantTarget,
 } from "#src/presentation/pattern-suggest";
 import {
@@ -65,10 +66,7 @@ export class LocalUserAuthorizer implements TerminalAuthorizer {
   authorize(
     details: PromptPermissionDetails,
   ): Promise<PermissionPromptDecision> {
-    return this.deps.dialogs.run(
-      () => this.present(details),
-      unansweredDecision,
-    );
+    return this.deps.dialogs.run(() => this.present(details), releasedDecision);
   }
 
   /**
@@ -113,7 +111,7 @@ export class LocalUserAuthorizer implements TerminalAuthorizer {
  * one string so what the model is told and what the log attributes cannot
  * drift (#726).
  */
-function unansweredDecision(reason: string): PermissionPromptDecision {
+function releasedDecision(reason: string): PermissionPromptDecision {
   return {
     approved: false,
     state: "denied",
@@ -126,9 +124,10 @@ function unansweredDecision(reason: string): PermissionPromptDecision {
 /**
  * The dialog options this ask offers, composed from three independent groups.
  *
- * The label names what the session grant covers (a gate-supplied one, or one
- * derived from the grants themselves for a path ask). An ask whose grants all
- * prove the same direction additionally offers the both-directions width
+ * The label names what the session grant covers: the proven direction and
+ * target for a directional path ask, else a gate-supplied label, else the
+ * target alone for a path ask that proves no direction. An ask whose grants
+ * all prove the same direction additionally offers the both-directions width
  * (#813). A forwarded ask additionally offers the scope choice (subagent vs
  * whole session).
  *
@@ -144,7 +143,11 @@ function buildRequestOptions(
   const widths = direction
     ? buildDirectionalSessionLabels(direction, describeGrantTarget(grants))
     : null;
-  const sessionLabel = widths?.sessionLabel ?? details.sessionLabel;
+  const sessionLabel =
+    widths?.sessionLabel ??
+    details.sessionLabel ??
+    buildPathAccessSessionLabel(grants) ??
+    undefined;
 
   const options: RequestPermissionOptions = {
     ...(sessionLabel ? { sessionLabel } : {}),

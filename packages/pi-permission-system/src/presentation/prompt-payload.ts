@@ -1,3 +1,4 @@
+import type { AttributedEffect, EffectSource } from "#src/access-intent/effect";
 import type { BashCommandContext } from "#src/types";
 
 /**
@@ -64,6 +65,12 @@ export interface PromptRequestFacts {
   /** The matched rule, including a sentinel such as `<indirection-bash-wrapper>`. */
   readonly matchedPattern: string | null;
   /**
+   * For bash, the spelling of the unit the matched rule matched when it did not
+   * match {@link value} as typed — the absolute spelling of a relative path
+   * argument, say. `null` when the typed text decided.
+   */
+  readonly matchedSpelling: string | null;
+  /**
    * Where the offending bash unit runs, when it came from a substitution or a
    * subshell. A fact rather than a rendered clause: it is what makes the
    * matched rule intelligible, and how it reads is the renderer's choice.
@@ -74,6 +81,31 @@ export interface PromptRequestFacts {
    * wrapper (#713). `null` when it adds nothing over {@link value}.
    */
   readonly executedUnit: string | null;
+  /**
+   * For a bash path-surface ask, the path that decided it and what established
+   * the direction it was resolved on. `null` for every other ask — a tool's
+   * direction comes from its identity, which the `tool` fact already states.
+   */
+  readonly decidingPath: DecidingPath | null;
+}
+
+/**
+ * The path that decided a path-surface ask, and what established the direction
+ * it was resolved on — ADR 0013 §10's blame, as a request fact.
+ *
+ * One object rather than three nullable facts, so a path with no effect, or an
+ * effect with no path, is unrepresentable. Bounded — one path and two enums —
+ * which is what lets the review log render it while the full escaping-path
+ * list stays evidence (ADR 0011 §6).
+ */
+export interface DecidingPath {
+  /**
+   * As the prompt shows it: the raw token for a `path` ask, the lexical
+   * absolute path for an `external_directory` one.
+   */
+  readonly path: string;
+  readonly effect: AttributedEffect;
+  readonly effectSource: EffectSource;
 }
 
 /** Who is asking, one hop below when the ask was forwarded. */
@@ -139,6 +171,21 @@ const BASH_COMMAND_CONTEXTS = [
   "subshell",
 ] as const satisfies readonly BashCommandContext[];
 
+const ATTRIBUTED_EFFECTS = [
+  "read",
+  "write",
+  "unproven",
+] as const satisfies readonly AttributedEffect[];
+
+const EFFECT_SOURCES = [
+  "syntax",
+  "core",
+  "declared-global",
+  "declared-project",
+  "retracted",
+  "unproven",
+] as const satisfies readonly EffectSource[];
+
 /**
  * Narrow an unknown value to a {@link PromptPayload}, or `undefined`.
  *
@@ -172,14 +219,24 @@ function asPromptRequestFacts(value: unknown): PromptRequestFacts | undefined {
     candidate.commandContext,
     BASH_COMMAND_CONTEXTS,
   );
+  // Absent from a request a node built before the fact existed, which states
+  // no spelling rather than a malformed one.
+  const matchedSpelling = candidate.matchedSpelling ?? null;
+  // Absent from a request a node built before the fact existed.
+  const decidingPath =
+    candidate.decidingPath === undefined
+      ? { value: null }
+      : asNullableDecidingPath(candidate.decidingPath);
   if (
     !requester ||
     commandContext === undefined ||
+    decidingPath === undefined ||
     typeof candidate.surface !== "string" ||
     typeof candidate.value !== "string" ||
     !isNullableString(candidate.toolName) ||
     !isNullableString(candidate.invokedToolName) ||
     !isNullableString(candidate.matchedPattern) ||
+    !isNullableString(matchedSpelling) ||
     !isNullableString(candidate.executedUnit)
   ) {
     return undefined;
@@ -192,8 +249,29 @@ function asPromptRequestFacts(value: unknown): PromptRequestFacts | undefined {
     invokedToolName: candidate.invokedToolName,
     value: candidate.value,
     matchedPattern: candidate.matchedPattern,
+    matchedSpelling,
     commandContext: commandContext.value,
     executedUnit: candidate.executedUnit,
+    decidingPath: decidingPath.value,
+  };
+}
+
+/** Boxed like {@link asNullableMember}: a valid `null` is not the malformed `undefined`. */
+function asNullableDecidingPath(
+  value: unknown,
+): { value: DecidingPath | null } | undefined {
+  if (value === null) return { value: null };
+  const candidate = asObject(value);
+  if (!candidate || typeof candidate.path !== "string") return undefined;
+  const effect = asNullableMember(candidate.effect, ATTRIBUTED_EFFECTS);
+  const effectSource = asNullableMember(candidate.effectSource, EFFECT_SOURCES);
+  if (!effect?.value || !effectSource?.value) return undefined;
+  return {
+    value: {
+      path: candidate.path,
+      effect: effect.value,
+      effectSource: effectSource.value,
+    },
   };
 }
 

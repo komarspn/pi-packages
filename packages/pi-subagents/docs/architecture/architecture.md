@@ -94,11 +94,11 @@ flowchart TB
         Subagent["Subagent<br/>(status, behavior: abort/steer/run lifecycle)"]
         ParentSnapshot["ParentSnapshot<br/>(frozen parent state)"]
         Workspace["workspace<br/>(provider seam: child cwd + teardown)"]
+        RecordObserver["record-observer<br/>(stats + live activity via events)"]
     end
 
     subgraph observation["Observation domain"]
         direction TB
-        RecordObserver["record-observer<br/>(stats + live activity via events)"]
         Notification["notification<br/>(completion nudges)"]
     end
 
@@ -108,6 +108,7 @@ flowchart TB
         ResultRenderer["result-renderer<br/>(pure rendering)"]
         SpawnConfig["spawn-config<br/>(resolve params)"]
         FgRunner["foreground-runner"]
+        ProgressStream["progress-stream<br/>(inline progress)"]
         BgSpawner["background-spawner"]
         GetResult["get_subagent_result"]
         GetResultRenderer["get-result-renderer<br/>(pure rendering)"]
@@ -146,6 +147,7 @@ classDiagram
         +description: string
         +isBackground: boolean
         -state: SubagentState
+        -currentRun: SubagentRun
         -execution: SubagentExecution
         +status: SubagentStatus
         +result?: string
@@ -154,47 +156,59 @@ classDiagram
         +lifetimeUsage: LifetimeUsage
         +subagentSession?: SubagentSession
         +toolCallId?: string
-        +markRunning() delegates
+        +latestRun: RunOutcome
         +markCompleted() delegates
         +isActive(): boolean
         +isTerminalError(): boolean
         +isRunning(): boolean
         +canBeSteered(): boolean
         +run()
-        +resume(prompt, signal)
+        +resume(prompt, options)
         +abort(): boolean
-        +waitUntilSettled(signal): Promise~void~
+        +waitUntilSettled(signal): Promise~RunOutcome~
         +steer(message): Promise~SteerOutcome~
         +isSessionReady(): boolean
         +getConversation(): string | undefined
         +getContextPercent(): number | null
         +subscribeToUpdates(fn): unsub | undefined
         +messages: readonly unknown[]
-        +completeRun(result)
-        +failRun(err)
-        +completeResume(result)
-        +failResume(err)
         +disposeSession()
     }
 
-    class SubagentState {
+    class SubagentRun {
+        +kind: RunKind
+        +inBackground: boolean
         +status: SubagentStatus
         +result?: string
         +error?: string
         +startedAt: number
         +completedAt?: number
+        +pendingQuestion?: string
+        +turnBudget?: TurnBudget
+        +runUpdates: string[]
+        +claimed: boolean
+        +consumed: boolean
+        +replaced: boolean
+        +start(startedAt, callerSignal, onCallerAbort)
+        +markCompleted() ... stopQueued()
+        +claim(): CarrierClaim
+        +markConsumed()
+        +markReplaced()
+        +abort()
+        +isActive(): boolean
+    }
+
+    class SubagentState {
         +toolUses: number
         +lifetimeUsage: LifetimeUsage
         +compactionCount: number
-        +markRunning() ... markStopped()
-        +resetForResume()
+        +activeTools: ReadonlyMap
+        +responseText: string
+        +lastProgressAt: number
         +incrementToolUses()
         +addUsage(delta)
         +incrementCompactions()
-        +isActive(): boolean
-        +isTerminalError(): boolean
-        +isRunning(): boolean
-        +canBeSteered(): boolean
+        +markProgress(at)
     }
 
     class SubagentExecution {
@@ -213,7 +227,8 @@ classDiagram
         -registry: SpawnTypeResolver
         +spawn(snapshot, type, prompt, config)
         +spawnAndWait(snapshot, type, prompt, config)
-        +resume(id, prompt, signal)
+        +resume(id, prompt, options)
+        +startResume(id, prompt, options)
         +getRecord(id): Subagent
         +listAgents(): Subagent[]
         +abort(id)
@@ -246,6 +261,7 @@ classDiagram
 
     SubagentManager --> Subagent : creates/manages
     Subagent --> SubagentState : owns (private)
+    Subagent --> SubagentRun : current run (one per run)
     Subagent --> SubagentExecution : runs via (mandatory)
     SubagentManager --> ParentSnapshot : receives at spawn
     SubagentsService --> SubagentManager : wraps via adapter
@@ -256,20 +272,13 @@ classDiagram
 
 ```mermaid
 stateDiagram-v2
-    [*] --> queued : spawn (background, at capacity)
-    [*] --> running : spawn (foreground or under limit)
-    queued --> running : capacity available
+    [*] --> queued : run created (with its agent, or by a resume)
+    queued --> running : start() — at once, or when capacity frees for a queued background run
     queued --> stopped : stopQueued() — never started
-    running --> completed : all turns finished
+    running --> completed : agent finished, including after the turn-budget warning
     running --> error : unhandled exception
-    running --> aborted : max turns reached
+    running --> aborted : harness stop at the turn ceiling
     running --> stopped : abort() called
-    running --> steered : steer message injected
-    steered --> running : continues with message
-    completed --> running : resetForResume
-    stopped --> running : resetForResume
-    error --> running : resetForResume
-    aborted --> running : resetForResume
     completed --> [*]
     error --> [*]
     aborted --> [*]
@@ -277,14 +286,24 @@ stateDiagram-v2
 
     note right of running
         markCompleted, markAborted,
-        markSteered, and markError
+        and markError
         are no-ops when status is stopped
     end note
 ```
 
+A steer (`steer_subagent`, `SubagentsService.steer()`) redirects a running agent and changes no status.
+The turn budget is not a status either: it is the live `turnBudget` (`{ used, maxTurns, phase }`) the turn loop reports to the record before the first turn and after each turn boundary.
+A `TurnBudgetTracker` (`turn-limits.ts`) counts successful turns and decides when `SubagentSession` warns the child (a context-only custom message once `wrapUpTurns` turns remain, which forces no turn) and when it stops the run (after a ceiling turn that ran tools, or as a turn starts past the ceiling).
+`phase` is `warned` once the warning went out and `exhausted` when the harness stopped the run: the one case a run ends `aborted`.
+Every run, the initial one or a resume, gets a fresh tracker under the limits the session resolved at creation (`resolveTurnLimits`).
+
+The diagram is one run's lifecycle, and a subagent is a sequence of runs: its initial run is born with it, and each resume starts a new run of its own rather than returning a settled one to `running`.
+A settled run's outcome stays as it ended, so a carrier holding that run (a `get_subagent_result` wait a resume overtook) still reads it; the run is marked replaced, and its question counts as answered by the resume.
+The agent's status and outcome fields read through to its current run.
+
 Note: `markStopped` always succeeds regardless of current status.
-Other terminal transitions guard against overwriting `stopped` — once an agent is stopped, only `resetForResume` can return it to `running`.
-`stopQueued` composes `markStopped` with a never-started marker and, like `completeRun`/`failRun`, notifies the lifecycle observer — so a queued stop publishes the same events, session entry, and nudge a running stop does.
+Other terminal transitions guard against overwriting `stopped` — once a run is stopped, it stays stopped.
+`stopQueued` composes `markStopped` with a never-started marker and, like every terminal transition, notifies the lifecycle observer — so a queued stop publishes the same events, session entry, and nudge a running stop does.
 
 ## Execution flow
 
@@ -329,8 +348,10 @@ Those directories are fallow boundary **zones** (`boundaries` in the repo-root `
 Each zone's `allow` list is the set of zones it imported when the zones were encoded, so the baseline reports zero violations and a **new** cross-zone edge is a finding (`boundary-violation`, severity `warn`, reported by `fallow dead-code` and `fallow audit` without failing either) and a `fallow decision-surface` `coupling-boundary` question in review.
 Run `pnpm --silent fallow guard <file>` before adding a cross-directory import to see what the file's zone may import; when the new edge is intended, extend that zone's `allow` list in the same commit and say why in the commit body.
 
-Two allowed edges are not sanctioned by anything above: `lifecycle/` imports `subscribeSubagentObserver` from `observation/` (`subagent.ts`), and `observation/` imports `display` and `glyphs` from `ui/` (`renderer.ts`).
-The ratchet admits them because they predate it; this document states no ordering between those directories, so whether they should exist is a question for a later discovery round rather than a violation today.
+The zones follow one order: `lifecycle/` is the core, `observation/` reacts to it, and `ui/` renders both.
+So `lifecycle/` imports neither `observation/` nor `ui/`, and `observation/` imports `lifecycle/` but not `ui/`.
+`ui/` imports `lifecycle/` freely and `observation/` for types only: the notification renderer reads the message contracts `observation/notification.ts` produces, which the `ui` zone admits through `allowTypeOnly`, so a value import across that edge is still reported.
+A module belongs to the zone of the object it serves, not the zone of what it touches: the record observer is the run's own metric accumulator and lives in `lifecycle/`, and the message renderers are presentation and live in `ui/`.
 
 ### Current layout
 
@@ -339,6 +360,7 @@ src/
 ├── index.ts                        entry point, tool registration, event wiring
 ├── runtime.ts                      SubagentRuntime factory (session-scoped state)
 ├── types.ts                        shared type definitions
+├── persisted-record.ts             subagents:record session-entry contract (writer's builder, reader's parser)
 ├── settings.ts                     SettingsManager (persistent operational settings)
 ├── debug.ts                        debug logging utility
 ├── layered-settings.ts             loadLayeredSettings helper (published as @gotgenes/pi-subagents/settings)
@@ -352,9 +374,11 @@ src/
 │
 ├── session/                        session assembly and preparation
 │   ├── session-config.ts           pure assembler (main entry)
-│   ├── prompts.ts                  system prompt building; inherits the parent prompt's identity, cutting the session-resolved tail (ADR 0006) — and the project-context block too for a child running in its own directory (ADR 0010) — or its portable parts alone for a re-homing provider (ADR 0009)
-│   ├── project-context.ts          Pi's `<project_context>` block, rendered in pi ≥0.86's shape; the loader a child whose adopted identity describes another directory resolves its own with (ADR 0010)
+│   ├── prompts.ts                  system prompt building; inherits the parent prompt's identity, cutting the session-resolved tail (ADR 0006) and dropping Pi's `<tools>`/`<rules>` sections on the section-shaped prompt (ADR 0011) — and the project-context block too for a child running in its own directory (ADR 0010) — or its portable parts alone for a re-homing provider (ADR 0009)
+│   ├── project-context.ts          Pi's `<project_context>` block, rendered in Pi's section shape; the loader a child whose adopted identity describes another directory resolves its own with (ADR 0010)
 │   ├── ask-parent-tool.ts          child-facing ask_parent: records the child's question, tells it to end its turn
+│   ├── builtin-extensions.ts       selects the Pi built-ins (codemode, tool-search, MCP) a child's allowlist calls for
+│   ├── mcp-tool-patterns.ts        expands `mcp__…*` allowlist entries against the parent's registered tool names
 │   ├── notify-parent-tool.ts       child-facing notify_parent: one-way mid-run update, capped at 2000 characters
 │   ├── content-items.ts            shared message content parsing (tool-call names, assistant content)
 │   ├── context.ts                  parent conversation extraction
@@ -366,13 +390,14 @@ src/
 │   └── session-dir.ts              session directory derivation
 │
 ├── lifecycle/                      agent execution and state tracking
-│   ├── subagent-manager.ts         collection manager + observer wiring + session-retention sweep (consumption-aware; an unanswered question holds the safety cap); the resume choke point, refusing from the record's own predicate and reporting a discriminated outcome, so every front door declines the same resumes
-│   ├── create-subagent-session.ts  assembly factory: session creation, spawn-tool denylist, core child-tool install, binding
-│   ├── subagent-session.ts         born-complete child session: turn loop, steer, shutdown-then-dispose teardown
-│   ├── turn-limits.ts              normalizeMaxTurns (turn-count policy)
-│   ├── subagent.ts                 owns full execution lifecycle (run, resume, abort, steer, wait-until-settled); a teardown with no result text to carry its addendum records it as a notice and announces one produced after delivery; answers why a resume would be refused (resumeRefusal, including a live run), which the resume choke point and every result carrier read rather than re-deriving; reports a resume's start as well as its end
-│   ├── subagent-state.ts           lifecycle status + metrics + result-delivery value object (transitions, accumulators, classification predicates); delivery carries a revocable carrier claim, a one-way consumption latch, and a per-run update ledger that renders only what no announcement delivered
-│   ├── run-listeners.ts            per-run observer-unsub and signal-detach handles
+│   ├── subagent-manager.ts         collection manager + observer wiring + session-retention sweep (consumption-aware; an unanswered question holds the safety cap); the resume choke point, refusing from the record's own predicate and reporting a discriminated outcome, so every front door declines the same resumes; a door that returns before the resumed run ends starts one synchronously, and each resume's caller decides whether its outcome is claimed; admits a background resume through the limiter like a background spawn, while a foreground one starts at once
+│   ├── create-subagent-session.ts  assembly factory: MCP pattern expansion, Pi built-in selection, session creation, spawn-tool denylist, core child-tool install, binding
+│   ├── subagent-session.ts         born-complete child session: one turn loop for every run (the first carries the parent context and announces completion), steer, shutdown-then-dispose teardown
+│   ├── turn-limits.ts              turn-budget policy: TurnBudget, the TurnBudgetTracker that decides warnings and stops, resolveTurnLimits (a session's limits, resolved at creation), normalizeMaxTurns (minimum 2)
+│   ├── subagent.ts                 owns full execution lifecycle (run, resume, abort, steer, wait-until-settled); a teardown with no result text to carry its addendum records it as a notice and announces one produced after delivery; answers why a resume would be refused (resumeRefusal, including a live run and a resume still queued for a slot), which the resume choke point and every result carrier read rather than re-deriving; reports a resume's start as well as its end; holds its current run and reads its outcome through it, starting each resume as a new run that marks the one it replaces, born queued and started when its scheduler admits it (a run stopped while it waits never starts); wait-until-settled hands back the run the wait began on
+│   ├── subagent-state.ts           what spans a subagent's runs: lifetime metrics and live activity (accumulators, last progress), plus the status vocabulary and its classification predicates
+│   ├── subagent-run.ts             one run of a subagent and its outcome: kind (initial or resume), mode, status and result with their transitions, question, workspace notice, turn budget, and an update ledger that renders only what no announcement delivered; delivery carries a revocable claim per carrier (each releases only its own handle) and a one-way consumption latch; born queued with its own abort lever, it wires the caller's signal when it starts and keeps the record-observer unsubscribe until it ends
+│   ├── record-observer.ts          session-event stats observer; stamps each event as the run's last progress
 │   ├── workspace-bracket.ts        child workspace prepare/dispose lifecycle; idempotent dispose, reports a torn-down workspace
 │   ├── concurrency-limiter.ts       background admission gate: schedules run thunks FIFO against the limit
 │   ├── parent-snapshot.ts          immutable spawn-time parent state, including the parent's operator-authored prompt parts composed in Pi's own order
@@ -381,11 +406,9 @@ src/
 │   ├── workspace.ts                workspace provider seam (generative extension surface)
 │   └── usage.ts                    token usage tracking
 │
-├── observation/                    progress tracking and notification
-│   ├── record-observer.ts          session-event stats observer
+├── observation/                    reactions to the lifecycle: notification, outcome delivery, event emission
 │   ├── notification.ts             completion nudges and mid-run updates, in one arrival-ordered withheld queue (announce-only; withheld during the parent's agent run and flushed on agent_settled, each re-checking its gates at emit rather than replaying them from enqueue — a completion on claim and consumption, an update on the claim and on the child still running, since a terminated run's updates ride its outcome and this nudge is one of their carriers), plus workspace notices, which are announced straight through
 │   ├── outcome-delivery.ts         shared outcome rendering every result carrier composes: one status vocabulary in two presentations, body, and the addenda tail (mid-run updates, workspace notice, ask-back affordance — which names a resume only when the record says one would be accepted, and asks the parent to wait when the child has merely not settled) in one fixed order
-│   ├── renderer.ts                 notification, mid-run-update, and workspace-notice TUI components
 │   ├── composite-subagent-observer.ts fans manager notifications out to multiple observers; enumerates every member, so an optional one it omits is dropped silently
 │   └── subagent-events-observer.ts manager lifecycle observer (event emission + persistence + notification)
 │
@@ -398,8 +421,9 @@ src/
 │   ├── result-renderer.ts          pure per-status result rendering
 │   ├── spawn-config.ts             pure config resolution
 │   ├── foreground-runner.ts        foreground execution loop
-│   ├── background-spawner.ts       background spawn setup
-│   ├── get-result-tool.ts          get_subagent_result tool
+│   ├── progress-stream.ts          inline spinner progress a foreground run streams to its tool call, for a spawn and a resume alike
+│   ├── background-spawner.ts       background spawn setup + the launch message every background door (spawn, resume) returns
+│   ├── get-result-tool.ts          get_subagent_result tool; an optional timeout bounds a wait without stopping the agent; a wait reports the run it waited on, even when a resume replaced it
 │   ├── get-result-report.ts        pure get_subagent_result report formatter
 │   ├── get-result-renderer.ts      pure get_subagent_result line assembly for the collapsed and expanded TUI views
 │   ├── steer-tool.ts               steer_subagent tool
@@ -408,6 +432,7 @@ src/
 ├── ui/                             user-facing presentation
 │   ├── agent-widget.ts             above-editor live status widget
 │   ├── widget-renderer.ts          pure rendering for widget
+│   ├── notification-renderer.ts    notification, mid-run-update, and workspace-notice TUI components
 │   ├── display.ts                  pure formatters and shared types
 │   ├── bounded-lines.ts            component spending exactly one clipped terminal row per line
 │   ├── labeled-rule.ts             full-width rule with embedded labels, Pi editor-border style
@@ -426,13 +451,15 @@ src/
 
 ### Observation model
 
-Record statistics (tool uses, token usage, compaction counts) and live activity (active tools, response text, turn counts) are updated by `record-observer.ts`, which subscribes directly to session events.
-This is the single per-child session subscription — all run state lives on the `Subagent` record.
+Record statistics (tool uses, token usage, compaction counts) and live activity (active tools, response text) are updated by `record-observer.ts`, which subscribes directly to session events.
+The turn budget is the exception: the turn loop owns the count it enforces, and reports each change to the record through its `onTurnBudget` option.
+All run state still lives on the `Subagent` record.
 
-The widget reads agent state by polling the records exposed via `SubagentManager.listAgents()` every 250 ms; that poll loop is driven by the manager's lifecycle notifications (the widget subscribes as a `SubagentManagerObserver` fanned out through `CompositeSubagentObserver`), not by inbound calls from the spawn tools.
+The widget reads agent state by polling the records exposed via `SubagentManager.listAgents()` every 80 ms in fullscreen mode and every 250 ms in regular mode, where a frame's cost scales with the transcript; that poll loop is driven by the manager's lifecycle notifications (the widget subscribes as a `SubagentManagerObserver` fanned out through `CompositeSubagentObserver`), not by inbound calls from the spawn tools.
 It runs if and only if a subagent is running, since a finished agent's line carries a fixed duration and the queued line is a count, so animating either would ask Pi to re-render its whole component tree for a byte-identical result.
 The widget's rendered height is also bounded by the terminal's row count rather than a fixed ceiling: Pi's regular-mode differential renderer clears the screen and the scrollback whenever the first changed line sits above the previous viewport top, and the widget's spinner is that line on every tick, so a widget taller than the rows beneath it turns every tick into a destructive repaint ([#864]).
 The `/subagents:sessions` navigator reads messages via `Subagent.agentMessages` and subscribes to updates via `Subagent.subscribeToUpdates()` — no direct `AgentSession` reference (#277).
+It also reads the parent session's `subagents:record` entries (`persisted-record.ts`), so runs the manager no longer holds, such as those from before a `/reload`, open from their transcript file.
 
 ## Cross-extension architecture
 
@@ -459,7 +486,7 @@ They declare this package as an optional peer dependency and use dynamic import 
 - `SubagentManager` — spawn, abort, resume, collection management, observer wiring.
 - `ConcurrencyLimiter` — background admission gate: schedules run thunks FIFO against a configurable concurrency limit.
 - `createSubagentSession` — assembly factory: session creation and extension binding; returns a born-complete `SubagentSession`.
-- `SubagentSession` — the born-complete child session: drives the turn loop (`runTurnLoop`/`resumeTurnLoop`), steers, and disposes (firing `disposed` at true session disposal, so resume executions are registry-detected).
+- `SubagentSession` — the born-complete child session: drives each run's turn loop (`runTurnLoop`), steers, and disposes (firing `disposed` at true session disposal, so resume executions are registry-detected).
 - `child-lifecycle` — publishes the child-execution lifecycle (`spawning`, `session-created` before `bindExtensions()`, `bound` after it resolves, `completed`, `disposed`) on `pi.events`.
   Reactive consumers subscribe: `@gotgenes/pi-permission-system` registers each child session on `session-created`, audits it for a permission node of its own on `bound`, and unregisters it on `disposed`.
   This replaced the former outbound `permission-bridge` (#261, [ADR-0002]) — the core no longer looks up a named consumer.
@@ -486,6 +513,13 @@ Naming an extension tool in `tools:` is therefore the supported way to give a ch
 The core does not widen that on the agent's behalf, and no settings key may name a tool.
 Inheriting every extension tool a child registers would hand a read-only agent whatever write-capable tools the parent's extensions happen to publish — a capability decision that belongs to whoever writes the agent file, expressed per agent, not a default.
 Tool _restriction_ beyond that stays with `@gotgenes/pi-permission-system`, per [ADR-0002].
+
+Pi supplies `codemode`, `tool_search`, and MCP tools through built-in extensions it hands only to its own CLI session, so `createSubagentSession` hands them to the child's loader itself, and only those the allowlist calls for (`builtin-extensions.ts`).
+They go in as `builtin: true, replaceable: true` entries under Pi's own names, so the operator's `-builtin:<name>` setting and Pi's replacement rule apply to children as they do to the parent.
+Selecting by allowlist rather than inheriting the parent's set keeps MCP, which connects every configured server when it loads, out of every child that cannot reach an MCP tool.
+
+An allowlist entry starting with `mcp__` and containing `*` is a pattern (`mcp__github__*`), expanded at child creation against the tool names the parent has registered (`mcp-tool-patterns.ts`, fed by the composition root's `listParentToolNames`).
+Pi's allowlist matches names exactly and an MCP server's names exist only once it connects, so the parent's registry is the one place a whole server can be named from; the agent still writes the pattern, so this does not widen the allowlist on its behalf.
 
 The core does install its own **protocol** in every child, on its own authority and independent of the agent file: the `<active_agent>` tag, the parent-context prefix, and the `ask_parent` / `notify_parent` tools.
 The distinction the boundary draws is capability, not provenance.
@@ -538,7 +572,7 @@ The dynamic import provides compile-time types; the `Symbol.for()` key is the ac
 
 ### Interface
 
-See `src/service.ts` for the canonical definition.
+See `src/service/service.ts` for the canonical definition.
 Key types:
 
 - `SubagentsService` — `spawn`, `getRecord`, `listAgents`, `abort`, `steer`, `resume`, `waitForAll`, `hasRunning`.
@@ -569,16 +603,16 @@ If Pi gains a native service registry ([earendil-works/pi#4207]), these accessor
 
 The core emits events on `pi.events` that any extension can observe:
 
-| Channel               | Payload                                                                             | When                                                                                      |
-| --------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `subagents:started`   | `{ id, type, description }`                                                         | Agent begins running                                                                      |
-| `subagents:completed` | `{ id, type, description, status, result?, error?, toolUses, durationMs, tokens? }` | Agent finishes successfully                                                               |
-| `subagents:failed`    | same as `completed` (`buildEventData` shape)                                        | Agent ends in `error`/`stopped`/`aborted`                                                 |
-| `subagents:resuming`  | `{ id, type, description }`                                                         | A resume starts, from either front door                                                   |
-| `subagents:resumed`   | same as `completed` (`buildEventData` shape)                                        | Resumed run reaches a terminal state (`completed`/`error`); `status`/`error` discriminate |
-| `subagents:compacted` | `{ id, type, description, reason, tokensBefore, compactionCount }`                  | Child session compacts                                                                    |
-| `subagents:created`   | `{ id, type, description, isBackground }`                                           | Background agent created (pre-admission)                                                  |
-| `subagents:steered`   | `{ id, message }`                                                                   | Steering message delivered to a running agent                                             |
+| Channel               | Payload                                                                                          | When                                                                  |
+| --------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| `subagents:started`   | `{ id, type, description }`                                                                      | Agent begins running                                                  |
+| `subagents:completed` | `{ id, type, description, status, turnBudget?, result?, error?, toolUses, durationMs, tokens? }` | Agent finishes successfully                                           |
+| `subagents:failed`    | same as `completed` (`buildEventData` shape)                                                     | Agent ends in `error`/`stopped`/`aborted`                             |
+| `subagents:resuming`  | `{ id, type, description }`                                                                      | A resume starts, from either front door                               |
+| `subagents:resumed`   | same as `completed` (`buildEventData` shape)                                                     | Resumed run reaches any terminal state; `status`/`error` discriminate |
+| `subagents:compacted` | `{ id, type, description, reason, tokensBefore, compactionCount }`                               | Child session compacts                                                |
+| `subagents:created`   | `{ id, type, description, isBackground }`                                                        | Background agent created (pre-admission)                              |
+| `subagents:steered`   | `{ id, message }`                                                                                | Steering message delivered to a running agent                         |
 
 These are fire-and-forget broadcast events — no request IDs, no reply channels.
 
@@ -677,10 +711,23 @@ Pulling each apart by asking "who changes this, how often, and who needs to know
 3. **The hook surface** — the points where an extension alters or augments the child before and around its run.
    This is the child session's own extension binding (see below), not data on the subagent.
 4. **Result delivery** — whether the parent has consumed the result, when to nudge, how the result reaches the caller.
-   This domain now has a home: `consumedAt` is a first-class field on `SubagentState`, marked only at the parent-initiated return edges (`get_subagent_result`, foreground return, resume return); the notification layer reads it to suppress a nudge but never owns it, and the retention sweep reads it to time session release (#617).
+   This domain now has a home: `consumedAt` is a first-class field on each `SubagentRun`, marked only at the parent-initiated return edges (`get_subagent_result`, foreground return, resume return); the notification layer reads it to suppress a nudge but never owns it, and the retention sweep reads it to time session release (#617).
 
 The ~20 optional constructor fields and the runtime `run()` throws are the pressure these four domains exert on one class.
 Separating them is what makes the Phase 17 steps fall out rather than fight back.
+
+#### A subagent is a sequence of runs
+
+The four domains above describe one run, and a subagent has several: the initial run, then one per resume, each continuing the session the previous one left.
+What belongs to a run is a fact about that run, not about the agent: its abort lever and the signal wired to it, its session subscription, its turn budget, its mid-run update ledger, its outcome and whether a carrier claimed or consumed it, its mode (foreground or background), and its admission through the concurrency gate.
+What belongs to the agent outlives every run: identity, the child session, the workspace, and the lifetime metrics.
+
+The code draws this boundary: `SubagentRun` carries a run's abort lever, signal wiring, session subscription, kind, mode, admission, and its whole outcome (status, result, question, turn budget, update ledger, claims, and consumption), and `Subagent` reads each through its current run.
+A background resume's run is born queued and starts when the concurrency limiter admits it, like a background spawn's.
+`SubagentState` keeps only what spans runs: the lifetime metrics and live activity.
+A resume starts a new run instead of resetting the old one, and a waiter holds the run it waited on.
+The run's kind is a property of the run, mapped to its published channel (`subagents:completed` versus `subagents:resumed`) once, in `SubagentEventsObserver`, rather than re-decided in every layer.
+The tells were the bug family of a lever set at one lifecycle edge and read at another ([#913], [#949]) and a run/resume method pair that had diverged.
 
 #### The subagent is a recursive Pi
 
@@ -741,10 +788,10 @@ That method — testability friction as a boundary probe, with its limits — is
 
 | Metric                     | Value                                                                   |
 | -------------------------- | ----------------------------------------------------------------------- |
-| Health score               | 78/100 (B), end of Phase 22                                             |
-| Total LOC                  | 11,048 (69 files)                                                       |
+| Health score               | 78/100 (B), end of Phase 23                                             |
+| Total LOC                  | 12,661 (74 files)                                                       |
 | Dead code                  | 0 files, 0 exports                                                      |
-| Maintainability index      | 91.2 (good)                                                             |
+| Maintainability index      | 91.1 (good)                                                             |
 | Avg cyclomatic complexity  | 1.3                                                                     |
 | P90 cyclomatic complexity  | 2                                                                       |
 | Production duplication     | 0 lines                                                                 |
@@ -752,7 +799,7 @@ That method — testability friction as a boundary probe, with its limits — is
 | Fallow refactoring targets | 0                                                                       |
 
 Recompute `Total LOC` with `find src -name '*.ts' | wc -l` and `cat $(find src -name '*.ts') | wc -l` — it counts `src/` only, so `fallow health`'s package-wide total is the wrong source.
-Every other row is a `fallow health` field.
+Every other row is a `fallow health` field; the health score is the one `pnpm fallow health --score --hotspots --targets --workspace @gotgenes/pi-subagents` reports, since `--score` alone omits the hotspot and target deductions and reads 88 (A).
 The values as of the last phase close are also committed as a machine-readable snapshot at `docs/fallow-snapshot.json`, written by `pnpm --silent fallow health --save-snapshot packages/pi-subagents/docs/fallow-snapshot.json --workspace @gotgenes/pi-subagents`; `fallow health --trend` reads it for per-metric deltas.
 
 ### Dependency bag inventory
@@ -763,8 +810,7 @@ The 10+-field dependency bags flagged in prior phases (`ResolvedSpawnConfig`, `A
 
 Functions with cyclomatic complexity ≥ 21 (critical threshold):
 
-No functions remain above the critical threshold — all hotspots resolved in Phase 12. 1 function remains at HIGH severity (a test helper, `subagent-manager.test.ts`'s `createManager`); 14 at moderate.
-No `src/` function reaches HIGH severity or CRAP ≥ 60 (Phase 20 target met).
+No functions remain above the critical threshold. 4 functions sit at HIGH severity: 2 in `src/` (`settings.ts`'s `sanitize`, cyclomatic 19, and `persisted-record.ts`'s `asRunSummary`, cyclomatic 17) and 2 test helpers (`subagent-manager.test.ts`'s `createManager` and `subagent.test.ts`'s `createRunnableAgent`); 11 sit at moderate.
 
 ### Churn hotspots
 
@@ -772,22 +818,23 @@ Files with highest commit frequency × complexity:
 
 | Score | File                          | Commits | Trend          |
 | ----- | ----------------------------- | ------- | -------------- |
-| 41.9  | `index.ts`                    | 125     | ▼ cooling      |
-| 39.9  | `lifecycle/subagent.ts`       | 52      | ─ stable       |
-| 19.9  | `tools/agent-tool.ts`         | 76      | ▼ cooling      |
-| 17.7  | `service/service-adapter.ts`  | 25      | ▼ cooling      |
-| 15.7  | `tools/foreground-runner.ts`  | 35      | ▼ cooling      |
-| 15.2  | `ui/agent-widget.ts`          | 29      | ▼ cooling      |
+| 60.7  | `lifecycle/subagent.ts`       | 86      | ▲ accelerating |
+| 39.1  | `index.ts`                    | 128     | ▼ cooling      |
+| 23.6  | `tools/get-result-tool.ts`    | 50      | ─ stable       |
+| 23.4  | `lifecycle/subagent-state.ts` | 26      | ▲ accelerating |
+| 22.7  | `ui/agent-widget.ts`          | 43      | ─ stable       |
+| 21.2  | `tools/agent-tool.ts`         | 86      | ▼ cooling      |
 
-`index.ts` remains the top churn hotspot but has cooled further; `lifecycle/subagent.ts` moved from third to second, its commit count more than doubling across Phase 22's delivery-boundary steps (10, 11, 14, 15, 17, 19, 21, 22 all touch it); no `src/` file among the top six is currently accelerating.
+Values as of Phase 23 close (2026-10-28), `src/` files only.
+`lifecycle/subagent.ts` remains the top hotspot and is still heating, its commit count rising from 64 to 86 across Phase 23; `lifecycle/subagent-manager.ts` (18.0), just below the top six, is the other accelerating `src/` file.
 
 ### Production duplication
 
-Production duplication is 0 lines — the last clone group was eliminated in Phase 19 Step 6 ([#441]).
+`fallow dupes` reports no clone group, between production files or between production and test files.
 
 ## Refactoring history
 
-The architecture above is the product of twenty-one completed improvement phases; Phase 6 (UI extraction to a separate package) was folded into [ADR-0004] rather than executed.
+The architecture above is the product of twenty-two completed improvement phases; Phase 6 (UI extraction to a separate package) was folded into [ADR-0004] rather than executed.
 Each phase's findings, numbered plan, dependency diagram, and health metrics are preserved in a per-phase history file under [`history/`](history/).
 
 | Phase | Theme                                                        | History                                                                                        |
@@ -814,6 +861,7 @@ Each phase's findings, numbered plan, dependency diagram, and health metrics are
 | 20    | Result delivery extraction and boundary cleanup              | [phase-20-result-delivery.md](history/phase-20-result-delivery.md)                             |
 | 21    | Classification predicates, resume completion, model boundary | [phase-21-classification-model-boundary.md](history/phase-21-classification-model-boundary.md) |
 | 22    | Front-door contract parity and delivery fixes                | [phase-22-front-door-delivery.md](history/phase-22-front-door-delivery.md)                     |
+| 23    | Runs as first-class                                          | [phase-23-runs-first-class.md](history/phase-23-runs-first-class.md)                           |
 
 ### Structural refactoring issues
 
@@ -844,9 +892,10 @@ Each phase's findings, numbered plan, dependency diagram, and health metrics are
 | Phase 21             | #563, #466, #611                                                                                                                   | Classification predicates, resume completion channel, model boundary typing                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Phase 22             | #724, #830, #829, #828, #801, #827, #798, #465, #849, #857, #858, #870, #871, #872, #878, #885, #889, #890, #898, #904, #903, #913 | Front-door choke-point parity, SubagentRecord policy, locked-fields precedence, dead workspace field, skills-block strip, UICtx capture, resume handle, ask-back, widget teardown, workspace-backed resume, mid-run channel, post-result addendum, empty tool allowlist, update-gate on resume, resume-affordance honesty, service resume, failed-run reporting, inherited-region guarantee, compaction turn-error, capability-free fallback, exactly-once update delivery, resume abort lever |
 | Phase 22 (follow-on) | #883, #918                                                                                                                         | Portable prompt inheritance for re-homed providers (ADR-0009), project-context directory resolution for workspace-relocated children (ADR-0010)                                                                                                                                                                                                                                                                                                                                                |
+| Phase 23             | #947, #1048, #1049, #949, #1050, #1012, #1051, #1013, #1079, #1080, #1085, #1086, #912, #1017                                      | Bounded wait with progress, zone-order moves, per-run lever and signal wiring, one run lifecycle, per-run mode, per-run outcome, resume admission, queued-state reporting (report body, duration, navigator label, persisted label), resumability query, dead prompt-renderer arms                                                                                                                                                                                                             |
 
 Issue #22 (parent-session resolution) has been closed.
-Of the tracks recorded under Phase 21's deferred-work dispositions, [#482], [#600], and [#610] have since closed; [#451] was relabeled `scope:repo` at Phase 22 planning; [#465] became Phase 22 Step 8; [#519] and [#608] remain open and still do not gate a package structural phase.
+Of the tracks recorded under Phase 21's deferred-work dispositions, [#482], [#600], and [#610] have since closed; [#451] was relabeled `scope:repo` at Phase 22 planning; [#465] became Phase 22 Step 8; [#519] and [#608] were closed as not planned at Phase 23 planning.
 [#877] was relabeled `scope:repo` at Phase 22 close, the same disposition [#451] received.
 
 ## Relationship with upstream
@@ -875,5 +924,7 @@ The upstream test suite is run periodically as a regression canary for the sessi
 [#610]: https://github.com/gotgenes/pi-packages/issues/610
 [#864]: https://github.com/gotgenes/pi-packages/issues/864
 [#877]: https://github.com/gotgenes/pi-packages/issues/877
+[#913]: https://github.com/gotgenes/pi-packages/issues/913
+[#949]: https://github.com/gotgenes/pi-packages/issues/949
 [ADR-0002]: ../decisions/0002-extensions-on-a-minimal-core.md
 [ADR-0004]: ../decisions/0004-reconsider-ui-direction.md

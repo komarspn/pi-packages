@@ -71,11 +71,13 @@ A decision presented early from the plan is far less likely to be reversed than 
      Record the decision.
    - Any other `**Release:**` value (`ship independently` or `ship now — batch "<name>" tail`) → record "release now"; note the recommendation in the final report; do **not** ask.
    - No `**Release:**` marker, or no plan found → record "release now" (default); do **not** ask, and say so in the final report rather than letting the absence pass silently.
-3. Read the issue's retro file in full — `docs/retro/NNNN-*.md` or `packages/*/docs/retro/NNNN-*.md`, matching the plan's `NNNN`.
+3. Read the issue's retro file in full, with `git show` or `Read`, never a keyword grep — `docs/retro/NNNN-*.md` or `packages/*/docs/retro/NNNN-*.md`, matching the plan's `NNNN`.
    In the worktree lane it is on the branch (`git show "<branch>:<retro-path>"`), and its `## Stage: Sync (worktree)` entry is where the peer records release-relevant handoff — a sibling package bumped by a docs-only commit, work deferred to this ship, a PR to close.
    Do this in **both** lanes: a plan's risk table and the planning and TDD stage notes routinely record a ship-time close target — an adopted third-party PR — that no commit in the range mentions.
    A step that only greps the plan for `**Release:**` cannot see it.
    Carry what you find into step 9 and step 10.
+   A verification the stage notes say has not run (a manual or end-to-end check) is a decision, not a report line: ask the operator now whether to run it before step 9 or ship without it, and record the answer in the close comment.
+   A ship-time comment on another issue takes its content from the plan's or retro's wording, not a paraphrase of the hit that named it.
 
 This section only reads and (conditionally) asks — it performs no git, push, or CI action.
 Step 8 applies the recorded release decision.
@@ -196,7 +198,7 @@ The comment should include:
 - One sentence on user-visible behavior change, worded from the feat/fix commit bodies and the TDD stage note — name the entry point as the code spells it (grep it), never from memory.
 - A note flagging any breaking change (matches `feat!:` commits).
 - If the change unblocks or partially addresses other issues, mention them.
-- Credit by `@login` any third party whose comment supplied the shipped design or measured the defect — read `gh issue view $1 --json comments` first; the commits carry a `Co-authored-by:` only if planning recorded one.
+- Credit by `@login` the issue's author or any commenter who measured the defect or supplied the shipped design — read `gh issue view $1 --json author,comments` first, and skip the operator's own login (`gh api user --jq .login`); the commits carry a `Co-authored-by:` only if planning recorded one.
 - Do not cite a released version — step 10 dispatches the release after this comment, so a version here is a prediction.
   When the release was deferred (mid-batch), say the fix is on `main` and releases with the batch.
 
@@ -218,9 +220,10 @@ Read each PR's body first (`gh pr view <M> --json body -q .body`) — what a PR 
 
 Then check whether this push shipped work for **other** issues in the `"$PLAN"^..HEAD` range (re-derive `PLAN` in the same call — a fresh shell does not carry the one above).
 A co-shipped issue shows as a stacked refactor/enabler, a subject-trailing `(#M)` commit ref, or a sibling `docs/plans/`/`docs/retro/` file added in range — a body-line `Refs #M` is a citation, not a ship.
-A roadmap step heading that names a second issue (`#### Step 16: … ([#885], with [#896])`) is a fold-in: its work shipped here and it closes with this issue, even where no commit subject carries its number.
+A roadmap step heading in the package's `docs/architecture/architecture.md` that names a second issue (`#### Step 16: … ([#885], with [#896])`) is a fold-in: its work shipped here and it closes with this issue, even where no commit subject carries its number.
 A mid-batch sibling that shipped on its own ship is already closed by it — this scan is for stacked work that never had a ship of its own.
 Close each with its own short summary — `refactor:` commits are omitted from the changelog, so a stacked refactor issue leaves no reminder.
+A co-shipped issue already `CLOSED` still gets its summary: `gh api repos/gotgenes/pi-packages/issues/<M>/events --jq '.[]|select(.event=="closed")'` showing a `commit_id` means a keyword auto-closed it, so post the summary with `gh issue comment`.
 
 ## 10. Dispatch the release
 
@@ -287,7 +290,9 @@ Print:
 - Issue close confirmation(s), including any co-shipped issue and any third-party PR closed.
 - Worktree/branch teardown confirmation (worktree lane).
 - Anything that was skipped and why.
-- If this issue completed the **last** step of a roadmap phase, flag it: the phase-close runs via `/finish-phase <PKG>` (after `/retro`), never as a filed issue.
+- Whether this issue completed the **last** step of a roadmap phase — run the check, never report it unchecked.
+  With `A=packages/<pkg>/docs/architecture/architecture.md`, `grep -nE '^#{3,4} ✅ .*\[#$1\]' "$A"` finds this issue's landed step and `grep -nE '^#{3,4} .*\[#[0-9]+\]' "$A" | grep -v '✅'` lists the open ones.
+  A landed step with no open steps means flag it: the phase-close runs via `/finish-phase <PKG>` (after `/retro`), never as a filed issue.
 - The next step: `/retro $1` — the deliberate, interactive final retrospective, run here at the root on `main` (commits straight to `main`).
 
 Name `/retro $1` as the single next step.

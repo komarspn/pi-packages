@@ -24,9 +24,54 @@ describe("buildPathAskPayload", () => {
       value: "/etc/passwd",
       matchedPattern: "/etc/*",
       commandContext: null,
+      matchedSpelling: null,
       executedUnit: null,
+      decidingPath: null,
     });
     expect(payload.evidence).toEqual([]);
+  });
+
+  test("discloses the file a rewritten spelling resolves to", () => {
+    expect(
+      buildPathAskPayload({
+        toolName: "read",
+        pathValue: "/x/d'x.txt",
+        resolvedPath: "/x/d\u2019x.txt",
+        agentName: null,
+        surface: "path_read",
+      }).evidence,
+    ).toEqual([
+      { label: "resolves to", text: "/x/d\u2019x.txt", detail: null },
+    ]);
+  });
+
+  describe("deciding path", () => {
+    test("blames the typed token on the effect that routed it", () => {
+      const payload = buildPathAskPayload({
+        toolName: "bash",
+        pathValue: "out.txt",
+        agentName: null,
+        surface: "path_write",
+        decidingEffect: { effect: "write", source: "syntax" },
+      });
+
+      expect(payload.request.decidingPath).toEqual({
+        path: "out.txt",
+        effect: "write",
+        effectSource: "syntax",
+      });
+    });
+
+    test("blames nothing when the caller supplies no effect (a tool ask)", () => {
+      const payload = buildPathAskPayload({
+        toolName: "read",
+        pathValue: "/etc/passwd",
+        agentName: null,
+        surface: "path_read",
+      });
+
+      expect(payload.request.decidingPath).toBeNull();
+    });
   });
 
   test("leaves the requester unnamed when no agent is active", () => {
@@ -76,6 +121,18 @@ describe("buildExternalDirectoryAskPayload", () => {
     ]);
   });
 
+  test("blames nothing: a tool's direction is its identity", () => {
+    const payload = buildExternalDirectoryAskPayload({
+      toolName: "edit",
+      pathValue: "/tmp/out.txt",
+      cwd: "/projects/my-app",
+      agentName: null,
+      surface: "external_directory",
+    });
+
+    expect(payload.request.decidingPath).toBeNull();
+  });
+
   test("omits the disclosure when resolvedPath is undefined", () => {
     const payload = buildExternalDirectoryAskPayload({
       toolName: "read",
@@ -96,6 +153,10 @@ describe("buildBashExternalDirectoryAskPayload", () => {
     const payload = buildBashExternalDirectoryAskPayload({
       command: "cat /etc/passwd",
       externalPaths: [{ path: "/etc/passwd" }],
+      decidingPath: {
+        path: "/etc/passwd",
+        effect: { effect: "read", source: "core" },
+      },
       cwd: "/projects/my-app",
       agentName: "my-agent",
       toolName: "bash",
@@ -120,6 +181,7 @@ describe("buildBashExternalDirectoryAskPayload", () => {
         { path: "/a", resolvedPath: "/private/a" },
         { path: "/b" },
       ],
+      decidingPath: { path: "/a", effect: { effect: "read", source: "core" } },
       cwd: "/repo",
       surface: "external_directory",
       agentName: null,
@@ -131,5 +193,26 @@ describe("buildBashExternalDirectoryAskPayload", () => {
       { label: "external path", text: "/a", detail: "/private/a" },
       { label: "external path", text: "/b", detail: null },
     ]);
+  });
+
+  test("blames the deciding path on what established its direction", () => {
+    const payload = buildBashExternalDirectoryAskPayload({
+      command: "git log /outside/a",
+      externalPaths: [{ path: "/outside/a" }],
+      decidingPath: {
+        path: "/outside/a",
+        effect: { effect: "unproven", source: "retracted" },
+      },
+      cwd: "/repo",
+      surface: "external_directory",
+      agentName: null,
+      toolName: "bash",
+    });
+
+    expect(payload.request.decidingPath).toEqual({
+      path: "/outside/a",
+      effect: "unproven",
+      effectSource: "retracted",
+    });
   });
 });

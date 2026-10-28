@@ -1,13 +1,15 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AgentTypeRegistry } from "#src/config/agent-types";
 import { AgentTool } from "#src/tools/agent-tool";
 import {
 	createToolDeps,
 	createToolDepsWithDisabledBuiltInAgents,
-	mockResumeRecord,
 	mockResumeRefusal,
+	mockResumeStart,
 } from "#test/helpers/make-deps";
 import { createTestSubagent } from "#test/helpers/make-subagent";
+import { textOf } from "#test/helpers/text-of";
 
 function makeCtx(overrides: Record<string, unknown> = {}) {
 	return {
@@ -91,6 +93,12 @@ describe("AgentTool", () => {
 });
 
 describe("AgentTool — resume path", () => {
+	// What the foreground door starts a resume with: the foreground mode, the tool
+	// call's signal, and the claim that keeps the outcome it returns from being
+	// announced. The background door passes the background mode and neither of
+	// the others, so these options tell the doors apart.
+	const foregroundStart = { background: false, signal: expect.any(AbortSignal), claimOutcome: true };
+
 	describe("refused", () => {
 		it("names an id no record answers to", async () => {
 			const deps = createToolDeps();
@@ -101,7 +109,7 @@ describe("AgentTool — resume path", () => {
 				subagent_type: "general-purpose",
 				resume: "nonexistent",
 			});
-			expect(result.content[0].text).toBe(
+			expect(textOf(result)).toBe(
 				'Agent not found: "nonexistent". Records are cleared at session start/switch, so it ' +
 					"may be from a previous session.",
 			);
@@ -116,7 +124,7 @@ describe("AgentTool — resume path", () => {
 				subagent_type: "general-purpose",
 				resume: "agent-1",
 			});
-			expect(result.content[0].text).toBe('Agent "agent-1" has no active session to resume.');
+			expect(textOf(result)).toBe('Agent "agent-1" has no active session to resume.');
 		});
 
 		it("points a released-agent resume at get_subagent_result instead of resuming", async () => {
@@ -128,7 +136,7 @@ describe("AgentTool — resume path", () => {
 				subagent_type: "general-purpose",
 				resume: "agent-1",
 			});
-			expect(result.content[0].text).toBe(
+			expect(textOf(result)).toBe(
 				'Agent "agent-1" had its session released after its retention window; resume is ' +
 					"unavailable, but its result is still retrievable via get_subagent_result.",
 			);
@@ -145,9 +153,26 @@ describe("AgentTool — resume path", () => {
 				resume: "agent-1",
 			});
 
-			expect(result.content[0].text).toBe(
+			expect(textOf(result)).toBe(
 				'Agent "agent-1" is still running; wait for it to finish before resuming. ' +
 					"Use steer_subagent to send it a message while it runs.",
+			);
+		});
+
+		it("tells the parent a resume is already waiting for a slot", async () => {
+			const deps = createToolDeps();
+			mockResumeRefusal(deps, "resume-queued");
+
+			const result = await execute(deps, {
+				prompt: "continue",
+				description: "resume",
+				subagent_type: "general-purpose",
+				resume: "agent-1",
+			});
+
+			expect(textOf(result)).toBe(
+				'Agent "agent-1" already has a resume waiting for a concurrency slot; wait for that run ' +
+					"to finish before resuming it again (get_subagent_result with wait: true returns when it does).",
 			);
 		});
 
@@ -162,7 +187,7 @@ describe("AgentTool — resume path", () => {
 				resume: "agent-1",
 			});
 
-			expect(result.content[0].text).toBe(
+			expect(textOf(result)).toBe(
 				'Agent "agent-1" ran in an isolated workspace that no longer exists; resume is ' +
 					"unavailable because the agent would re-enter a directory that has been removed. " +
 					"Spawn a new agent instead — the agent's result records where any work was saved.",
@@ -176,7 +201,7 @@ describe("AgentTool — resume path", () => {
 			const noWorkspace = createTestSubagent();
 			await noWorkspace.run();
 			deps.manager.getRecord = vi.fn().mockReturnValue(noWorkspace);
-			mockResumeRecord(deps, { result: "Resumed output." });
+			mockResumeStart(deps, { result: "Resumed output." });
 
 			const result = await execute(deps, {
 				prompt: "continue",
@@ -185,25 +210,25 @@ describe("AgentTool — resume path", () => {
 				resume: "agent-1",
 			});
 
-			expect(deps.manager.resume).toHaveBeenCalledOnce();
-			expect(result.content[0].text).toContain("Resumed output.");
+			expect(deps.manager.startResume).toHaveBeenCalledExactlyOnceWith("agent-1", "continue", foregroundStart);
+			expect(textOf(result)).toContain("Resumed output.");
 		});
 
 		it("returns result text on successful resume", async () => {
 			const deps = createToolDeps();
-			mockResumeRecord(deps, { result: "Resumed output." });
+			mockResumeStart(deps, { result: "Resumed output." });
 			const result = await execute(deps, {
 				prompt: "continue",
 				description: "resume",
 				subagent_type: "general-purpose",
 				resume: "agent-1",
 			});
-			expect(result.content[0].text).toContain("Resumed output.");
+			expect(textOf(result)).toContain("Resumed output.");
 		});
 
 		it("surfaces a follow-up question from a resumed child as answerable", async () => {
 			const deps = createToolDeps();
-			mockResumeRecord(deps, {
+			mockResumeStart(deps, {
 				id: "agent-9",
 				result: "Thanks.",
 				pendingQuestion: "And the fallback?",
@@ -217,14 +242,14 @@ describe("AgentTool — resume path", () => {
 				resume: "agent-1",
 			});
 
-			expect(result.content[0].text).toContain("This agent is waiting on an answer:");
-			expect(result.content[0].text).toContain("And the fallback?");
-			expect(result.content[0].text).toContain('resume: "agent-9"');
+			expect(textOf(result)).toContain("This agent is waiting on an answer:");
+			expect(textOf(result)).toContain("And the fallback?");
+			expect(textOf(result)).toContain('resume: "agent-9"');
 		});
 
 		it("reports a resumed child's question without a resume call once its session is gone", async () => {
 			const deps = createToolDeps();
-			const answered = mockResumeRecord(deps, {
+			const answered = mockResumeStart(deps, {
 				id: "agent-9",
 				result: "Thanks.",
 				pendingQuestion: "And the fallback?",
@@ -239,16 +264,16 @@ describe("AgentTool — resume path", () => {
 				resume: "agent-1",
 			});
 
-			expect(result.content[0].text).toContain("And the fallback?");
-			expect(result.content[0].text).toContain(
+			expect(textOf(result)).toContain("And the fallback?");
+			expect(textOf(result)).toContain(
 				"its session was released after its retention window",
 			);
-			expect(result.content[0].text).not.toContain("resume:");
+			expect(textOf(result)).not.toContain("resume:");
 		});
 
 		it("reports the updates a resumed child sent while the parent was blocked", async () => {
 			const deps = createToolDeps();
-			mockResumeRecord(deps, { id: "agent-9", runUpdates: ["The bug is in the retry wrapper."] });
+			mockResumeStart(deps, { id: "agent-9", runUpdates: ["The bug is in the retry wrapper."] });
 
 			const result = await execute(deps, {
 				prompt: "continue",
@@ -257,13 +282,13 @@ describe("AgentTool — resume path", () => {
 				resume: "agent-1",
 			});
 
-			expect(result.content[0].text).toContain("Updates this agent sent while it worked:");
-			expect(result.content[0].text).toContain("The bug is in the retry wrapper.");
+			expect(textOf(result)).toContain("Updates this agent sent while it worked:");
+			expect(textOf(result)).toContain("The bug is in the retry wrapper.");
 		});
 
 		it("names where a teardown saved the work of a resumed child", async () => {
 			const deps = createToolDeps();
-			mockResumeRecord(deps, {
+			mockResumeStart(deps, {
 				id: "agent-9",
 				status: "error",
 				error: "resume exploded",
@@ -277,12 +302,12 @@ describe("AgentTool — resume path", () => {
 				resume: "agent-1",
 			});
 
-			expect(result.content[0].text).toContain("Changes saved to branch `pi-agent-9`.");
+			expect(textOf(result)).toContain("Changes saved to branch `pi-agent-9`.");
 		});
 
 		it("names an abort on the resume return, which previously reported nothing", async () => {
 			const deps = createToolDeps();
-			mockResumeRecord(deps, { status: "aborted", result: "Half of it" });
+			mockResumeStart(deps, { status: "aborted", result: "Half of it" });
 
 			const result = await execute(deps, {
 				prompt: "continue",
@@ -291,13 +316,13 @@ describe("AgentTool — resume path", () => {
 				resume: "agent-1",
 			});
 
-			expect(result.content[0].text).toContain("aborted \u2014 max turns exceeded, output may be incomplete");
-			expect(result.content[0].text).toContain("Half of it");
+			expect(textOf(result)).toContain("aborted \u2014 turn limit reached, output may be incomplete");
+			expect(textOf(result)).toContain("Half of it");
 		});
 
 		it("claims the outcome as it resumes, so the resume is never announced", async () => {
 			const deps = createToolDeps();
-			mockResumeRecord(deps, { result: "Resumed output." });
+			mockResumeStart(deps, { result: "Resumed output." });
 
 			await execute(deps, {
 				prompt: "continue",
@@ -306,18 +331,38 @@ describe("AgentTool — resume path", () => {
 				resume: "agent-1",
 			});
 
-			// The claim is the manager's to take, at the one edge it can be taken:
-			// resetForResume runs synchronously inside Subagent.resume().
-			expect(deps.manager.resume).toHaveBeenCalledWith(
-				"agent-1",
-				"continue",
-				expect.objectContaining({ claimOutcome: true }),
-			);
+			// The claim is the manager's to take: it passes it into the resume, whose
+			// run is born claimed.
+			expect(deps.manager.startResume).toHaveBeenCalledWith("agent-1", "continue", foregroundStart);
+		});
+
+		it("returns only once the resumed run settles", async () => {
+			const deps = createToolDeps();
+			const record = mockResumeStart(deps, { result: "Resumed output." });
+			const run = Promise.withResolvers<void>(); // eslint-disable-line @typescript-eslint/no-invalid-void-type -- Promise.withResolvers<void> is valid; rule does not allow void in generic fn call type args
+			vi.spyOn(record, "promise", "get").mockReturnValue(run.promise);
+			let returned = false;
+
+			const pending = execute(deps, {
+				prompt: "continue",
+				description: "resume",
+				subagent_type: "general-purpose",
+				resume: "agent-1",
+			}).then((result) => {
+				returned = true;
+				return result;
+			});
+			// A macrotask outlasts every microtask a door that did not wait would settle in.
+			await new Promise((resolve) => setImmediate(resolve));
+			expect(returned).toBe(false);
+
+			run.resolve();
+			expect(textOf(await pending)).toContain("Resumed output.");
 		});
 
 		it("reports a resumed run that failed as the error it carries", async () => {
 			const deps = createToolDeps();
-			mockResumeRecord(deps, { status: "error", error: "resume exploded" });
+			mockResumeStart(deps, { status: "error", error: "resume exploded" });
 
 			const result = await execute(deps, {
 				prompt: "continue",
@@ -326,12 +371,12 @@ describe("AgentTool — resume path", () => {
 				resume: "agent-1",
 			});
 
-			expect(result.content[0].text).toContain("resume exploded");
+			expect(textOf(result)).toContain("resume exploded");
 		});
 
 		it("marks the resumed record consumed (resume-return delivery edge)", async () => {
 			const deps = createToolDeps();
-			const resumed = mockResumeRecord(deps, { result: "Resumed output." });
+			const resumed = mockResumeStart(deps, { result: "Resumed output." });
 			await execute(deps, {
 				prompt: "continue",
 				description: "resume",
@@ -343,14 +388,189 @@ describe("AgentTool — resume path", () => {
 
 		it("names the agent ID in the resumed result text", async () => {
 			const deps = createToolDeps();
-			mockResumeRecord(deps, { result: "Resumed output." });
+			mockResumeStart(deps, { result: "Resumed output." });
 			const result = await execute(deps, {
 				prompt: "continue",
 				description: "resume",
 				subagent_type: "general-purpose",
 				resume: "agent-1",
 			});
-			expect(result.content[0].text).toContain("Agent ID: agent-1");
+			expect(textOf(result)).toContain("Agent ID: agent-1");
+		});
+	});
+
+	describe("inline progress of a foreground resume", () => {
+		const foregroundResume = {
+			prompt: "continue",
+			description: "resume",
+			subagent_type: "general-purpose",
+			resume: "agent-1",
+		};
+
+		beforeEach(() => {
+			vi.useFakeTimers();
+		});
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		/** Start a foreground resume whose run stays in flight until `finish` is called. */
+		function startPendingResume() {
+			const deps = createToolDeps();
+			const record = mockResumeStart(deps, { status: "running", completedAt: undefined, toolUses: 5 });
+			const run = Promise.withResolvers<void>(); // eslint-disable-line @typescript-eslint/no-invalid-void-type -- Promise.withResolvers<void> is valid; rule does not allow void in generic fn call type args
+			vi.spyOn(record, "promise", "get").mockReturnValue(run.promise);
+			const onUpdate = vi.fn();
+			const pending = makeTool(deps).execute("tc-1", foregroundResume, new AbortController().signal, onUpdate, makeCtx());
+			return { onUpdate, pending, finish: () => run.resolve() };
+		}
+
+		it("streams the resumed record's progress while its run is in flight", async () => {
+			const { onUpdate, pending, finish } = startPendingResume();
+
+			await vi.advanceTimersByTimeAsync(80);
+
+			// Partial match: the streamed details also carry the call's presentation and a spinner frame.
+			expect(onUpdate).toHaveBeenLastCalledWith({
+				content: [{ type: "text", text: "5 tool uses..." }],
+				details: expect.objectContaining({ status: "running", toolUses: 5, durationMs: 80 }),
+			});
+			finish();
+			await pending;
+		});
+
+		it("stops streaming once the resumed run returns", async () => {
+			const { onUpdate, pending, finish } = startPendingResume();
+			finish();
+			await pending;
+
+			onUpdate.mockClear();
+			await vi.advanceTimersByTimeAsync(400);
+
+			expect(onUpdate).not.toHaveBeenCalled();
+		});
+
+		it("streams nothing for a resume that was refused", async () => {
+			const deps = createToolDeps();
+			mockResumeRefusal(deps, "still-running");
+			const onUpdate = vi.fn();
+
+			await makeTool(deps).execute("tc-1", foregroundResume, new AbortController().signal, onUpdate, makeCtx());
+			await vi.advanceTimersByTimeAsync(400);
+
+			expect(onUpdate).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("background resume", () => {
+		const backgroundResume = {
+			prompt: "continue",
+			description: "answer",
+			subagent_type: "general-purpose",
+			resume: "agent-1",
+			run_in_background: true,
+		};
+
+		it("starts the resume in the background without waiting for it, unclaimed and with no signal", async () => {
+			const deps = createToolDeps();
+			mockResumeStart(deps);
+
+			await execute(deps, backgroundResume);
+
+			expect(deps.manager.startResume).toHaveBeenCalledExactlyOnceWith("agent-1", "continue", { background: true });
+		});
+
+		it("returns the background launch message for the resumed agent", async () => {
+			const deps = createToolDeps();
+			mockResumeStart(deps);
+
+			const result = await execute(deps, backgroundResume);
+
+			expect(textOf(result)).toBe(
+				"Agent resumed in background.\n" +
+					"Agent ID: agent-1\n" +
+					"Type: Agent\n" +
+					"Description: answer\n" +
+					"\nYou will be notified when this agent completes.\n" +
+					"Use get_subagent_result to retrieve full results, or steer_subagent to send it messages.\n" +
+					"Do not duplicate this agent's work.",
+			);
+			expect(result.details).toMatchObject({ status: "background", agentId: "agent-1" });
+		});
+
+		it("says the resume is queued, with its position, when it waits for a slot", async () => {
+			const deps = createToolDeps();
+			mockResumeStart(deps, { status: "queued" });
+
+			const result = await execute(deps, backgroundResume);
+
+			expect(textOf(result)).toBe(
+				"Agent resume queued in background.\n" +
+					"Agent ID: agent-1\n" +
+					"Type: Agent\n" +
+					"Description: answer\n" +
+					"Position: queued (max 4 concurrent)\n" +
+					"\nYou will be notified when this agent completes.\n" +
+					"Use get_subagent_result to retrieve full results, or steer_subagent to send it messages.\n" +
+					"Do not duplicate this agent's work.",
+			);
+		});
+
+		it("leaves the resumed outcome uncollected, for the completion notice to deliver", async () => {
+			const deps = createToolDeps();
+			const record = mockResumeStart(deps);
+
+			await execute(deps, backgroundResume);
+
+			expect(record.consumed).toBe(false);
+		});
+
+		it.for(["unknown-agent", "still-running", "resume-queued"] as const)(
+			"words a %s refusal the way the foreground resume does",
+			async (reason) => {
+				const foreground = createToolDeps();
+				mockResumeRefusal(foreground, reason);
+				const background = createToolDeps();
+				mockResumeRefusal(background, reason);
+
+				const expected = await execute(foreground, { ...backgroundResume, run_in_background: undefined });
+				const result = await execute(background, backgroundResume);
+
+				expect(textOf(result)).toBe(textOf(expected));
+			},
+		);
+
+		it("resumes in the foreground when the call says run_in_background: false", async () => {
+			const deps = createToolDeps();
+
+			await execute(deps, { ...backgroundResume, run_in_background: false });
+
+			expect(deps.manager.startResume).toHaveBeenCalledExactlyOnceWith("agent-1", "continue", foregroundStart);
+		});
+
+		it("ignores an agent file's run_in_background default, resuming in the foreground", async () => {
+			const deps = createToolDeps({
+				registry: new AgentTypeRegistry(
+					() =>
+						new Map([
+							[
+								"watcher",
+								{
+									name: "watcher",
+									description: "background by default",
+									promptMode: "append" as const,
+									systemPrompt: "",
+									runInBackground: true,
+								},
+							],
+						]),
+				),
+			});
+
+			await execute(deps, { ...backgroundResume, subagent_type: "watcher", run_in_background: undefined });
+
+			expect(deps.manager.startResume).toHaveBeenCalledExactlyOnceWith("agent-1", "continue", foregroundStart);
 		});
 	});
 });
@@ -368,7 +588,7 @@ describe("AgentTool — model resolution error", () => {
 			},
 		);
 		// User-specified model that doesn't resolve → error message
-		expect(result.content[0].text).toContain("nonexistent-model-xyz");
+		expect(textOf(result)).toContain("nonexistent-model-xyz");
 	});
 });
 
@@ -383,7 +603,7 @@ describe("AgentTool — background execution", () => {
 			subagent_type: "general-purpose",
 			run_in_background: true,
 		});
-		const text = result.content[0].text;
+		const text = textOf(result);
 		expect(text).toContain("background");
 		expect(text).toContain("agent-1");
 		expect(text).toContain("bg task");
@@ -402,7 +622,7 @@ describe("AgentTool — background execution", () => {
 			run_in_background: true,
 		});
 		// Background spawn succeeds — no emitEvent dep required
-		expect(result.content[0].text).toContain("background");
+		expect(textOf(result)).toContain("background");
 	});
 
 	it("passes parentSession.toolCallId to manager.spawn", async () => {
@@ -430,7 +650,7 @@ describe("AgentTool — foreground execution", () => {
 			description: "fg task",
 			subagent_type: "general-purpose",
 		});
-		const text = result.content[0].text;
+		const text = textOf(result);
 		expect(text).toContain("Agent completed");
 		expect(text).toContain("Task complete.");
 	});
@@ -445,8 +665,8 @@ describe("AgentTool — foreground execution", () => {
 			description: "fg task",
 			subagent_type: "general-purpose",
 		});
-		expect(result.content[0].text).toContain("Agent failed");
-		expect(result.content[0].text).toContain("Out of context");
+		expect(textOf(result)).toContain("Agent failed");
+		expect(textOf(result)).toContain("Out of context");
 	});
 
 	it("returns error when spawnAndWait throws", async () => {
@@ -457,7 +677,7 @@ describe("AgentTool — foreground execution", () => {
 			description: "fg task",
 			subagent_type: "general-purpose",
 		});
-		expect(result.content[0].text).toContain("spawn failure");
+		expect(textOf(result)).toContain("spawn failure");
 	});
 
 	it("names the agent ID in the foreground result text", async () => {
@@ -470,6 +690,6 @@ describe("AgentTool — foreground execution", () => {
 			description: "fg task",
 			subagent_type: "general-purpose",
 		});
-		expect(result.content[0].text).toContain("Agent ID: agent-1");
+		expect(textOf(result)).toContain("Agent ID: agent-1");
 	});
 });

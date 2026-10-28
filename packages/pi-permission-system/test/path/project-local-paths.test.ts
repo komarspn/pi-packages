@@ -105,7 +105,7 @@ describe.each(cases)(
                 agentName: null,
                 cwd,
               },
-              [],
+              { dirs: [], excludedDirs: [] },
               resolver,
               normalizer,
             ),
@@ -123,7 +123,7 @@ describe.each(cases)(
             agentName: null,
             cwd,
           },
-          [],
+          { dirs: [], excludedDirs: [] },
           resolver,
           normalizer,
         );

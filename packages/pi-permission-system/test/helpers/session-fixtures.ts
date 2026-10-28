@@ -15,6 +15,10 @@ import { vi } from "vitest";
 import type { ResolvedAccessIntent } from "#src/access-intent/access-intent";
 import type { AuthorizerSelectionLifecycle } from "#src/authority/authorizer-selection";
 import type { ForwardingController } from "#src/authority/forwarding-manager";
+import {
+  type DeclaredCommandEffects,
+  NO_DECLARED_COMMAND_EFFECTS,
+} from "#src/config/command-effects-config";
 import type { SessionConfigStore } from "#src/config/config-store";
 import { DEFAULT_EXTENSION_CONFIG } from "#src/config/extension-config";
 import type { ExtensionPaths } from "#src/config/extension-paths";
@@ -39,6 +43,7 @@ export function makePaths(
     forwardingDir: "/test/agent/sessions/permission-forwarding",
     globalLogsDir: "/test/agent/logs",
     piInfrastructureDirs: ["/test/agent", "/test/agent/git"],
+    piInfrastructureExcludedDirs: ["/test/agent/logs"],
     ...overrides,
   };
 }
@@ -64,6 +69,9 @@ export function makeConfigStore(
       overrides.refresh ??
       vi.fn<(cwd: string | undefined, projectTrusted: boolean) => void>(),
     logResolvedPaths: overrides.logResolvedPaths ?? vi.fn<() => void>(),
+    declaredCommandEffects:
+      overrides.declaredCommandEffects ??
+      vi.fn<() => DeclaredCommandEffects>(() => NO_DECLARED_COMMAND_EFFECTS),
   };
 }
 
@@ -109,7 +117,7 @@ export function makeFakePermissionManager() {
     isToolFullyDenied: vi
       .fn<(toolName: string, agentName?: string) => boolean>()
       .mockReturnValue(false),
-    getConfigIssues: vi.fn((): string[] => []),
+    getPolicyIssues: vi.fn((): string[] => []),
   };
 }
 

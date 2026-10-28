@@ -15,8 +15,9 @@
 import { buildSessionContext, parseSessionEntries, type SessionEntry, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { AgentConfigLookup } from "#src/config/agent-types";
 import { isRunningStatus, type SubagentStatus } from "#src/lifecycle/subagent-state";
+import type { PersistedRunSummary } from "#src/persisted-record";
 import type { AgentSessionEvent, SessionMessage, SubagentType } from "#src/types";
-import { formatDuration, getDisplayName, getPromptModeLabel, type ModelIdentity } from "#src/ui/display";
+import { formatRunDuration, getDisplayName, getPromptModeLabel, type ModelIdentity, type RunTiming } from "#src/ui/display";
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,8 @@ export interface NavigableSubagent {
   readonly status: SubagentStatus;
   readonly startedAt: number;
   readonly completedAt: number | undefined;
+  /** Whether the current run was stopped before the limiter admitted it. */
+  readonly stoppedWhileQueued: boolean;
   readonly toolUses: number;
   readonly activeTools: ReadonlyMap<string, string>;
   readonly responseText: string;
@@ -63,12 +66,9 @@ export interface EntryHeading {
 }
 
 /** The fields `buildLabel` reads — shared by the live and snapshot (released-session) label paths. */
-interface LabelFields {
+interface LabelFields extends RunTiming {
   readonly type: SubagentType;
   readonly description: string;
-  readonly status: SubagentStatus;
-  readonly startedAt: number;
-  readonly completedAt: number | undefined;
   readonly toolUses: number;
 }
 
@@ -107,10 +107,16 @@ export interface TranscriptSource {
  * source their transcript in-memory (`live`); records whose session the
  * retention sweep released but which retain a transcript pointer source it from
  * disk (`snapshot`). Records with neither are not navigable. Live entries first.
+ *
+ * `persisted` carries the runs the parent session recorded, which outlive the
+ * manager's records across a `/reload` or `/resume`. One the manager no longer
+ * holds is listed as a snapshot after the manager's own entries; the manager's
+ * record wins for any run it still holds.
  */
 export function listNavigableAgents(
   agents: readonly NavigableSubagent[],
   registry: AgentConfigLookup,
+  persisted: readonly PersistedRunSummary[],
 ): NavigationEntry[] {
   const live: NavigationEntry[] = [];
   const snapshots: NavigationEntry[] = [];
@@ -121,6 +127,12 @@ export function listNavigableAgents(
     } else if (record.outputFile) {
       snapshots.push({ kind: "snapshot", outputFile: record.outputFile, heading, label: buildLabel(record, registry, true) });
     }
+  }
+  const held = new Set(agents.map((record) => record.id));
+  for (const run of persisted) {
+    if (held.has(run.id) || !run.outputFile) continue;
+    const label = buildLabel(run, registry, true);
+    snapshots.push({ kind: "snapshot", outputFile: run.outputFile, heading: buildHeading(run, registry), label });
   }
   return [...live, ...snapshots];
 }
@@ -181,7 +193,7 @@ function buildHeading(fields: Pick<LabelFields, "type" | "description">, registr
 
 function buildLabel(fields: LabelFields, registry: AgentConfigLookup, released = false): string {
   const name = getDisplayName(fields.type, registry);
-  const duration = formatDuration(fields.startedAt, fields.completedAt);
+  const duration = formatRunDuration(fields);
   const marker = released ? " · session released (snapshot)" : "";
   return `${name} (${fields.description}) · ${fields.toolUses} tools · ${fields.status} · ${duration}${marker}`;
 }

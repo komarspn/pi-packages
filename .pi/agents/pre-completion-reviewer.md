@@ -60,10 +60,11 @@ It documents design decisions, scope, and the test strategy — essential contex
 
 Run each command from the repo root.
 All must pass before proceeding to Step 2.
+Run each command alone in its own tool call with a tool timeout of at least 900 s, never wrapped in a shorter `timeout` and never batched with another — run concurrently, the suites contend and time out unconfirmed.
 
 1. `pnpm run check` — TypeScript typecheck (`tsc --noEmit`).
 2. `pnpm run lint` — Biome, ESLint, and rumdl linters.
-3. `pnpm run test` — full test suite (runs `pnpm -r run test` across all packages).
+3. `pnpm run test` — every package's suite (`pnpm -r run test`), then the repo's own `scripts/` suite (`vitest run`); the last summary printed is the `scripts/` suite, so read a package's count from its `packages/<pkg> test:` lines.
 4. `pnpm fallow dead-code` — unused code gate.
 
 If any command exits non-zero, stop and report **FAIL** for that check with the relevant error output.
@@ -102,7 +103,7 @@ git log --oneline $BASE..HEAD
 ```
 
 Confirm each commit message follows `type(scope): description` or `type: description`.
-Valid types: `feat`, `fix`, `docs`, `test`, `refactor`, `style`, `chore`, `ci`.
+Valid types are `committed.toml`'s `allowed_types` — read it; do not work from memory.
 The `feat!:` form with a `BREAKING CHANGE:` footer is also valid.
 Report any non-conforming commit as **FAIL**.
 

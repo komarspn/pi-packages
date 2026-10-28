@@ -2,12 +2,15 @@ import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type { Mock } from "vitest";
 import { vi } from "vitest";
 import type { SubagentSession } from "#src/lifecycle/subagent-session";
+import { turnLoopResult } from "#test/helpers/turn-loop-result";
 
 /** The core shape returned by `createMockSession`. */
 export interface MockSession {
 	messages: unknown[];
 	subscribe: Mock<(fn: (event: unknown) => void) => () => void>;
 	emit(event: unknown): void;
+	/** How many subscriptions are live now: unsubscribed ones are not counted. */
+	listenerCount(): number;
 	dispose: Mock<() => void>;
 	steer: Mock<(...args: unknown[]) => Promise<unknown>>;
 	sessionManager: { getSessionFile: Mock<() => unknown> };
@@ -58,8 +61,7 @@ export function createSubagentSessionStub(
 	return {
 		session,
 		outputFile,
-		runTurnLoop: vi.fn().mockResolvedValue({ responseText: "done", aborted: false, steered: false }),
-		resumeTurnLoop: vi.fn().mockResolvedValue("resumed"),
+		runTurnLoop: vi.fn().mockResolvedValue(turnLoopResult({ responseText: "done" })),
 		steer: vi.fn((message: string): Promise<void> => session.steer(message) as Promise<void>),
 		dispose: vi.fn((): Promise<void> => {
 			session.dispose();
@@ -117,6 +119,7 @@ export function createMockSession(overrides: Record<string, unknown> = {}): Mock
 		emit(event: unknown) {
 			for (const fn of subscribers) fn(event);
 		},
+		listenerCount: () => subscribers.size,
 		dispose: vi.fn(),
 		steer: vi.fn().mockResolvedValue(undefined),
 		sessionManager: { getSessionFile: vi.fn() },

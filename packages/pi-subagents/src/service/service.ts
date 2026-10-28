@@ -11,6 +11,7 @@
 
 import type { ResumeRefusal, SubagentStatus } from "#src/lifecycle/subagent";
 import type { ResumeRefusalReason } from "#src/lifecycle/subagent-manager";
+import type { TurnBudget } from "#src/lifecycle/turn-limits";
 import type { LifetimeUsage } from "#src/lifecycle/usage";
 import type {
   Workspace,
@@ -24,6 +25,7 @@ import type {
 // SubagentStatus is defined in the lifecycle layer (single home) and re-exported
 // here for the public API surface — mirrors the LifetimeUsage / workspace pattern.
 export type { SubagentStatus } from "#src/lifecycle/subagent";
+export type { TurnBudget, TurnBudgetPhase } from "#src/lifecycle/turn-limits";
 // The resume vocabulary is re-exported for the same reason: the record owns the
 // reasons a resume is refused, and the manager adds the one that is not a fact
 // about a record.
@@ -55,23 +57,37 @@ export interface SubagentRecord {
   type: string;
   description: string;
   status: SubagentStatus;
-  /** Scheduling and announcement mode, resolved once at the manager choke point. */
+  /**
+   * Whether the agent's current run is in the background: the run in flight, or
+   * the last one to end, and the spawn's mode before the first run starts. A
+   * resume chooses its own mode, so this can change after one.
+   */
   isBackground: boolean;
   result?: string;
   /** The question the agent ended its turn with, when it declared one. */
   pendingQuestion?: string;
   error?: string;
   toolUses: number;
-  /** Turns consumed so far; starts at 1. */
-  turnCount: number;
-  /** Turn ceiling for this run, when one was set. */
-  maxTurns?: number;
+  /**
+   * The current run's turn budget: successful turns used, the ceiling (absent
+   * when unlimited), and whether the harness has warned or stopped the run.
+   * Live while the run is going; absent until its turn loop starts.
+   */
+  turnBudget?: TurnBudget;
   startedAt: number;
   completedAt?: number;
   lifetimeUsage: LifetimeUsage;
   compactionCount: number;
   /** Path to the agent's session JSONL, once the session exists. */
   outputFile?: string;
+  /**
+   * Why `resume()` would refuse this agent at snapshot time; absent when it
+   * would start a run. `still-running` clears when the run settles,
+   * `resume-queued` (a resume waiting for a concurrency slot) clears when that
+   * resumed run settles, and a queued agent's `no-session` clears once it
+   * starts; the other reasons are final.
+   */
+  resumeRefusal?: ResumeRefusal;
 }
 
 /** Options for resuming an agent via the service. */
@@ -85,7 +101,8 @@ export interface ResumeOptions {
   /**
    * Cancels the resumed turn loop. It is wired through the record's own lever,
    * so it ends the resume exactly as `abort(id)` does — the record reads
-   * `stopped`, and either cancel reaches the same run.
+   * `stopped`, and either cancel reaches the same run. A signal that has already
+   * fired stops the resume before its first turn.
    */
   signal?: AbortSignal;
 }
@@ -104,6 +121,11 @@ export type ResumeResult =
 export interface SpawnOptions {
   description?: string;
   model?: string;
+  /**
+   * Turn ceiling for the run. A value below 2 runs with 2: the result is the
+   * child's final response, so it needs one turn to work and one to answer.
+   * Omit for the agent's own limit, then the operator's default; 0 means unlimited.
+   */
   maxTurns?: number;
   thinkingLevel?: string;
   inheritContext?: boolean;
@@ -131,10 +153,15 @@ export interface SubagentsService {
   /**
    * Resume a settled agent with a new prompt, continuing its session.
    *
+   * The resume runs in the background, so like a background spawn it waits for
+   * a concurrency slot when `maxConcurrent` background runs are live, reading
+   * `queued` until one frees.
+   *
    * Resolves when the resumed run reaches a terminal state, carrying the
    * terminal snapshot — a caller that does not need the outcome can ignore the
    * promise. A refusal resolves promptly instead: the checks are synchronous
-   * and no turn loop is started.
+   * and no turn loop is started. A record's `resumeRefusal` answers the same
+   * question before the call.
    */
   resume(id: string, prompt: string, options?: ResumeOptions): Promise<ResumeResult>;
 
